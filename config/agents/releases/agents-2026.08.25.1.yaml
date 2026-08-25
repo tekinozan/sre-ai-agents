@@ -1,0 +1,9 @@
+# Immutable agent release (ARCHITECTURE.md 8.2).
+
+name: agents-2026.08.25.1
+created_at: 2026-08-25T00:00:00Z
+
+agents:
+  database-expert: v1
+  app-expert: v1
+  kubernetes-expert: v1

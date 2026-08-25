@@ -1,0 +1,71 @@
+# Tool and execution policy release (ARCHITECTURE.md 6.2, 15.1 and 15.2).
+#
+# This is the deterministic half of the security design. Everything here is
+# evaluated in code by the policy engine before a tool runs; none of it depends on
+# the model having read or respected a prompt.
+
+name: policies-2026.08.25.1
+created_at: 2026-08-25T00:00:00Z
+
+# The highest risk any tool execution may reach in V1. The gateway refuses
+# anything above this regardless of what the model requested or what an approval
+# said, so a write tool introduced by mistake still cannot execute.
+risk_ceiling: read_only
+
+# Roles from ARCHITECTURE.md 15.1, mapped to the scopes each tool requires.
+role_scopes:
+  SreViewer:
+    - metrics:read
+    - logs:read
+  SreInvestigator:
+    - metrics:read
+    - logs:read
+    - traces:read
+    - kubernetes:read
+    - database:read
+  SreApprover:
+    - metrics:read
+    - logs:read
+    - traces:read
+    - kubernetes:read
+    - database:read
+    - approvals:decide
+  SreOperator:
+    - metrics:read
+    - logs:read
+    - traces:read
+    - kubernetes:read
+    - database:read
+    - remediation:execute
+  SrePlatformAdmin:
+    - platform:admin
+
+# Argument policy applied after schema validation. A schema says a value is
+# well-formed; these rules say it is acceptable. A 30-day window is a valid
+# integer and still an unreasonable question to ask a metrics backend during an
+# incident.
+argument_policy:
+  max_window_minutes: 360
+  max_result_bytes: 524288
+  min_step_seconds: 15
+
+# Per-tenant, per-tool ceilings. Bounded so one runaway investigation cannot
+# exhaust a shared backend for every other tenant (ARCHITECTURE.md 14).
+rate_limits:
+  per_tenant_per_minute: 120
+  per_incident_per_minute: 60
+  per_tool_per_minute: 40
+
+# Timeout hierarchy from section 11.3: http < tool < agent < workflow.
+timeouts:
+  http_client_seconds: 10
+  tool_seconds: 20
+  agent_seconds: 90
+  workflow_seconds: 600
+
+budgets:
+  max_llm_calls_per_incident: 24
+  max_tool_calls_per_incident: 40
+  max_total_tokens_per_incident: 400000
+  max_estimated_cost_per_incident: 3.00
+  max_runtime_seconds: 600

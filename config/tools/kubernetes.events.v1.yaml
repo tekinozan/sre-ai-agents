@@ -1,0 +1,38 @@
+# Cluster events.
+#
+# Events usually explain a failing pod when the metrics cannot: OOMKilled,
+# FailedScheduling and probe failures appear here rather than as a time series.
+
+name: kubernetes.events
+version: v1
+risk: read_only
+provider: kubernetes
+description: >
+  Recent cluster events for one namespace, newest first. Use this when pods are
+  unhealthy and the metrics do not say why.
+
+required_scopes:
+  - kubernetes:read
+
+timeout_seconds: 15
+max_result_bytes: 262144
+
+parameters:
+  type: object
+  additionalProperties: false
+  required: [namespace, window_minutes]
+  properties:
+    namespace:
+      type: string
+      maxLength: 128
+    service:
+      type: string
+      maxLength: 128
+    window_minutes:
+      type: integer
+      minimum: 1
+      maximum: 360
+    type:
+      type: string
+      enum: [Normal, Warning]
+      default: Warning

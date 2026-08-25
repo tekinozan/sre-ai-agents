@@ -1,0 +1,63 @@
+# Metric range query (ARCHITECTURE.md 6.3 and 15.2).
+#
+# The schema exposes a metric selector, a window and label filters. It does not
+# expose PromQL. A model that could pass a raw expression could ask for anything
+# the datasource can answer, including series from other tenants, and could be
+# steered into doing so by injected log content. Selecting from an enumerated
+# list removes that entirely, and the adapter builds the query string.
+
+name: prometheus.query_range
+version: v1
+risk: read_only
+provider: prometheus
+description: >
+  Evaluate a known metric over a time window for one service. Returns labelled
+  time series. Use this to see how something changed, not to see its value now.
+
+required_scopes:
+  - metrics:read
+
+timeout_seconds: 15
+max_result_bytes: 262144
+
+parameters:
+  type: object
+  additionalProperties: false
+  required: [metric, service, window_minutes]
+  properties:
+    metric:
+      type: string
+      description: Metric to evaluate.
+      enum:
+        - http_request_duration_p99_seconds
+        - http_request_duration_p50_seconds
+        - http_requests_total
+        - http_requests_error_total
+        - db_connection_pool_active
+        - db_connection_pool_idle
+        - db_connection_pool_waiting
+        - db_query_duration_p99_seconds
+        - container_memory_working_set_bytes
+        - container_cpu_usage_seconds_total
+        - kafka_consumer_lag
+    service:
+      type: string
+      description: Service to scope to. Checked against the execution allowlist.
+      maxLength: 128
+    window_minutes:
+      type: integer
+      description: How far back to look from now.
+      minimum: 1
+      maximum: 360
+    step_seconds:
+      type: integer
+      description: Sample resolution. Bounded so a wide window cannot return millions of points.
+      minimum: 15
+      maximum: 3600
+      default: 60
+    labels:
+      type: object
+      description: Additional label filters.
+      additionalProperties:
+        type: string
+        maxLength: 256

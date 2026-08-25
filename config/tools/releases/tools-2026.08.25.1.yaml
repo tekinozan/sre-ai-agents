@@ -1,0 +1,16 @@
+# Immutable tool release (ARCHITECTURE.md 8.2).
+#
+# Every entry here is read-only. V1 ships no write tools at all, and the write
+# registry has no implementation registered, so there is no code path that could
+# execute one even if a definition appeared.
+
+name: tools-2026.08.25.1
+created_at: 2026-08-25T00:00:00Z
+
+tools:
+  prometheus.query: v1
+  prometheus.query_range: v1
+  logs.search: v1
+  kubernetes.pods: v1
+  kubernetes.events: v1
+  database.health: v1

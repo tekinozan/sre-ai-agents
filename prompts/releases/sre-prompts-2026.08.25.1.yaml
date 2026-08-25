@@ -1,0 +1,27 @@
+# Immutable prompt release (ARCHITECTURE.md 8.1).
+#
+# A release pins an exact version for every prompt. Production resolves prompts
+# through a release name recorded in the incident's configuration snapshot, so
+# promoting a new prompt mid-incident cannot change an investigation that is
+# already running.
+#
+# There is no `latest` entry and no mechanism to request one. IPromptRegistry has
+# no API for it, which enforces the rule better than a naming convention would.
+#
+# Creating a new release means copying this file, bumping the name and changing
+# the versions that moved. The old file stays, because an incident from last
+# month has to remain reproducible.
+
+name: sre-prompts-2026.08.25.1
+created_at: 2026-08-25T00:00:00Z
+
+prompts:
+  shared.system-policy: v1
+  shared.security-policy: v1
+  shared.evidence-policy: v1
+  classifier.classify: v1
+  database_expert.investigate: v1
+  app_expert.investigate: v1
+  kubernetes_expert.investigate: v1
+  correlator.correlate: v1
+  correlator.recommend: v1

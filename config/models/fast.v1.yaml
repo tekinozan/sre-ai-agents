@@ -1,0 +1,22 @@
+# Fast model profile, for classification.
+#
+# Classification picks from a fixed list of incident types. It does not reason
+# about evidence, and it sits on the critical path of every incident that reaches
+# it, so latency and cost matter more than depth here.
+
+name: fast
+version: v1
+
+provider: openai
+model: configured-by-environment
+
+temperature: 0
+timeout_seconds: 15
+max_output_tokens: 800
+
+structured_output: true
+tool_calling: false
+parallel_tool_calls: false
+
+input_cost_per_million_tokens: 0.80
+output_cost_per_million_tokens: 4.00

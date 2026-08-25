@@ -1,0 +1,37 @@
+# Application expert.
+
+name: app-expert
+version: v1
+enabled: true
+
+prompt_ref: app_expert.investigate:v1
+model_profile: analytical:v1
+
+capabilities:
+  - application
+  - http
+  - error-rate
+  - deployment
+
+incident_types:
+  - latency
+  - error-rate
+  - availability
+  - deployment
+  - timeout
+
+tools:
+  allow:
+    - prometheus.query
+    - prometheus.query_range
+    - logs.search
+
+execution:
+  max_iterations: 5
+  timeout_seconds: 90
+  max_tool_calls: 8
+  max_llm_calls: 6
+  max_total_tokens: 120000
+  max_estimated_cost: 0.75
+
+output_schema: AgentFinding

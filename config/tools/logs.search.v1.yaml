@@ -1,0 +1,48 @@
+# Log search (ARCHITECTURE.md 6.3).
+#
+# `terms` are literal strings that the adapter escapes and combines. They are not
+# a query expression. The distinction matters because log content is untrusted and
+# a model reasoning over it can be steered; a literal-terms interface means the
+# worst case is an unhelpful search rather than an arbitrary backend query.
+
+name: logs.search
+version: v1
+risk: read_only
+provider: loki
+description: >
+  Search structured logs for one service over a window. Returns matching entries
+  newest first, plus the total number matched before truncation.
+
+required_scopes:
+  - logs:read
+
+timeout_seconds: 20
+max_result_bytes: 524288
+
+parameters:
+  type: object
+  additionalProperties: false
+  required: [service, window_minutes, minimum_level]
+  properties:
+    service:
+      type: string
+      maxLength: 128
+    window_minutes:
+      type: integer
+      minimum: 1
+      maximum: 360
+    minimum_level:
+      type: string
+      enum: [trace, debug, info, warn, error, fatal]
+    terms:
+      type: array
+      description: Literal terms to match. Combined by the adapter, never interpolated.
+      maxItems: 8
+      items:
+        type: string
+        maxLength: 128
+    limit:
+      type: integer
+      minimum: 1
+      maximum: 200
+      default: 50

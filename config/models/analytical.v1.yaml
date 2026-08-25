@@ -1,0 +1,30 @@
+# Analytical model profile (ARCHITECTURE.md 8.2).
+#
+# `model` is resolved from environment configuration rather than written here, so
+# one profile serves staging and production while the concrete deployment name
+# stays configuration. The capability flags are validated at startup against what
+# the configured provider actually supports; a profile that claims structured
+# output from a provider that cannot deliver it fails with
+# MODEL_CAPABILITY_MISMATCH at boot rather than at the first incident.
+
+name: analytical
+version: v1
+
+provider: openai
+model: configured-by-environment
+
+# Zero, not low. This platform wants the same evidence to produce the same
+# conclusion; variety is a liability when the output drives an operator action
+# and when the evaluation suite has to detect regressions between releases.
+temperature: 0
+
+timeout_seconds: 45
+max_output_tokens: 4000
+
+structured_output: true
+tool_calling: true
+parallel_tool_calls: true
+
+# Used for budget accounting and the sre_llm_estimated_cost_total metric.
+input_cost_per_million_tokens: 3.00
+output_cost_per_million_tokens: 15.00

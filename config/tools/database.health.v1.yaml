@@ -1,0 +1,39 @@
+# Database health (ARCHITECTURE.md 15.2).
+#
+# There is no `sql` parameter and there will not be one. Section 15.2 requires
+# allowlisted typed queries; the questions this tool can ask are fixed at compile
+# time in the adapter. Slow query text is returned normalized, with literals
+# replaced, because bound values are frequently customer data and this text ends
+# up in a prompt and an evidence row.
+
+name: database.health
+version: v1
+risk: read_only
+provider: postgresql
+description: >
+  Connection pool state, slowest normalized statements and replication lag for
+  one database instance over a window.
+
+required_scopes:
+  - database:read
+
+timeout_seconds: 20
+max_result_bytes: 262144
+
+parameters:
+  type: object
+  additionalProperties: false
+  required: [service, window_minutes]
+  properties:
+    service:
+      type: string
+      maxLength: 128
+    window_minutes:
+      type: integer
+      minimum: 1
+      maximum: 360
+    slow_query_limit:
+      type: integer
+      minimum: 1
+      maximum: 25
+      default: 10

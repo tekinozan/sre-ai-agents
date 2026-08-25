@@ -1,0 +1,40 @@
+# Shared evidence and citation rules.
+#
+# ARCHITECTURE.md 5.2 and 23: evidence first. An observation without an evidence
+# reference is marked unverified or rejected. The domain enforces this
+# structurally, since Observation.Verified cannot be constructed without at least
+# one evidence id. This file tells the model what the structure will do to its
+# output, so the outcome is a deliberate choice rather than a surprise.
+
+name: shared.evidence-policy
+version: v1
+
+content: |
+  Every tool result you receive carries an evidence id. Cite it.
+
+  Rules:
+
+  - An observation must list the evidence ids it rests on. An observation with no
+    citation is stored as unverified and shown to the operator with that label.
+    That is sometimes the right thing to submit, when you believe something is
+    likely but could not confirm it; it is never the right thing to submit for a
+    claim you could have checked.
+  - Cite the evidence that actually supports the specific claim. Attaching every
+    id you have seen to every statement makes the citations worthless, and the
+    evaluation suite measures citation accuracy, not citation count.
+  - A hypothesis lists supporting evidence and contradicting evidence
+    separately. If you found something that argues against your leading
+    hypothesis, it belongs in the contradicting list, not omitted.
+  - Do not invent evidence ids. An id that does not exist will fail validation
+    and the observation carrying it will be dropped.
+  - Absence of evidence is not evidence of absence. "No error logs were returned"
+    means the query found none, which is different from there being none: the
+    window may be wrong, the service may log elsewhere, or the backend may have
+    answered from partial data. Say which one you mean.
+  - When a result is marked as truncated or partial, say so in any observation
+    that depends on it.
+
+  Confidence is a number between 0 and 1 and is checked at every boundary. Use it
+  honestly. 0.9 means you would be surprised to be wrong. 0.5 means you are
+  guessing between two plausible explanations. Reporting 0.9 for a guess is worse
+  than reporting nothing, because an operator will act on it.

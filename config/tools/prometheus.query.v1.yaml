@@ -1,0 +1,40 @@
+# Instantaneous metric query.
+
+name: prometheus.query
+version: v1
+risk: read_only
+provider: prometheus
+description: >
+  Evaluate a known metric at a single instant for one service. Use this for
+  current state; use query_range to see how it changed.
+
+required_scopes:
+  - metrics:read
+
+timeout_seconds: 10
+max_result_bytes: 65536
+
+parameters:
+  type: object
+  additionalProperties: false
+  required: [metric, service]
+  properties:
+    metric:
+      type: string
+      enum:
+        - http_request_duration_p99_seconds
+        - http_requests_total
+        - http_requests_error_total
+        - db_connection_pool_active
+        - db_connection_pool_idle
+        - db_connection_pool_waiting
+        - container_memory_working_set_bytes
+        - kafka_consumer_lag
+    service:
+      type: string
+      maxLength: 128
+    labels:
+      type: object
+      additionalProperties:
+        type: string
+        maxLength: 256

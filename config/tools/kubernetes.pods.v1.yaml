@@ -1,0 +1,37 @@
+# Pod inspection (ARCHITECTURE.md 15.2).
+#
+# Namespace is required, not optional. The service account behind this tool is
+# namespace-scoped and read-only, so a cluster-wide request would fail at the API
+# server anyway; requiring it in the schema keeps the contract honest instead of
+# implying a capability that does not exist.
+
+name: kubernetes.pods
+version: v1
+risk: read_only
+provider: kubernetes
+description: >
+  List pod state for a workload in one namespace: phase, readiness, restart
+  count and last termination reason.
+
+required_scopes:
+  - kubernetes:read
+
+timeout_seconds: 15
+max_result_bytes: 262144
+
+parameters:
+  type: object
+  additionalProperties: false
+  required: [namespace, service]
+  properties:
+    namespace:
+      type: string
+      maxLength: 128
+    service:
+      type: string
+      maxLength: 128
+    label_selector:
+      type: object
+      additionalProperties:
+        type: string
+        maxLength: 256

@@ -1,0 +1,50 @@
+# Database expert (ARCHITECTURE.md 7.1).
+#
+# Adding an expert means adding a file like this one plus a prompt, a model
+# profile, a tool allowlist, a feature flag and evaluation cases. It does not mean
+# deploying code, which is what makes a controlled rollout possible.
+#
+# Every reference below is validated at startup: the prompt must exist in the
+# pinned release, the model profile must exist and support what the agent needs,
+# every tool must be in the tool registry, and the output schema must load.
+
+name: database-expert
+version: v1
+enabled: true
+
+prompt_ref: database_expert.investigate:v1
+model_profile: analytical:v1
+
+capabilities:
+  - database
+  - sql
+  - connection-pool
+  - replication
+
+incident_types:
+  - database
+  - latency
+  - timeout
+  - connection-pool
+
+tools:
+  # An allowlist, never a denylist. A tool added to the registry tomorrow is
+  # unavailable to this agent until someone grants it here deliberately.
+  allow:
+    - prometheus.query
+    - prometheus.query_range
+    - database.health
+    - logs.search
+
+execution:
+  # Hard stops, not targets. An agent that hits one returns what it has as a
+  # partial result; the alternative is a model-and-tool loop that ends when
+  # somebody notices the bill (ARCHITECTURE.md 11.3).
+  max_iterations: 5
+  timeout_seconds: 90
+  max_tool_calls: 8
+  max_llm_calls: 6
+  max_total_tokens: 120000
+  max_estimated_cost: 0.75
+
+output_schema: AgentFinding
