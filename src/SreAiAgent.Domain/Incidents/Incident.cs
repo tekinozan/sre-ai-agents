@@ -140,6 +140,16 @@ public sealed class Incident : Entity<IncidentId>
     /// <exception cref="InvalidIncidentStateException">The current state forbids it.</exception>
     public void StartInvestigation(ConfigurationSnapshotId snapshotId, DateTimeOffset now)
     {
+        // The transition table permits Resolved -> Investigating because Reopen
+        // needs it. Reachability and authorization are different questions:
+        // reopening a closed incident is a deliberate, audited operation that
+        // records an actor and a reason, so StartInvestigation must not become a
+        // quiet back door into it (ARCHITECTURE.md 5.2).
+        if (IncidentStatePolicy.IsClosed(Status))
+        {
+            throw new InvalidIncidentStateException(Status, nameof(StartInvestigation));
+        }
+
         Transition(IncidentStatus.Investigating, nameof(StartInvestigation), now);
 
         ConfigurationSnapshotId = snapshotId;

@@ -11,5 +11,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/SreAiAgent.ArchitectureTests/SreAiAgent.ArchitectureTests.csproj" />
+    <Project Path="tests/SreAiAgent.Domain.Tests/SreAiAgent.Domain.Tests.csproj" />
   </Folder>
 </Solution>
