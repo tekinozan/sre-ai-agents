@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SreAiAgent.AlertWorker/SreAiAgent.AlertWorker.csproj" />
+    <Project Path="src/SreAiAgent.Api/SreAiAgent.Api.csproj" />
+    <Project Path="src/SreAiAgent.Application/SreAiAgent.Application.csproj" />
+    <Project Path="src/SreAiAgent.Contracts/SreAiAgent.Contracts.csproj" />
+    <Project Path="src/SreAiAgent.Domain/SreAiAgent.Domain.csproj" />
+    <Project Path="src/SreAiAgent.Infrastructure/SreAiAgent.Infrastructure.csproj" />
+    <Project Path="src/SreAiAgent.InvestigationWorker/SreAiAgent.InvestigationWorker.csproj" />
+    <Project Path="src/SreAiAgent.Workflow/SreAiAgent.Workflow.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SreAiAgent.ArchitectureTests/SreAiAgent.ArchitectureTests.csproj" />
+  </Folder>
+</Solution>

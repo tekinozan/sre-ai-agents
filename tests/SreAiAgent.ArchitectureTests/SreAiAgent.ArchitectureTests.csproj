@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Re-asserts the layer rule of ARCHITECTURE.md 1.2 against compiled assemblies. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SreAiAgent.Domain\SreAiAgent.Domain.csproj" />
+    <ProjectReference Include="..\..\src\SreAiAgent.Application\SreAiAgent.Application.csproj" />
+    <ProjectReference Include="..\..\src\SreAiAgent.Infrastructure\SreAiAgent.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\SreAiAgent.Workflow\SreAiAgent.Workflow.csproj" />
+    <ProjectReference Include="..\..\src\SreAiAgent.Api\SreAiAgent.Api.csproj" />
+  </ItemGroup>
+</Project>

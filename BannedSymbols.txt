@@ -1,0 +1,36 @@
+; Banned APIs (docs/DECISIONS.md D07 and the antipattern rules in ARCHITECTURE.md).
+; Format: <DocumentationCommentId>;<message>. Diagnostic id is RS0030.
+; Test projects relax RS0030 via tests/Directory.Build.props.
+
+; --- Ambient clock: use the injected TimeProvider so tests stay deterministic ---
+P:System.DateTime.Now;Use the injected TimeProvider (timeProvider.GetUtcNow()). Ambient clocks are untestable and not UTC.
+P:System.DateTime.UtcNow;Use the injected TimeProvider (timeProvider.GetUtcNow()).
+P:System.DateTime.Today;Use the injected TimeProvider (timeProvider.GetUtcNow()).
+P:System.DateTimeOffset.Now;Use the injected TimeProvider (timeProvider.GetUtcNow()). ARCHITECTURE.md 5.2 requires UTC everywhere.
+P:System.DateTimeOffset.UtcNow;Use the injected TimeProvider (timeProvider.GetUtcNow()).
+
+; --- Sync-over-async: deadlocks and thread-pool starvation ---
+M:System.Threading.Tasks.Task.Wait;Do not block on a Task. Await it.
+M:System.Threading.Tasks.Task.Wait(System.Int32);Do not block on a Task. Await it with a CancellationToken.
+M:System.Threading.Tasks.Task.WaitAll(System.Threading.Tasks.Task[]);Use await Task.WhenAll.
+M:System.Threading.Tasks.Task.WaitAny(System.Threading.Tasks.Task[]);Use await Task.WhenAny.
+P:System.Threading.Tasks.Task`1.Result;Do not block on a Task. Await it.
+M:System.Threading.Thread.Sleep(System.Int32);Use await Task.Delay(..., cancellationToken) or PeriodicTimer.
+M:System.Threading.Thread.Sleep(System.TimeSpan);Use await Task.Delay(..., cancellationToken) or PeriodicTimer.
+
+; --- HttpClient lifetime: socket exhaustion and stale DNS ---
+M:System.Net.Http.HttpClient.#ctor;Resolve HttpClient through IHttpClientFactory so the resilience pipeline applies (ARCHITECTURE.md 14).
+M:System.Net.Http.HttpClient.#ctor(System.Net.Http.HttpMessageHandler);Resolve HttpClient through IHttpClientFactory.
+
+; --- Reflection-based serialization is banned on every path (DECISIONS.md D10) ---
+M:System.Text.Json.JsonSerializer.Serialize``1(``0);Use a JsonTypeInfo overload backed by SreAiAgentJsonContext.
+M:System.Text.Json.JsonSerializer.Serialize``1(``0,System.Text.Json.JsonSerializerOptions);Use a JsonTypeInfo overload backed by SreAiAgentJsonContext.
+M:System.Text.Json.JsonSerializer.Deserialize``1(System.String,System.Text.Json.JsonSerializerOptions);Use a JsonTypeInfo overload backed by SreAiAgentJsonContext.
+
+; --- Dynamic assembly loading ---
+M:System.Reflection.Assembly.LoadFrom(System.String);Dynamic assembly loading is not permitted.
+M:System.Reflection.Assembly.LoadFile(System.String);Dynamic assembly loading is not permitted.
+
+; --- Culture-sensitive string handling in an InvariantGlobalization application ---
+M:System.String.ToLower;Use ToLowerInvariant() or pass an explicit CultureInfo.
+M:System.String.ToUpper;Use ToUpperInvariant() or pass an explicit CultureInfo.

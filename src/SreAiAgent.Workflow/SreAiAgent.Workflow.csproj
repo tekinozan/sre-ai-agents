@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Durable workflow adapters (ARCHITECTURE.md 3.2, docs/DECISIONS.md D08).
+    Temporal is the production engine; the inline executor is a development-only
+    fallback that runs the same activities without durability.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\SreAiAgent.Application\SreAiAgent.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Temporalio" />
+    <PackageReference Include="Temporalio.Extensions.Hosting" />
+    <PackageReference Include="Temporalio.Extensions.OpenTelemetry" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
+  </ItemGroup>
+
+</Project>

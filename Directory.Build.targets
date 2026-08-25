@@ -1,0 +1,32 @@
+<Project>
+
+  <!--
+    Layer rule enforcement (ARCHITECTURE.md section 1.2, docs/DECISIONS.md D18).
+
+    Domain and Application must not take a dependency on any infrastructure
+    concern. This target fails the build during evaluation so the rule cannot be
+    violated by accident; SreAiAgent.ArchitectureTests re-asserts the same rule
+    against the compiled assemblies, which also catches violations introduced
+    through a transitive project reference.
+  -->
+
+  <PropertyGroup>
+    <IsPureLayer Condition="'$(MSBuildProjectName)' == 'SreAiAgent.Domain' Or '$(MSBuildProjectName)' == 'SreAiAgent.Application' Or '$(MSBuildProjectName)' == 'SreAiAgent.Contracts'">true</IsPureLayer>
+    <BannedLayerPackagePattern>^(Microsoft\.AspNetCore|Microsoft\.EntityFrameworkCore|Npgsql|Confluent\.Kafka|Temporalio|OpenTelemetry|Serilog|KubernetesClient|YamlDotNet|JsonSchema|OpenAI|Azure\.AI|Anthropic)</BannedLayerPackagePattern>
+  </PropertyGroup>
+
+  <Target Name="ValidateLayerDependencies"
+          BeforeTargets="CollectPackageReferences"
+          Condition="'$(IsPureLayer)' == 'true'">
+
+    <ItemGroup>
+      <_LayerViolation Include="@(PackageReference)"
+                       Condition="'%(PackageReference.PrivateAssets)' != 'all' And $([System.Text.RegularExpressions.Regex]::IsMatch('%(PackageReference.Identity)', '$(BannedLayerPackagePattern)'))" />
+    </ItemGroup>
+
+    <Error Condition="'@(_LayerViolation)' != ''"
+           Code="SREARCH001"
+           Text="Layer rule violation in $(MSBuildProjectName): @(_LayerViolation, ', ') is an infrastructure dependency and cannot be referenced from Domain, Application or Contracts. See ARCHITECTURE.md section 1.2." />
+  </Target>
+
+</Project>

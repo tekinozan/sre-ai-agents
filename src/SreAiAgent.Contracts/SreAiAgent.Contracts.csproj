@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Wire contracts for the API and messaging boundaries (ARCHITECTURE.md 4).
+    Domain aggregates are never serialized directly; only the shared enums and
+    strongly typed ids are reused from the domain.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\SreAiAgent.Domain\SreAiAgent.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

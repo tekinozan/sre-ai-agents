@@ -1,0 +1,38 @@
+<Project>
+
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <!--
+      Tests are allowed to construct wall-clock values, assert on raw strings and
+      log without the source generator; those rules exist to protect production
+      code paths, not fixtures.
+    -->
+    <NoWarn>$(NoWarn);RS0030;CA1848;CA2254;CA1861;CA1707;CA2007;MA0040;MA0004</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Test host" Condition="'$(MSBuildProjectName)' != 'SreAiAgent.TestKit'">
+    <OutputType>Exe</OutputType>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(MSBuildProjectName)' != 'SreAiAgent.TestKit'">
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="coverlet.collector" PrivateAssets="all" IncludeAssets="runtime; build; native; contentfiles; analyzers; buildtransitive" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="Shouldly" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Shouldly" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(MSBuildProjectName)' != 'SreAiAgent.TestKit'">
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

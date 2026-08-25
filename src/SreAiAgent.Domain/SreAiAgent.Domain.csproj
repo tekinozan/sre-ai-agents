@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Pure domain model. No package references by design: ARCHITECTURE.md 1.2
+    forbids ASP.NET Core, EF Core, Kafka, workflow SDKs, LLM SDKs, Kubernetes
+    clients and logging implementations here. Enforced by Directory.Build.targets
+    and SreAiAgent.ArchitectureTests.
+  -->
+
+</Project>

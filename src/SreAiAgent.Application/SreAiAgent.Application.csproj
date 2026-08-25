@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Use cases, ports and orchestration policy. Only abstractions are referenced;
+    every concrete provider lives in Infrastructure. ActivitySource and Meter come
+    from System.Diagnostics.DiagnosticSource, which is a BCL primitive rather than
+    an OpenTelemetry implementation detail (docs/DECISIONS.md D13).
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\SreAiAgent.Domain\SreAiAgent.Domain.csproj" />
+    <ProjectReference Include="..\SreAiAgent.Contracts\SreAiAgent.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+</Project>
