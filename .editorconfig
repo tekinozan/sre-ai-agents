@@ -207,6 +207,9 @@ dotnet_diagnostic.RS0030.severity = error
 
 #### Design rules that fight a DDD / ports-and-adapters codebase ####
 
+# CA1000 predates generic math and static abstract interface members. Typed
+# factories such as Result<T>.Success are the idiomatic modern shape.
+dotnet_diagnostic.CA1000.severity = none
 dotnet_diagnostic.CA1062.severity = none
 dotnet_diagnostic.CA1002.severity = none
 dotnet_diagnostic.CA1034.severity = none
