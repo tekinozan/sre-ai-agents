@@ -10,6 +10,7 @@
     <Project Path="src/SreAiAgent.Workflow/SreAiAgent.Workflow.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/SreAiAgent.Application.Tests/SreAiAgent.Application.Tests.csproj" />
     <Project Path="tests/SreAiAgent.ArchitectureTests/SreAiAgent.ArchitectureTests.csproj" />
     <Project Path="tests/SreAiAgent.Contracts.Tests/SreAiAgent.Contracts.Tests.csproj" />
     <Project Path="tests/SreAiAgent.Domain.Tests/SreAiAgent.Domain.Tests.csproj" />

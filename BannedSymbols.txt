@@ -34,3 +34,8 @@ M:System.Reflection.Assembly.LoadFile(System.String);Dynamic assembly loading is
 ; --- Culture-sensitive string handling in an InvariantGlobalization application ---
 M:System.String.ToLower;Use ToLowerInvariant() or pass an explicit CultureInfo.
 M:System.String.ToUpper;Use ToUpperInvariant() or pass an explicit CultureInfo.
+
+; --- Span attributes must go through TraceAttributes.SetSafeTag (ARCHITECTURE.md 16.1) ---
+M:System.Diagnostics.Activity.SetTag(System.String,System.Object);Use activity.SetSafeTag(...). Direct tagging bypasses the allowlist that keeps prompts, tokens and credentials off spans.
+M:System.Diagnostics.Activity.AddTag(System.String,System.String);Use activity.SetSafeTag(...).
+M:System.Diagnostics.Activity.AddTag(System.String,System.Object);Use activity.SetSafeTag(...).
