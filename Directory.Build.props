@@ -56,6 +56,15 @@
     <PackageReference Include="Meziantou.Analyzer" PrivateAssets="all" IncludeAssets="runtime; build; native; contentfiles; analyzers; buildtransitive" />
   </ItemGroup>
 
+  <ItemGroup Label="Global usings">
+    <!--
+      CA1304/CA1305/CA1307/CA1310/CA1311 are errors, so essentially every file
+      that formats or compares a string needs CultureInfo. Making it global keeps
+      the using blocks meaningful instead of boilerplate.
+    -->
+    <Using Include="System.Globalization" />
+  </ItemGroup>
+
   <ItemGroup Label="Banned API list (docs/DECISIONS.md D07)">
     <AdditionalFiles Include="$(RepositoryRoot)BannedSymbols.txt" Visible="false" />
   </ItemGroup>

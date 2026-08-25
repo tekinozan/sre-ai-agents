@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SreAiAgent.Contracts\SreAiAgent.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

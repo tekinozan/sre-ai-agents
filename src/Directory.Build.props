@@ -15,15 +15,6 @@
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
   </PropertyGroup>
 
-  <ItemGroup Label="Global usings">
-    <!--
-      CA1304/CA1305/CA1307/CA1310/CA1311 are errors here, so essentially every
-      file needs CultureInfo.InvariantCulture. Making it global keeps the using
-      blocks meaningful instead of boilerplate.
-    -->
-    <Using Include="System.Globalization" />
-  </ItemGroup>
-
   <PropertyGroup Label="Source generators">
     <!-- Required for the [LoggerMessage] and JsonSerializerContext generators. -->
     <EmitCompilerGeneratedFiles>false</EmitCompilerGeneratedFiles>
