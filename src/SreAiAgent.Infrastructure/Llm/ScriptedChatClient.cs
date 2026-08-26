@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.AI;
+using SreAiAgent.Application.Agents;
 
 namespace SreAiAgent.Infrastructure.Llm;
 
@@ -158,13 +159,13 @@ internal sealed class ScriptedChatClient : IChatClient
 
         if (evidenceIds.Count == 0)
         {
-            List<ToolRequestPayload> requests = [];
+            List<AgentToolRequest> requests = [];
 
             if (prompt.Contains("prometheus.query_range", StringComparison.Ordinal))
             {
-                requests.Add(new ToolRequestPayload
+                requests.Add(new AgentToolRequest
                 {
-                    Tool = "prometheus.query_range",
+                    ToolName = "prometheus.query_range",
                     Arguments = JsonDocument.Parse(
                         """{"metric":"db_connection_pool_waiting","service":"checkout","window_minutes":30}""")
                         .RootElement.Clone(),
@@ -173,9 +174,9 @@ internal sealed class ScriptedChatClient : IChatClient
 
             if (prompt.Contains("database.health", StringComparison.Ordinal))
             {
-                requests.Add(new ToolRequestPayload
+                requests.Add(new AgentToolRequest
                 {
-                    Tool = "database.health",
+                    ToolName = "database.health",
                     Arguments = JsonDocument.Parse("""{"service":"checkout","window_minutes":30}""")
                         .RootElement.Clone(),
                 });
@@ -183,9 +184,9 @@ internal sealed class ScriptedChatClient : IChatClient
 
             if (prompt.Contains("kubernetes.pods", StringComparison.Ordinal))
             {
-                requests.Add(new ToolRequestPayload
+                requests.Add(new AgentToolRequest
                 {
-                    Tool = "kubernetes.pods",
+                    ToolName = "kubernetes.pods",
                     Arguments = JsonDocument.Parse("""{"namespace":"shop","service":"checkout"}""")
                         .RootElement.Clone(),
                 });
@@ -193,9 +194,9 @@ internal sealed class ScriptedChatClient : IChatClient
 
             if (requests.Count == 0 && prompt.Contains("logs.search", StringComparison.Ordinal))
             {
-                requests.Add(new ToolRequestPayload
+                requests.Add(new AgentToolRequest
                 {
-                    Tool = "logs.search",
+                    ToolName = "logs.search",
                     Arguments = JsonDocument.Parse(
                         """{"service":"checkout","window_minutes":30,"minimum_level":"error"}""")
                         .RootElement.Clone(),
@@ -205,12 +206,12 @@ internal sealed class ScriptedChatClient : IChatClient
             if (requests.Count > 0)
             {
                 return JsonSerializer.Serialize(
-                    new AgentTurnPayload { ToolRequests = requests },
-                    LlmJsonContext.Default.AgentTurnPayload);
+                    new AgentTurn { ToolRequests = requests },
+                    LlmJsonContext.Default.AgentTurn);
             }
         }
 
-        AgentTurnPayload turn = new()
+        AgentTurn turn = new()
         {
             Finding = new AgentFindingPayload
             {
@@ -220,7 +221,7 @@ internal sealed class ScriptedChatClient : IChatClient
                 Observations = evidenceIds.Count > 0
                     ?
                     [
-                        new ObservationPayload
+                        new AgentObservationPayload
                         {
                             Statement = "Waiting clients on the connection pool rose sharply before the alert fired.",
                             EvidenceIds = [evidenceIds[0]],
@@ -230,7 +231,7 @@ internal sealed class ScriptedChatClient : IChatClient
                 Hypotheses = evidenceIds.Count > 0
                     ?
                     [
-                        new HypothesisPayload
+                        new AgentHypothesisPayload
                         {
                             Statement = "The connection pool is undersized for current load.",
                             SupportingEvidenceIds = [evidenceIds[0]],
@@ -247,7 +248,7 @@ internal sealed class ScriptedChatClient : IChatClient
             },
         };
 
-        return JsonSerializer.Serialize(turn, LlmJsonContext.Default.AgentTurnPayload);
+        return JsonSerializer.Serialize(turn, LlmJsonContext.Default.AgentTurn);
     }
 
     private static string Correlation(string prompt)
@@ -264,7 +265,7 @@ internal sealed class ScriptedChatClient : IChatClient
             KeyObservations = evidenceIds.Count > 0
                 ?
                 [
-                    new ObservationPayload
+                    new AgentObservationPayload
                     {
                         Statement = "Connection pool waiting clients rose before latency did.",
                         EvidenceIds = [evidenceIds[0]],
@@ -274,7 +275,7 @@ internal sealed class ScriptedChatClient : IChatClient
             RankedHypotheses = evidenceIds.Count > 0
                 ?
                 [
-                    new HypothesisPayload
+                    new AgentHypothesisPayload
                     {
                         Statement = "The connection pool is undersized for current load.",
                         SupportingEvidenceIds = [evidenceIds[0]],

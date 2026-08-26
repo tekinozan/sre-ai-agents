@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using SreAiAgent.Application.Agents;
+
 namespace SreAiAgent.Infrastructure.Llm;
 
 /// <summary>
@@ -18,12 +20,12 @@ namespace SreAiAgent.Infrastructure.Llm;
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     GenerationMode = JsonSourceGenerationMode.Default)]
+[JsonSerializable(typeof(AgentTurn))]
 [JsonSerializable(typeof(AgentFindingPayload))]
-[JsonSerializable(typeof(AgentTurnPayload))]
+[JsonSerializable(typeof(AgentToolRequest))]
 [JsonSerializable(typeof(ClassificationPayload))]
 [JsonSerializable(typeof(CorrelationPayload))]
 [JsonSerializable(typeof(RecommendationSetPayload))]
-[JsonSerializable(typeof(ToolRequestPayload))]
 public sealed partial class LlmJsonContext : JsonSerializerContext;
 
 /// <summary>Shared options for model response parsing.</summary>
