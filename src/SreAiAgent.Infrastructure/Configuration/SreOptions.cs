@@ -134,33 +134,6 @@ public sealed class RegistryOptions
     public string FlagRelease { get; init; } = string.Empty;
 }
 
-/// <summary>Agent runtime limits that are not per-agent.</summary>
-public sealed class AgentRuntimeOptions
-{
-    public const string SectionName = "AgentRuntime";
-
-    /// <summary>
-    /// How many agents run concurrently in one fan-out. Bounded rather than
-    /// unlimited: every agent holds a model connection and a database connection,
-    /// and an unbounded fan-out turns a wide incident into a self-inflicted
-    /// outage of the very backends being investigated.
-    /// </summary>
-    [Range(1, 16)]
-    public int MaxDegreeOfParallelism { get; init; } = 4;
-
-    /// <summary>Minimum experts to select when classification is confident.</summary>
-    [Range(1, 10)]
-    public int MinAgentsPerInvestigation { get; init; } = 2;
-
-    /// <summary>Maximum experts to select (ARCHITECTURE.md 11.2 suggests two to five).</summary>
-    [Range(1, 10)]
-    public int MaxAgentsPerInvestigation { get; init; } = 5;
-
-    /// <summary>Below this classification confidence, routing widens the selection.</summary>
-    [Range(0, 1)]
-    public double LowConfidenceThreshold { get; init; } = 0.5;
-}
-
 /// <summary>Authentication, authorization and request limits.</summary>
 public sealed class SecurityOptions
 {
