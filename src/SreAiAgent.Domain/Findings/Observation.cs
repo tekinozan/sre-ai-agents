@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using SreAiAgent.Domain.Shared;
 
 namespace SreAiAgent.Domain.Findings;
@@ -11,6 +12,7 @@ namespace SreAiAgent.Domain.Findings;
 /// to build a verified observation is to supply at least one evidence id. A
 /// model that invents a fact simply cannot produce a verified observation.
 /// </remarks>
+[JsonConverter(typeof(ObservationJsonConverter))]
 public sealed record Observation
 {
     private Observation(string statement, IReadOnlyList<EvidenceId> evidenceIds, bool isVerified)

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace SreAiAgent.Domain.Shared;
 
 /// <summary>
@@ -12,6 +14,7 @@ namespace SreAiAgent.Domain.Shared;
 /// which matters when a threshold comparison decides whether an agent result is
 /// shown to an operator.
 /// </remarks>
+[JsonConverter(typeof(ConfidenceJsonConverter))]
 public readonly record struct Confidence : IComparable<Confidence>
 {
     public const decimal MinimumValue = 0m;

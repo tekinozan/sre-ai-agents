@@ -71,10 +71,13 @@ internal static class JsonbConverters
 
 /// <summary>Serialization metadata for JSONB columns.</summary>
 /// <remarks>
-/// Observation has no public constructor, so a converter supplies the factory
-/// call rather than letting the serializer bypass the invariant. Without it a row
-/// could be read back as a verified observation with no evidence, which is the
-/// exact state the domain refuses to construct.
+/// Observation and Confidence both hide their constructors so an invariant
+/// cannot be bypassed, which is equally effective at stopping a serializer from
+/// rebuilding them. Each carries a JsonConverter attribute that routes the read
+/// back through the domain factory, and JsonbRoundTripTests holds that line: a
+/// serializer that can only write is not a serializer, and the failure modes
+/// here were a throw on every finding read and a confidence score that quietly
+/// became zero.
 /// </remarks>
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
