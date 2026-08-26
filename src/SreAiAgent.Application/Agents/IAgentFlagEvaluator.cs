@@ -15,10 +15,23 @@ namespace SreAiAgent.Application.Agents;
 /// </remarks>
 public interface IAgentFlagEvaluator
 {
-    /// <summary>Evaluates availability against the incident and the pinned snapshot.</summary>
+    /// <summary>
+    /// Evaluates availability against the incident, its classification and the
+    /// pinned snapshot.
+    /// </summary>
+    /// <param name="agent">The candidate agent.</param>
+    /// <param name="incident">The incident being routed.</param>
+    /// <param name="incidentTypes">
+    /// Types the incident was classified as. Required because a flag can restrict
+    /// an agent to a subset of types, and that restriction cannot be evaluated
+    /// without knowing what the incident actually is.
+    /// </param>
+    /// <param name="snapshot">The pinned release set.</param>
+    /// <param name="cancellationToken">Cancels the evaluation.</param>
     ValueTask<AgentAvailability> EvaluateAsync(
         AgentDefinition agent,
         IncidentSnapshot incident,
+        IReadOnlyList<string> incidentTypes,
         ConfigurationSnapshot snapshot,
         CancellationToken cancellationToken);
 }
