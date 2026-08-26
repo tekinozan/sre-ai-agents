@@ -1,13 +1,18 @@
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SreAiAgent.Application.Abstractions.Llm;
+using SreAiAgent.Application.Abstractions.Security;
 using SreAiAgent.Application.Abstractions.Tools;
 using SreAiAgent.Application.Agents;
 using SreAiAgent.Application.Diagnostics;
 using SreAiAgent.Application.Prompting;
 using SreAiAgent.Infrastructure.Configuration;
+using SreAiAgent.Infrastructure.Llm;
+using SreAiAgent.Infrastructure.Prompting;
 using SreAiAgent.Infrastructure.Registries;
+using SreAiAgent.Infrastructure.Security;
 
 namespace SreAiAgent.Infrastructure;
 
@@ -82,6 +87,28 @@ public static class DependencyInjection
         // (ARCHITECTURE.md 15.2).
 
         services.AddHostedService<RegistryValidator>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers prompt rendering, redaction and the model gateway.
+    /// </summary>
+    /// <remarks>
+    /// The <c>IChatClient</c> registration is the only line that changes when a
+    /// real provider is adopted (docs/DECISIONS.md D09). Everything the platform
+    /// depends on, namely schema validation, budgets, audit and error mapping,
+    /// lives in LlmGateway rather than in the provider adapter.
+    /// </remarks>
+    public static IServiceCollection AddSreLlm(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton<IRedactor, RegexRedactor>();
+        services.TryAddSingleton<IPromptRenderer, ControlledPromptRenderer>();
+        services.TryAddSingleton<StructuredOutputValidator>();
+        services.TryAddSingleton<IChatClient, ScriptedChatClient>();
+        services.TryAddSingleton<ILlmGateway, LlmGateway>();
 
         return services;
     }

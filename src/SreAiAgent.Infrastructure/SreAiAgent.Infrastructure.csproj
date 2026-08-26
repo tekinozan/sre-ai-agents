@@ -9,6 +9,22 @@
     <ProjectReference Include="..\SreAiAgent.Application\SreAiAgent.Application.csproj" />
   </ItemGroup>
 
+  <ItemGroup Label="Test visibility">
+    <!--
+      Adapters are internal: they are implementation details behind the ports in
+      SreAiAgent.Application, and nothing outside this assembly should reference
+      one directly. Tests are the exception, because a redactor or a schema
+      validator has to be tested as the concrete thing it is rather than through
+      six layers of indirection.
+    -->
+    <InternalsVisibleTo Include="SreAiAgent.Infrastructure.Tests" />
+    <InternalsVisibleTo Include="SreAiAgent.ContractTests" />
+    <InternalsVisibleTo Include="SreAiAgent.IntegrationTests" />
+    <InternalsVisibleTo Include="SreAiAgent.SecurityTests" />
+    <InternalsVisibleTo Include="SreAiAgent.TestKit" />
+    <InternalsVisibleTo Include="SreAiAgent.Evals" />
+  </ItemGroup>
+
   <ItemGroup Label="Hosting and options">
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
