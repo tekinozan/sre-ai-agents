@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The deterministic security guarantees of ARCHITECTURE.md 15 and 16.1.
+
+    These are not tests of code that happens to be security-relevant; each one
+    corresponds to a sentence in the document that would otherwise be enforced by
+    review. A reviewer notices a prompt on a span once; a test notices it every
+    time.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SreAiAgent.Infrastructure\SreAiAgent.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\SreAiAgent.Workflow\SreAiAgent.Workflow.csproj" />
+    <ProjectReference Include="..\..\src\SreAiAgent.Api\SreAiAgent.Api.csproj" />
+  </ItemGroup>
+
+</Project>

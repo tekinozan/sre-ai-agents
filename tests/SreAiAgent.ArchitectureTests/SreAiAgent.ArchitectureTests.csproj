@@ -6,5 +6,7 @@
     <ProjectReference Include="..\..\src\SreAiAgent.Infrastructure\SreAiAgent.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\SreAiAgent.Workflow\SreAiAgent.Workflow.csproj" />
     <ProjectReference Include="..\..\src\SreAiAgent.Api\SreAiAgent.Api.csproj" />
+    <ProjectReference Include="..\..\src\SreAiAgent.AlertWorker\SreAiAgent.AlertWorker.csproj" />
+    <ProjectReference Include="..\..\src\SreAiAgent.InvestigationWorker\SreAiAgent.InvestigationWorker.csproj" />
   </ItemGroup>
 </Project>

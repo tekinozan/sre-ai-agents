@@ -666,6 +666,13 @@
           "xunit.v3.runner.common": "[4.0.0]"
         }
       },
+      "sreaiagent.alertworker": {
+        "type": "Project",
+        "dependencies": {
+          "Microsoft.Extensions.Hosting": "[10.0.11, )",
+          "SreAiAgent.Infrastructure": "[1.0.0, )"
+        }
+      },
       "sreaiagent.api": {
         "type": "Project",
         "dependencies": {
@@ -722,6 +729,14 @@
           "OpenTelemetry.Instrumentation.Runtime": "[1.18.0, )",
           "SreAiAgent.Application": "[1.0.0, )",
           "YamlDotNet": "[18.1.0, )"
+        }
+      },
+      "sreaiagent.investigationworker": {
+        "type": "Project",
+        "dependencies": {
+          "Microsoft.Extensions.Hosting": "[10.0.11, )",
+          "SreAiAgent.Infrastructure": "[1.0.0, )",
+          "SreAiAgent.Workflow": "[1.0.0, )"
         }
       },
       "sreaiagent.workflow": {
