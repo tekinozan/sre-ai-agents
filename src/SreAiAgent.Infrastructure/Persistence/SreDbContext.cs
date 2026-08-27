@@ -59,20 +59,6 @@ public sealed class SreDbContext : DbContext
     public DbSet<IdempotencyKeyEntity> IdempotencyKeys => Set<IdempotencyKeyEntity>();
 
     /// <inheritdoc />
-    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-    {
-        ArgumentNullException.ThrowIfNull(optionsBuilder);
-
-        // Identity resolution keeps a no-tracking query from materializing the
-        // same row as several distinct objects, which would otherwise make
-        // reference equality quietly wrong in a projection that joins.
-        optionsBuilder.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTrackingWithIdentityResolution);
-
-        // Lazy loading is not enabled anywhere, and the proxies package is
-        // deliberately not referenced: it turns a report projection into one query
-        // per evidence row with nothing at the call site hinting that it will.
-    }
-
     /// <inheritdoc />
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {

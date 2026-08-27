@@ -40,7 +40,12 @@ public sealed record InvestigationStarted(
     ConfigurationSnapshotId ConfigurationSnapshotId,
     DateTimeOffset OccurredAt) : IncidentDomainEvent(IncidentId, OccurredAt)
 {
-    public override string EventType => "sre.incident.investigation.requested";
+    // "started", not "requested". The request is a separate message carrying the
+    // pinned snapshot and the attempt number, published by the use case for the
+    // worker to act on. This event announces that the incident's state changed,
+    // and giving both the same wire type put two different payload shapes on one
+    // topic for every incident.
+    public override string EventType => "sre.incident.investigation.started";
 }
 
 /// <summary>The investigation proposed an action that needs human approval.</summary>

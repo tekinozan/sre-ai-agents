@@ -1,4 +1,3 @@
-using System.Collections.Frozen;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
@@ -33,7 +32,7 @@ internal sealed partial class ToolGateway : IToolGateway
     private readonly IReadOnlyToolRegistry _tools;
     private readonly ToolRateLimiter _rateLimiter;
     private readonly IRedactor _redactor;
-    private readonly FrozenDictionary<string, IToolAdapter> _adapters;
+    private readonly ToolAdapterCatalog _adapters;
     private readonly SreMetrics _metrics;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<ToolGateway> _logger;
@@ -44,7 +43,7 @@ internal sealed partial class ToolGateway : IToolGateway
         IReadOnlyToolRegistry tools,
         ToolRateLimiter rateLimiter,
         IRedactor redactor,
-        IEnumerable<IToolAdapter> adapters,
+        ToolAdapterCatalog adapters,
         IToolExecutionContextResolver contextResolver,
         SreMetrics metrics,
         TimeProvider timeProvider,
@@ -52,6 +51,7 @@ internal sealed partial class ToolGateway : IToolGateway
     {
         ArgumentNullException.ThrowIfNull(adapters);
 
+        _adapters = adapters;
         _tools = tools;
         _rateLimiter = rateLimiter;
         _redactor = redactor;
@@ -59,9 +59,6 @@ internal sealed partial class ToolGateway : IToolGateway
         _metrics = metrics;
         _timeProvider = timeProvider;
         _logger = logger;
-
-        _adapters = adapters.ToFrozenDictionary(
-            static adapter => adapter.ToolName, StringComparer.Ordinal);
     }
 
     /// <inheritdoc />
@@ -143,7 +140,7 @@ internal sealed partial class ToolGateway : IToolGateway
             return Refuse(request, activity, toolCallId, start, rateLimit.Error, countAsDenial: true);
         }
 
-        if (!_adapters.TryGetValue(descriptor.Name, out IToolAdapter? adapter))
+        if (!_adapters.TryGet(descriptor.Name, out IToolAdapter adapter))
         {
             // Registered in the release but with no adapter compiled in. Caught by
             // startup validation normally; treated as configuration rather than a

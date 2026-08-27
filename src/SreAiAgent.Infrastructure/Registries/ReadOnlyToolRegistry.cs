@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Options;
 using SreAiAgent.Application.Abstractions.Llm;
 using SreAiAgent.Application.Abstractions.Tools;
+using SreAiAgent.Application.Agents;
 using SreAiAgent.Domain.Remediation;
 using SreAiAgent.Infrastructure.Configuration;
 
@@ -19,7 +20,7 @@ namespace SreAiAgent.Infrastructure.Registries;
 /// at all. Misfiling a write tool here is a startup failure, which is the point:
 /// it surfaces during a deploy rather than during an incident.
 /// </remarks>
-internal sealed class ReadOnlyToolRegistry : IReadOnlyToolRegistry
+internal sealed class ReadOnlyToolRegistry : IReadOnlyToolRegistry, IReadOnlyToolRegistryProbe
 {
     private readonly FrozenDictionary<string, ToolDescriptor> _tools;
 
@@ -87,6 +88,29 @@ internal sealed class ReadOnlyToolRegistry : IReadOnlyToolRegistry
         cancellationToken.ThrowIfCancellationRequested();
         _tools.TryGetValue(Key(toolName, toolVersion), out ToolDescriptor? descriptor);
         return ValueTask.FromResult(descriptor);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Matches on name alone, ignoring version. Routing asks this whether an
+    /// agent's declared tools exist in the pinned release at all, so that an
+    /// agent whose tools are missing is excluded with a reason instead of being
+    /// selected and failing on its first call. Which version it will get is the
+    /// gateway's decision at execution time, not routing's.
+    /// </remarks>
+    public bool Contains(string toolName)
+    {
+        ArgumentNullException.ThrowIfNull(toolName);
+
+        foreach (ToolDescriptor descriptor in _tools.Values)
+        {
+            if (string.Equals(descriptor.Definition.Name, toolName, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static string Key(string name, string version) => $"{name}:{version}";

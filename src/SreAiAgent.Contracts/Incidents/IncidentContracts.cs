@@ -29,17 +29,30 @@ public sealed record CreateIncidentRequest
 
     public DateTimeOffset? DetectedAt { get; init; }
 
-    public IReadOnlyDictionary<string, string> Labels { get; init; } =
-        new Dictionary<string, string>(StringComparer.Ordinal);
+    // Every optional member below is nullable, and none of them relies on a
+    // property initializer to supply a default.
+    //
+    // That is not a style choice. System.Text.Json does not run initializers when
+    // it materializes a type with required members, so an omitted member arrives
+    // as null or default rather than as the value written next to it. Declaring
+    // the default here and reading it in the handler looked correct, compiled,
+    // and silently produced an incident whose investigation never started.
+    // Nullable makes "the caller did not say" a state the handler has to answer
+    // for explicitly.
 
-    public IReadOnlyDictionary<string, string> Annotations { get; init; } =
-        new Dictionary<string, string>(StringComparer.Ordinal);
+    public IReadOnlyDictionary<string, string>? Labels { get; init; }
 
-    /// <summary>Which label keys participate in identity. Defaults to none.</summary>
-    public IReadOnlyList<string> IdentityLabelKeys { get; init; } = [];
+    public IReadOnlyDictionary<string, string>? Annotations { get; init; }
 
-    /// <summary>Start the investigation immediately instead of only opening the incident.</summary>
-    public bool StartInvestigation { get; init; } = true;
+    /// <summary>Which label keys participate in identity. Absent means none.</summary>
+    public IReadOnlyList<string>? IdentityLabelKeys { get; init; }
+
+    /// <summary>
+    /// Start the investigation immediately instead of only opening the incident.
+    /// Absent means yes, which is what an alert source reporting a problem
+    /// almost always wants.
+    /// </summary>
+    public bool? StartInvestigation { get; init; }
 }
 
 /// <summary>

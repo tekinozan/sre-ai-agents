@@ -34,6 +34,20 @@ public interface IAgentFlagEvaluator
         IReadOnlyList<string> incidentTypes,
         ConfigurationSnapshot snapshot,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The state each agent is declared with in the pinned flag release, keyed by
+    /// <c>name:version</c>.
+    /// </summary>
+    /// <remarks>
+    /// Recorded on the configuration snapshot when an incident is opened. It is
+    /// an audit record, not an input to routing: the per-incident decision still
+    /// runs through EvaluateAsync, because environment scope, rollout and the
+    /// incident's own type all matter and none of them are known here. What this
+    /// preserves is the answer to "what were the flags set to at the time", which
+    /// is otherwise unrecoverable once someone flips one.
+    /// </remarks>
+    IReadOnlyDictionary<string, string> DeclaredStates();
 }
 
 /// <summary>The result of a flag evaluation.</summary>

@@ -95,6 +95,7 @@ internal sealed class EventPublisher : IEventPublisher
     {
         "sre.incident.created" => KafkaTopics.IncidentCreated,
         "sre.incident.investigation.requested" => KafkaTopics.InvestigationRequested,
+        "sre.incident.investigation.started" => KafkaTopics.IncidentUpdated,
         "sre.incident.updated" => KafkaTopics.IncidentUpdated,
         "sre.incident.completed" => KafkaTopics.IncidentCompleted,
         "sre.remediation.requested" => KafkaTopics.RemediationRequested,

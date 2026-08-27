@@ -66,7 +66,16 @@ public static class ToolsDependencyInjection
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton<ToolRateLimiter>();
-        services.TryAddSingleton<IToolGateway, ToolGateway>();
+
+        // Scoped, unlike the gateway: it reads the incident and its snapshot
+        // through the request-scoped DbContext and stages evidence into the same
+        // unit of work the surrounding activity will commit.
+        services.TryAddScoped<IToolExecutionContextResolver, ToolExecutionContextResolver>();
+        services.TryAddSingleton<ToolAdapterCatalog>();
+
+        // Scoped, because it resolves the incident's pinned policy and stages
+        // evidence into the unit of work of the activity calling it.
+        services.TryAddScoped<IToolGateway, ToolGateway>();
 
         services.AddSingleton<IToolAdapter, PrometheusQueryAdapter>();
         services.AddSingleton<IToolAdapter, PrometheusQueryRangeAdapter>();

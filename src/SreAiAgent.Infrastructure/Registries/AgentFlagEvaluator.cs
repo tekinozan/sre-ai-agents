@@ -69,6 +69,23 @@ internal sealed class AgentFlagEvaluator : IAgentFlagEvaluator
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Built once at startup alongside the flags themselves, so pinning a
+    /// snapshot for a new incident costs a dictionary copy rather than a reload.
+    /// </remarks>
+    public IReadOnlyDictionary<string, string> DeclaredStates()
+    {
+        Dictionary<string, string> states = new(_flags.Count, StringComparer.Ordinal);
+
+        foreach (KeyValuePair<string, AgentFlag> flag in _flags)
+        {
+            states[flag.Key] = flag.Value.State.ToString();
+        }
+
+        return states;
+    }
+
+    /// <inheritdoc />
     public ValueTask<AgentAvailability> EvaluateAsync(
         AgentDefinition agent,
         IncidentSnapshot incident,

@@ -80,7 +80,7 @@ public sealed class ToolGatewayTests
             tools,
             new ToolRateLimiter(_time),
             new RegexRedactor(),
-            adapters,
+            new ToolAdapterCatalog(adapters),
             resolver,
             metrics,
             _time,

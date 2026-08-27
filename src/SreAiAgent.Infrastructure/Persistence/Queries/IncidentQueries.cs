@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SreAiAgent.Application.Abstractions.Persistence;
 using SreAiAgent.Contracts.Incidents;
+using SreAiAgent.Domain.Incidents;
 using SreAiAgent.Domain.Shared;
 
 namespace SreAiAgent.Infrastructure.Persistence.Queries;
@@ -75,6 +76,43 @@ internal sealed class IncidentQueries : IIncidentQueries
             .Take(limit)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<IncidentTimelineEntryResponse>> GetStreamEventsAsync(
+        string tenant,
+        IncidentId incidentId,
+        int delivered,
+        int limit,
+        CancellationToken cancellationToken)
+        => await (from entry in _context.IncidentEvents
+                  join incident in _context.Incidents on entry.IncidentId equals incident.Id
+                  where incident.Tenant == tenant && entry.IncidentId == incidentId
+                  orderby entry.Id
+                  select new IncidentTimelineEntryResponse(
+                      entry.Id, entry.EventType, entry.Summary, entry.OccurredAt, entry.Actor))
+            .Skip(delivered)
+            .Take(limit)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+    /// <inheritdoc />
+    public async Task<IncidentStatus?> GetStatusAsync(
+        string tenant,
+        IncidentId incidentId,
+        CancellationToken cancellationToken)
+    {
+        // Projected to a nullable so "no such incident" and "status is Open" stay
+        // distinguishable; a stream that cannot tell them apart would poll a
+        // deleted incident forever.
+        List<IncidentStatus> status = await _context.Incidents
+            .Where(incident => incident.Tenant == tenant && incident.Id == incidentId)
+            .Select(incident => incident.Status)
+            .Take(1)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return status.Count == 0 ? null : status[0];
+    }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<EvidenceResponse>> GetEvidenceAsync(

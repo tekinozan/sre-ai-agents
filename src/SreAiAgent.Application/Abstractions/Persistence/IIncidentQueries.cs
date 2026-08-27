@@ -1,4 +1,5 @@
 using SreAiAgent.Contracts.Incidents;
+using SreAiAgent.Domain.Incidents;
 using SreAiAgent.Domain.Shared;
 
 namespace SreAiAgent.Application.Abstractions.Persistence;
@@ -32,6 +33,36 @@ public interface IIncidentQueries
         string tenant,
         IncidentId incidentId,
         int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Timeline entries after the first <paramref name="delivered"/> of them,
+    /// for the server-sent event stream.
+    /// </summary>
+    /// <remarks>
+    /// The cursor is a count rather than an identifier, which makes it a Skip
+    /// over an append-only table. That is deliberate: a timeline holds tens of
+    /// entries, not millions, and a count survives being round-tripped through
+    /// the Last-Event-ID header as plain text without leaking an internal id to
+    /// the client.
+    ///
+    /// The API polls this rather than subscribing, because the process that
+    /// writes timeline entries is the investigation worker and the process that
+    /// serves the stream is the API. An in-process broadcast would work only
+    /// while both were the same process, which they are not in any real
+    /// deployment (ARCHITECTURE.md 19.1).
+    /// </remarks>
+    Task<IReadOnlyList<IncidentTimelineEntryResponse>> GetStreamEventsAsync(
+        string tenant,
+        IncidentId incidentId,
+        int delivered,
+        int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>The incident's current status, for deciding when a stream can close.</summary>
+    Task<IncidentStatus?> GetStatusAsync(
+        string tenant,
+        IncidentId incidentId,
         CancellationToken cancellationToken);
 
     /// <summary>

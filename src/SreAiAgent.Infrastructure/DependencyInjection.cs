@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SreAiAgent.Application.Abstractions.Llm;
+using SreAiAgent.Application.Abstractions.Persistence;
 using SreAiAgent.Application.Abstractions.Security;
 using SreAiAgent.Application.Abstractions.Tools;
 using SreAiAgent.Application.Abstractions.Workflow;
@@ -77,9 +78,18 @@ public static class DependencyInjection
         services.TryAddSingleton<IPromptRegistry, PromptRegistry>();
         services.TryAddSingleton<IModelProfileRegistry, ModelProfileRegistry>();
         services.TryAddSingleton<IAgentRegistry, AgentRegistry>();
-        services.TryAddSingleton<IReadOnlyToolRegistry, ReadOnlyToolRegistry>();
+        services.TryAddSingleton<ReadOnlyToolRegistry>();
+        services.TryAddSingleton<IReadOnlyToolRegistry>(static provider =>
+            provider.GetRequiredService<ReadOnlyToolRegistry>());
+
+        // The same instance behind both ports. Routing only needs to ask whether
+        // a tool exists, and giving it the full registry would let a component
+        // that should merely check availability start executing tools.
+        services.TryAddSingleton<IReadOnlyToolRegistryProbe>(static provider =>
+            provider.GetRequiredService<ReadOnlyToolRegistry>());
         services.TryAddSingleton<IPolicyRegistry, PolicyRegistry>();
         services.TryAddSingleton<IAgentFlagEvaluator, AgentFlagEvaluator>();
+        services.TryAddSingleton<IConfigurationPinner, ConfigurationPinner>();
 
         // IWriteToolRegistry is deliberately not registered. V1 has no write
         // tools, and leaving the service unresolvable means a component that
