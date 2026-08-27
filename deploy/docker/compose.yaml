@@ -1,0 +1,205 @@
+# Local development stack (ARCHITECTURE.md 19.3).
+#
+# Everything here is disposable and self-contained. Nothing reaches a real
+# observability backend: the tool adapters are the deterministic fakes, so an
+# investigation run on a laptop cannot query a production metrics store by
+# accident.
+#
+#   docker compose -f deploy/docker/compose.yaml up -d --build
+
+name: sre-ai-agent
+
+x-platform-image: &platform-image
+  build:
+    context: ../..
+    dockerfile: deploy/docker/Dockerfile
+
+x-platform-env: &platform-env
+  DOTNET_ENVIRONMENT: Development
+  ASPNETCORE_ENVIRONMENT: Development
+  Database__ConnectionString: Host=postgres;Database=sre;Username=sre;Password=sre
+  Kafka__BootstrapServers: redpanda:9092
+  Registries__ConfigurationRoot: /app/config
+  Registries__PromptRoot: /app/prompts
+  Observability__UseFakeProviders: "true"
+  Telemetry__OtlpEndpoint: http://otel-collector:4317
+  # Every trace is kept locally. The ratio exists to protect a production
+  # tracing backend from ingress volume, and there is none of either here; what
+  # a developer wants is the whole path from the webhook to the report.
+  Telemetry__HttpSamplingRatio: "1.0"
+  Workflow__Engine: temporal
+  Workflow__TemporalHostPort: temporal:7233
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: sre
+      POSTGRES_PASSWORD: sre
+      POSTGRES_DB: sre
+    ports: ["55432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sre -d sre"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.7
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --overprovisioned
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+    ports: ["19092:19092"]
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster info -X brokers=localhost:9092 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Topics are created explicitly rather than left to auto-creation. A topic
+  # that appears on first use gets one partition and the broker's defaults,
+  # which is not what a partition-ordered incident stream wants.
+  topics:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.7
+    depends_on:
+      redpanda: {condition: service_healthy}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        rpk topic create -X brokers=redpanda:9092 -p 3
+        sre.alert.received.v1
+        sre.incident.created.v1
+        sre.incident.investigation.requested.v1
+        sre.incident.updated.v1
+        sre.incident.completed.v1
+        sre.remediation.requested.v1
+        sre.remediation.completed.v1
+        sre.deadletter.v1
+    restart: on-failure
+
+  temporal-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: temporal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # The workflow engine keeps its own store, separate from the business one
+  # (ARCHITECTURE.md 9.2). Business state has to be readable without replaying a
+  # workflow, and workflow history has to be prunable without touching incidents.
+  temporal:
+    image: temporalio/auto-setup:1.25.2
+    depends_on:
+      temporal-postgres: {condition: service_healthy}
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: temporal-postgres
+    ports: ["7233:7233"]
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "temporal:7233"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  temporal-ui:
+    image: temporalio/ui:2.31.2
+    depends_on: [temporal]
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:8088
+    ports: ["8088:8080"]
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+
+  # The collector sits between the services and the backends so a host has one
+  # export target rather than one per signal. Swapping Jaeger for something else
+  # is then a change here instead of in three deployments.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    command: ["--config=/etc/otel/config.yaml"]
+    depends_on: [jaeger]
+    volumes:
+      - ./otel-collector.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"
+
+  api:
+    <<: *platform-image
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        PROJECT: SreAiAgent.Api
+    depends_on:
+      postgres: {condition: service_healthy}
+      redpanda: {condition: service_healthy}
+      temporal: {condition: service_healthy}
+    environment:
+      <<: *platform-env
+      Telemetry__ServiceName: sre-ai-api
+      Security__AllowDevelopmentAuthentication: "true"
+      # One host owns the schema. Three racing for the migration lock during a
+      # rolling start is a deployment failure that looks like a flake.
+      Database__MigrateOnStartup: "true"
+    ports: ["8080:8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health/live >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  alert-worker:
+    <<: *platform-image
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        PROJECT: SreAiAgent.AlertWorker
+    depends_on:
+      api: {condition: service_healthy}
+    environment:
+      <<: *platform-env
+      Telemetry__ServiceName: sre-ai-alert-worker
+      Kafka__ConsumerGroup: sre-ai-agent-alert-worker
+      # The alert worker hosts no workflow engine at all, so the setting is
+      # irrelevant to it; it is pinned to inline so a misread of the shared
+      # environment cannot make it try to reach Temporal.
+      Workflow__Engine: inline
+
+  investigation-worker:
+    <<: *platform-image
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        PROJECT: SreAiAgent.InvestigationWorker
+    depends_on:
+      api: {condition: service_healthy}
+    environment:
+      <<: *platform-env
+      Telemetry__ServiceName: sre-ai-investigation-worker
+      Kafka__ConsumerGroup: sre-ai-agent-investigation-worker
+
+volumes:
+  postgres-data:

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using SreAiAgent.Application.Abstractions.Persistence;
 using SreAiAgent.Application.Abstractions.Workflow;
 using SreAiAgent.Domain.Shared;
 
@@ -42,6 +43,23 @@ namespace SreAiAgent.Workflow.Temporal;
 [JsonSerializable(typeof(PersistReportInput))]
 [JsonSerializable(typeof(CompleteInvestigationInput))]
 [JsonSerializable(typeof(FailInvestigationInput))]
+// The success type of every Result is listed in its own right.
+//
+// Listing the roots is enough for ordinary records, because the generator walks
+// their property graphs. It is not enough here: Result carries a custom
+// converter, so the generator stops at the boundary and never sees T. The gap
+// does not surface until an activity actually returns that shape, which is what
+// happened on the first Temporal run, where ResolveConfiguration failed with
+// NoMetadataForType after the workflow had already started.
+[JsonSerializable(typeof(IncidentSnapshot))]
+[JsonSerializable(typeof(ResolvedConfiguration))]
+[JsonSerializable(typeof(IncidentClassification))]
+[JsonSerializable(typeof(AgentSelection))]
+[JsonSerializable(typeof(CorrelationResult))]
+[JsonSerializable(typeof(RecommendationSet))]
+[JsonSerializable(typeof(ApprovalDecision))]
+[JsonSerializable(typeof(PersistedReport))]
+[JsonSerializable(typeof(ConfigurationSnapshot))]
 [JsonSerializable(typeof(Result<IncidentSnapshot>))]
 [JsonSerializable(typeof(Result<ResolvedConfiguration>))]
 [JsonSerializable(typeof(Result<IncidentClassification>))]

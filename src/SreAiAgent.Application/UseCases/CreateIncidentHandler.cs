@@ -36,8 +36,23 @@ public sealed class CreateIncidentHandler(
     SreMetrics metrics,
     TimeProvider timeProvider)
 {
-    /// <summary>How long a claimed creation key blocks a competing creation.</summary>
-    private static readonly TimeSpan ClaimLifetime = TimeSpan.FromMinutes(5);
+    /// <summary>
+    /// How long a claimed creation key blocks a competing creation.
+    /// </summary>
+    /// <remarks>
+    /// Short on purpose, and bounded from both sides. It has to outlast the
+    /// transaction that opens an incident, because that is the whole window the
+    /// claim exists to protect: once the incident commits, the fingerprint lookup
+    /// finds it and the claim is redundant.
+    ///
+    /// It must also expire well before an incident could plausibly close, or it
+    /// blocks the recurrence it was never meant to block. At five minutes an
+    /// incident that resolved quickly left its claim standing, so the next alert
+    /// found no active incident, could not take the claim, and was redelivered
+    /// until the claim aged out: a legitimate new incident turned into a retry
+    /// loop.
+    /// </remarks>
+    private static readonly TimeSpan ClaimLifetime = TimeSpan.FromSeconds(30);
 
     /// <summary>Opens or updates an incident.</summary>
     public async Task<Result<IncidentAcceptedResponse>> HandleAsync(

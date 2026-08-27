@@ -1,0 +1,49 @@
+# Collector configuration for the local stack.
+#
+# The services export one OTLP stream each and the collector fans it out, so a
+# host has a single export target rather than one per signal and per backend.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  # Bounded, and configured to drop rather than to grow. A collector that
+  # exhausts its memory takes the telemetry of every service with it, which is
+  # the worst moment to lose it.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+  # Metrics and logs have no backend in the local stack. They are printed rather
+  # than dropped so a developer can still see that an instrument fired.
+  debug:
+    verbosity: normal
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/jaeger]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug]

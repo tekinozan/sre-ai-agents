@@ -40,9 +40,21 @@ internal sealed class TemporalInvestigationWorkflow
     [WorkflowQuery("Status")]
     public InvestigationStatus Status => _status;
 
-    /// <summary>Runs the investigation.</summary>
+    /// <summary>Runs the investigation and returns how it ended.</summary>
+    /// <remarks>
+    /// Returns a status rather than nothing, and that is not cosmetic. Temporal
+    /// serializes a workflow's result, and for a Task-returning run that result
+    /// is an internal BCL type the generated serialization context cannot name.
+    /// Every activity would succeed, the incident would be resolved, and then the
+    /// final workflow task would fail on the way out and retry forever: a
+    /// workflow stuck open on an incident that is already closed, holding the
+    /// workflow id so a retry of that incident is refused as already running.
+    ///
+    /// A status is also the more useful thing to show in the Temporal UI than an
+    /// empty result.
+    /// </remarks>
     [WorkflowRun]
-    public async Task RunAsync(InvestigationWorkflowInput input)
+    public async Task<InvestigationStatus> RunAsync(InvestigationWorkflowInput input)
     {
         ArgumentNullException.ThrowIfNull(input);
 
@@ -53,6 +65,8 @@ internal sealed class TemporalInvestigationWorkflow
         {
             await sequence.ExecuteAsync(activities, input, TemporalWorkflow.CancellationToken);
             _status = InvestigationStatus.Completed;
+
+            return _status;
         }
         catch (Exception exception) when (TemporalException.IsCanceledException(exception))
         {

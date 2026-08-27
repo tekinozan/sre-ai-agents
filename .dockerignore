@@ -1,0 +1,17 @@
+# Everything the build does not read. The artifacts directory is the important
+# one: copying host build output into the image would ship binaries that were
+# compiled against a different SDK than the one in the build stage.
+artifacts/
+**/bin/
+**/obj/
+.git/
+!.editorconfig
+.github/
+.vs/
+.idea/
+tests/
+docs/
+deploy/helm/
+deploy/k8s/
+**/*.user
+**/.DS_Store

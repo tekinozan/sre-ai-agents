@@ -1,7 +1,9 @@
+using SreAiAgent.Application.Abstractions.Persistence;
 using SreAiAgent.Application.Abstractions.Workflow;
 using SreAiAgent.Application.Errors;
 using SreAiAgent.Domain.Findings;
 using SreAiAgent.Domain.Incidents;
+using SreAiAgent.Domain.Remediation;
 using SreAiAgent.Domain.Shared;
 using SreAiAgent.Workflow.Temporal;
 using Temporalio.Api.Common.V1;
@@ -122,6 +124,56 @@ public sealed class WorkflowPayloadTests
         finding.Observations[0].EvidenceIds.ShouldBe([evidence]);
         finding.Hypotheses[0].Confidence.Value.ShouldBe(0.6m);
         restored.EvidenceIds.ShouldBe([evidence]);
+    }
+
+    /// <summary>
+    /// Every type an activity returns, converted through Temporal's converter.
+    /// </summary>
+    /// <remarks>
+    /// This exists because listing root types is not enough when Result carries a
+    /// custom converter: the generator stops at the converter boundary and never
+    /// records metadata for the success type inside. Nothing fails at build time,
+    /// and the first sign is an activity throwing NoMetadataForType after a real
+    /// workflow has already started and spent its budget.
+    ///
+    /// Naming each return type here makes that a build-and-test failure instead.
+    /// </remarks>
+    [Fact]
+    public void EveryActivityReturnTypeHasSerializationMetadata()
+    {
+        ConfigurationSnapshot snapshot = new(
+            ConfigurationSnapshotId.New(),
+            "agents-1", "prompts-1", "models-1", "tools-1", "policies-1",
+            new Dictionary<string, string>(StringComparer.Ordinal),
+            DateTimeOffset.UnixEpoch);
+
+        RoundTrip(Result<ResolvedConfiguration>.Success(
+            new ResolvedConfiguration(snapshot, "prompts-1", "models-1", "tools-1", "policies-1")))
+            .Value.PromptRelease.ShouldBe("prompts-1");
+
+        RoundTrip(Result<IncidentClassification>.Success(new IncidentClassification(
+            ["database"], ClassificationMethod.Deterministic, Confidence.Certain, "Matched a label rule.")))
+            .Value.IncidentTypes.ShouldBe(["database"]);
+
+        RoundTrip(Result<AgentSelection>.Success(new AgentSelection(
+            [new SelectedAgent("database-expert", "1.0.0", IsShadow: false)],
+            [new ExcludedAgent("kubernetes-expert", "1.0.0", "Not eligible.")])))
+            .Value.Agents[0].AgentName.ShouldBe("database-expert");
+
+        RoundTrip(Result<CorrelationResult>.Success(new CorrelationResult(
+            "Connection pool exhaustion.", "database", Confidence.From(0.7m), [], [], [])))
+            .Value.Confidence.Value.ShouldBe(0.7m);
+
+        RoundTrip(Result<RecommendationSet>.Success(new RecommendationSet(
+            [new ProposedRecommendation(1, "Raise the pool size", "It is saturated", RiskLevel.ReadOnly, Confidence.From(0.5m), [])])))
+            .Value.Recommendations[0].Rank.ShouldBe(1);
+
+        RoundTrip(Result<ApprovalDecision>.Success(
+            new ApprovalDecision(IsApprovalRequired: false, null, "V1 tools are read-only.")))
+            .Value.IsApprovalRequired.ShouldBeFalse();
+
+        RoundTrip(Result<PersistedReport>.Success(new PersistedReport(RootCauseReportId.New(), 3)))
+            .Value.Version.ShouldBe(3);
     }
 
     private T RoundTrip<T>(T value)
