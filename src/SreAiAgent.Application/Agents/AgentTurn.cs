@@ -95,6 +95,19 @@ public sealed record AgentToolRequest
 /// </remarks>
 public sealed record AgentTurn
 {
+    /// <summary>
+    /// The schema an agent turn is validated against.
+    /// </summary>
+    /// <remarks>
+    /// Not the agent definition's <c>output_schema</c>, which describes the
+    /// finding an agent eventually produces. A turn is an envelope around either
+    /// a request for tools or that finding, and validating the envelope against
+    /// the finding's schema rejects every turn: the envelope's members are
+    /// additional properties the finding schema forbids, and the finding's
+    /// required members are absent because they sit one level down.
+    /// </remarks>
+    public const string SchemaName = "AgentTurn";
+
     [JsonPropertyName("tool_requests")]
     public IReadOnlyList<AgentToolRequest> ToolRequests { get; init; } = [];
 

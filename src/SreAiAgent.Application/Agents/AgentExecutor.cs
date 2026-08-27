@@ -144,7 +144,9 @@ public sealed partial class AgentExecutor : IAgentExecutor
             {
                 SystemPrompt = prompt.Value.System,
                 UserPrompt = prompt.Value.User,
-                ResponseSchemaName = context.Definition.OutputSchema,
+                // The turn envelope, not the definition's output schema: the
+                // latter describes the finding that arrives inside it.
+                ResponseSchemaName = AgentTurn.SchemaName,
                 ModelProfile = context.ModelProfile,
                 Tools = context.AvailableTools,
                 // The per-call timeout is the smaller of the model profile's own

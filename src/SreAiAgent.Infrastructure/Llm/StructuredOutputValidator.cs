@@ -27,6 +27,7 @@ internal sealed class StructuredOutputValidator
         _schemas = new Dictionary<string, JsonSchema>(StringComparer.Ordinal)
         {
             [AgentFindingSchemaName] = JsonSchema.FromText(AgentFindingSchema),
+            [AgentTurnSchemaName] = JsonSchema.FromText(AgentTurnSchema),
             [ClassificationSchemaName] = JsonSchema.FromText(ClassificationSchema),
             [CorrelationSchemaName] = JsonSchema.FromText(CorrelationSchema),
             [RecommendationSchemaName] = JsonSchema.FromText(RecommendationSchema),
@@ -34,6 +35,7 @@ internal sealed class StructuredOutputValidator
     }
 
     public const string AgentFindingSchemaName = "AgentFinding";
+    public const string AgentTurnSchemaName = "AgentTurn";
     public const string ClassificationSchemaName = "IncidentClassification";
     public const string CorrelationSchemaName = "CorrelationResult";
     public const string RecommendationSchemaName = "RecommendationSet";
@@ -134,6 +136,79 @@ internal sealed class StructuredOutputValidator
             "evidence_gaps": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 1000 } },
             "recommended_next_checks": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 1000 } },
             "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+        """;
+
+    /// <summary>
+    /// One turn of the agent loop: a request for tools, a finding, or both.
+    /// </summary>
+    /// <remarks>
+    /// The finding is described inline rather than by reference so this schema
+    /// stays a single self-contained document, which is what a provider's
+    /// structured-output mode expects to be handed.
+    ///
+    /// Neither member is required. An agent that has what it needs returns a
+    /// finding with no tool requests; one that needs more returns requests with
+    /// no finding. Requiring either would force the model to emit an empty value
+    /// for the other, and an empty finding is indistinguishable from a real one
+    /// that concluded nothing.
+    /// </remarks>
+    private const string AgentTurnSchema = """
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tool_requests": {
+              "type": "array", "maxItems": 10,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["tool", "arguments"],
+                "properties": {
+                  "tool": { "type": "string", "minLength": 1, "maxLength": 128 },
+                  "tool_version": { "type": "string", "minLength": 1, "maxLength": 32 },
+                  "arguments": { "type": "object" }
+                }
+              }
+            },
+            "finding": {
+              "type": ["object", "null"],
+              "additionalProperties": false,
+              "required": ["summary", "observations", "hypotheses", "confidence"],
+              "properties": {
+                "summary": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                "observations": {
+                  "type": "array", "maxItems": 50,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["statement", "evidence_ids"],
+                    "properties": {
+                      "statement": { "type": "string", "minLength": 1, "maxLength": 2000 },
+                      "evidence_ids": { "type": "array", "maxItems": 50, "items": { "type": "string", "format": "uuid" } }
+                    }
+                  }
+                },
+                "hypotheses": {
+                  "type": "array", "maxItems": 20,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["statement", "supporting_evidence_ids", "contradicting_evidence_ids", "confidence"],
+                    "properties": {
+                      "statement": { "type": "string", "minLength": 1, "maxLength": 2000 },
+                      "supporting_evidence_ids": { "type": "array", "maxItems": 50, "items": { "type": "string", "format": "uuid" } },
+                      "contradicting_evidence_ids": { "type": "array", "maxItems": 50, "items": { "type": "string", "format": "uuid" } },
+                      "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+                    }
+                  }
+                },
+                "evidence_gaps": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 1000 } },
+                "recommended_next_checks": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 1000 } },
+                "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+              }
+            }
           }
         }
         """;
