@@ -8,6 +8,7 @@ using SreAiAgent.Application.Diagnostics;
 using SreAiAgent.Domain.Evidence;
 using SreAiAgent.Domain.Remediation;
 using SreAiAgent.Domain.Shared;
+using SreAiAgent.Infrastructure.Audit;
 using SreAiAgent.Infrastructure.Configuration;
 using SreAiAgent.Infrastructure.Observability;
 using SreAiAgent.Infrastructure.Registries;
@@ -82,12 +83,32 @@ public sealed class ToolGatewayTests
             new RegexRedactor(),
             new ToolAdapterCatalog(adapters),
             resolver,
+            new RecordingAudit(),
             metrics,
             _time,
             NullLogger<ToolGateway>.Instance);
     }
 
     private RecordingResolver Resolver { get; set; } = null!;
+
+    /// <summary>
+    /// Accepts audit rows and discards them.
+    /// </summary>
+    /// <remarks>
+    /// The gateway stages audit rows through a unit of work these tests do not
+    /// have. What they assert is the policy pipeline, and a sink that records
+    /// nothing keeps that the subject.
+    /// </remarks>
+    private sealed class RecordingAudit : IAuditSink
+    {
+        public void RecordToolCall(ToolCallAudit call)
+        {
+        }
+
+        public void RecordLlmCall(LlmCallAudit call)
+        {
+        }
+    }
 
     private static readonly FrozenSet<string> DefaultScopes =
         new[] { "metrics:read", "logs:read", "kubernetes:read", "database:read" }

@@ -114,6 +114,21 @@ public sealed class AgentRun : Entity<AgentRunId>
     /// <summary>Counts a tool execution, successful or not.</summary>
     public void RecordToolCall() => ToolCallCount++;
 
+    /// <summary>
+    /// Sets the call counts from a completed run's own accounting.
+    /// </summary>
+    /// <remarks>
+    /// The executor enforces the budget against its own counters, so those are
+    /// the authoritative totals. Replaying them one increment at a time here
+    /// would be the same arithmetic done twice, and the two copies would
+    /// eventually disagree about a run that ended early.
+    /// </remarks>
+    public void SetCallCounts(int llmCalls, int toolCalls)
+    {
+        LlmCallCount = llmCalls;
+        ToolCallCount = toolCalls;
+    }
+
     public void Complete(FindingId findingId, DateTimeOffset completedAt)
     {
         Status = AgentRunStatus.Succeeded;

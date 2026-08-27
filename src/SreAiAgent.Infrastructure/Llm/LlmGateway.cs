@@ -8,6 +8,7 @@ using SreAiAgent.Application.Abstractions.Llm;
 using SreAiAgent.Application.Diagnostics;
 using SreAiAgent.Application.Errors;
 using SreAiAgent.Domain.Shared;
+using SreAiAgent.Infrastructure.Audit;
 using SreAiAgent.Infrastructure.Configuration;
 
 namespace SreAiAgent.Infrastructure.Llm;
@@ -30,6 +31,7 @@ internal sealed partial class LlmGateway : ILlmGateway
     private readonly SreMetrics _metrics;
     private readonly LlmOptions _options;
     private readonly TimeProvider _timeProvider;
+    private readonly IAuditSink _audit;
     private readonly ILogger<LlmGateway> _logger;
 
     public LlmGateway(
@@ -37,10 +39,12 @@ internal sealed partial class LlmGateway : ILlmGateway
         StructuredOutputValidator validator,
         SreMetrics metrics,
         IOptions<LlmOptions> options,
+        IAuditSink audit,
         TimeProvider timeProvider,
         ILogger<LlmGateway> logger)
     {
         ArgumentNullException.ThrowIfNull(options);
+        _audit = audit;
         _chatClient = chatClient;
         _validator = validator;
         _metrics = metrics;
@@ -211,6 +215,8 @@ internal sealed partial class LlmGateway : ILlmGateway
 
             activity.SetSafeTag(TraceAttributes.ResultStatus, "succeeded");
 
+            Audit(request, "succeeded", error: null, inputTokens, outputTokens, cost, latency);
+
             return Result<LlmResult<T>>.Success(new LlmResult<T>(
                 Value: value,
                 Provider: request.ModelProfile.Provider,
@@ -243,9 +249,42 @@ internal sealed partial class LlmGateway : ILlmGateway
                 inputTokens: 0, outputTokens: 0, estimatedCost: 0m);
         }
 
-        _ = latency;
+        // Failures are audited too, with the tokens the attempt actually
+        // consumed. A provider that rejects a response after generating it still
+        // charges for it, and a cost total assembled only from successes is the
+        // wrong number in exactly the month someone asks about it.
+        Audit(request, "failed", error, inputTokens: 0, outputTokens: 0, estimatedCost: 0m, latency);
+
         return Result<LlmResult<T>>.Failure(error);
     }
+
+    /// <summary>Stages one audit row for the call, whatever its outcome.</summary>
+    private void Audit<T>(
+        LlmRequest<T> request,
+        string outcome,
+        Error? error,
+        long inputTokens,
+        long outputTokens,
+        decimal estimatedCost,
+        TimeSpan latency)
+        where T : class
+        => _audit.RecordLlmCall(new LlmCallAudit(
+            LlmCallId.New(),
+            request.Metadata.IncidentId,
+            request.Metadata.AgentRunId,
+            request.Metadata.AgentName,
+            request.Metadata.PromptName,
+            request.Metadata.PromptVersion,
+            request.Metadata.PromptHash,
+            request.ModelProfile.Provider,
+            request.ModelProfile.ModelName,
+            outcome,
+            error?.Code,
+            inputTokens,
+            outputTokens,
+            estimatedCost,
+            latency,
+            _timeProvider.GetUtcNow()));
 
     private static List<ChatMessage> BuildMessages<T>(LlmRequest<T> request)
         where T : class

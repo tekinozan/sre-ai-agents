@@ -101,7 +101,34 @@ public sealed record AgentRunResult(
     AgentFinding? Finding,
     IReadOnlyList<EvidenceId> EvidenceIds,
     ErrorCode? ErrorCode,
-    string? ErrorMessage);
+    string? ErrorMessage)
+{
+    /// <summary>What the run consumed, for accounting and the budget metrics.</summary>
+    /// <remarks>
+    /// Reported by the run rather than derived from the audit rows afterwards.
+    /// The budget that stopped the run is the same arithmetic, so having the run
+    /// state its own totals keeps the number an operator reads and the number the
+    /// budget enforced from being two independent calculations that can disagree.
+    /// </remarks>
+    public AgentRunUsage Usage { get; init; } = AgentRunUsage.None;
+}
+
+/// <summary>Resource consumption of one agent run.</summary>
+/// <param name="LlmCalls">Model calls made.</param>
+/// <param name="ToolCalls">Tool executions attempted, including refusals.</param>
+/// <param name="InputTokens">Prompt tokens consumed.</param>
+/// <param name="OutputTokens">Completion tokens consumed.</param>
+/// <param name="EstimatedCost">Estimated cost in the model profile's currency.</param>
+public sealed record AgentRunUsage(
+    int LlmCalls,
+    int ToolCalls,
+    long InputTokens,
+    long OutputTokens,
+    decimal EstimatedCost)
+{
+    /// <summary>A run that consumed nothing, such as one refused before it began.</summary>
+    public static AgentRunUsage None { get; } = new(0, 0, 0, 0, 0m);
+}
 
 /// <summary>Input to correlation. Shadow runs are filtered out before this point.</summary>
 public sealed record CorrelateFindingsInput(

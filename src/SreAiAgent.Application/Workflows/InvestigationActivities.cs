@@ -271,6 +271,12 @@ public sealed partial class InvestigationActivities : IInvestigationActivities
             .ExecuteAsync(context.Value, cancellationToken)
             .ConfigureAwait(false);
 
+        // The run records what it consumed before it records how it ended, so a
+        // failed run still carries the cost of the work that failed. A budget
+        // exhausted halfway is exactly the case where the number matters.
+        run.RecordLlmCall(result.Usage.InputTokens, result.Usage.OutputTokens, result.Usage.EstimatedCost);
+        run.SetCallCounts(result.Usage.LlmCalls, result.Usage.ToolCalls);
+
         if (result.Finding is not null)
         {
             Finding finding = Finding.Create(

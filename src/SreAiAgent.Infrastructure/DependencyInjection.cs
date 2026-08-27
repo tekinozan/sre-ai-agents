@@ -119,7 +119,10 @@ public static class DependencyInjection
         services.TryAddSingleton<IPromptRenderer, ControlledPromptRenderer>();
         services.TryAddSingleton<StructuredOutputValidator>();
         services.TryAddSingleton<IChatClient, ScriptedChatClient>();
-        services.TryAddSingleton<ILlmGateway, LlmGateway>();
+        // Scoped, not singleton: it stages an audit row per call into the unit of
+        // work of whichever activity is running, so the row commits with the work
+        // it describes.
+        services.TryAddScoped<ILlmGateway, LlmGateway>();
 
         return services;
     }

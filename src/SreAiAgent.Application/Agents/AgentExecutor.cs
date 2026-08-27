@@ -88,14 +88,16 @@ public sealed partial class AgentExecutor : IAgentExecutor
             activity.SetSafeTag(TraceAttributes.EvidenceCount, result.EvidenceIds.Count);
             activity.SetSafeTag(TraceAttributes.ToolCallCount, budget.ToolCallCount);
 
-            return result;
+            // Attached at the one point every successful path passes through, so a
+            // new terminal branch cannot be added that forgets to report usage.
+            return result with { Usage = budget.Snapshot() };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // Cancellation of the whole investigation, not of this agent. Reported
             // rather than rethrown so the fan-out records which agents had already
             // finished.
-            return session.Cancelled();
+            return session.Cancelled() with { Usage = budget.Snapshot() };
         }
         catch (Exception exception)
         {
@@ -106,7 +108,8 @@ public sealed partial class AgentExecutor : IAgentExecutor
 
             return session.Failed(
                 ApplicationErrorCodes.LlmProviderError,
-                "The agent failed unexpectedly.");
+                "The agent failed unexpectedly.") with
+            { Usage = budget.Snapshot() };
         }
     }
 

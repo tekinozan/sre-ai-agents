@@ -71,6 +71,7 @@ public static class ToolsDependencyInjection
         // through the request-scoped DbContext and stages evidence into the same
         // unit of work the surrounding activity will commit.
         services.TryAddScoped<IToolExecutionContextResolver, ToolExecutionContextResolver>();
+        services.TryAddScoped<Audit.IAuditSink, Audit.AuditStore>();
         services.TryAddSingleton<ToolAdapterCatalog>();
 
         // Scoped, because it resolves the incident's pinned policy and stages

@@ -52,6 +52,12 @@ public sealed class SreDbContext : DbContext
 
     public DbSet<RemediationAction> RemediationActions => Set<RemediationAction>();
 
+    /// <summary>Append-only audit of every tool execution (ARCHITECTURE.md 9.2).</summary>
+    public DbSet<ToolCallEntity> ToolCalls => Set<ToolCallEntity>();
+
+    /// <summary>Append-only audit of every model call.</summary>
+    public DbSet<LlmCallEntity> LlmCalls => Set<LlmCallEntity>();
+
     public DbSet<OutboxMessageEntity> OutboxMessages => Set<OutboxMessageEntity>();
 
     public DbSet<InboxMessageEntity> InboxMessages => Set<InboxMessageEntity>();

@@ -10,6 +10,7 @@ using SreAiAgent.Application.Diagnostics;
 using SreAiAgent.Application.Errors;
 using SreAiAgent.Domain.Evidence;
 using SreAiAgent.Domain.Shared;
+using SreAiAgent.Infrastructure.Audit;
 
 namespace SreAiAgent.Infrastructure.Tools;
 
@@ -38,6 +39,7 @@ internal sealed partial class ToolGateway : IToolGateway
     private readonly ILogger<ToolGateway> _logger;
 
     private readonly IToolExecutionContextResolver _contextResolver;
+    private readonly IAuditSink _audit;
 
     public ToolGateway(
         IReadOnlyToolRegistry tools,
@@ -45,6 +47,7 @@ internal sealed partial class ToolGateway : IToolGateway
         IRedactor redactor,
         ToolAdapterCatalog adapters,
         IToolExecutionContextResolver contextResolver,
+        IAuditSink audit,
         SreMetrics metrics,
         TimeProvider timeProvider,
         ILogger<ToolGateway> logger)
@@ -56,6 +59,7 @@ internal sealed partial class ToolGateway : IToolGateway
         _rateLimiter = rateLimiter;
         _redactor = redactor;
         _contextResolver = contextResolver;
+        _audit = audit;
         _metrics = metrics;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -226,6 +230,11 @@ internal sealed partial class ToolGateway : IToolGateway
         EvidenceRecord record = EvidenceRecord.Create(evidence);
         await _contextResolver.RecordEvidenceAsync(record, cancellationToken).ConfigureAwait(false);
 
+        // Stage 13: audit. Staged in the same unit of work as the evidence, so
+        // the row describing the call and the row holding its result commit
+        // together or not at all.
+        Audit(request, toolCallId, descriptor.Version, "succeeded", error: null, duration);
+
         return ToolExecutionResult.Success(
             toolCallId,
             record.Id,
@@ -295,8 +304,34 @@ internal sealed partial class ToolGateway : IToolGateway
             _metrics.ToolPolicyDenied(request.ToolName, error.Code.Value);
         }
 
+        // Refusals are audited exactly like successes. "The agent asked for the
+        // Kubernetes API and was refused" is the most useful line in a review of
+        // the platform's own behaviour, and a trail holding only successes cannot
+        // produce it.
+        Audit(request, toolCallId, request.ToolVersion, countAsDenial ? "denied" : "failed", error, duration);
+
         return ToolExecutionResult.Failure(toolCallId, error, duration);
     }
+
+    private void Audit(
+        ToolExecutionRequest request,
+        ToolCallId toolCallId,
+        string toolVersion,
+        string outcome,
+        Error? error,
+        TimeSpan duration)
+        => _audit.RecordToolCall(new ToolCallAudit(
+            toolCallId,
+            request.IncidentId,
+            request.AgentRunId,
+            request.ToolName,
+            toolVersion,
+            request.AgentName,
+            outcome,
+            error?.Code,
+            request.Arguments.GetRawText(),
+            duration,
+            _timeProvider.GetUtcNow()));
 
     [LoggerMessage(
         EventId = 3001,

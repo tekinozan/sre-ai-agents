@@ -855,6 +855,100 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                     b.ToTable("inbox_messages", (string)null);
                 });
 
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.LlmCallEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AgentName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("agent_name");
+
+                    b.Property<Guid?>("AgentRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("agent_run_id");
+
+                    b.Property<DateTimeOffset>("CalledAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("called_at");
+
+                    b.Property<int>("DurationMilliseconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("duration_milliseconds");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("error_code");
+
+                    b.Property<decimal>("EstimatedCost")
+                        .HasPrecision(12, 6)
+                        .HasColumnType("numeric(12,6)")
+                        .HasColumnName("estimated_cost");
+
+                    b.Property<Guid>("IncidentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("incident_id");
+
+                    b.Property<long>("InputTokens")
+                        .HasColumnType("bigint")
+                        .HasColumnName("input_tokens");
+
+                    b.Property<string>("ModelName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("model_name");
+
+                    b.Property<string>("ModelProvider")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("model_provider");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("outcome");
+
+                    b.Property<long>("OutputTokens")
+                        .HasColumnType("bigint")
+                        .HasColumnName("output_tokens");
+
+                    b.Property<string>("PromptHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("prompt_hash");
+
+                    b.Property<string>("PromptName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("prompt_name");
+
+                    b.Property<string>("PromptVersion")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("prompt_version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IncidentId", "Id")
+                        .HasDatabaseName("ix_llm_calls_incident");
+
+                    b.HasIndex("PromptName", "PromptVersion")
+                        .HasDatabaseName("ix_llm_calls_prompt");
+
+                    b.ToTable("llm_calls", (string)null);
+                });
+
             modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.OutboxMessageEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -936,6 +1030,75 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasFilter("dispatched_at IS NULL AND is_dead_lettered = false");
 
                     b.ToTable("outbox_messages", (string)null);
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ToolCallEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AgentName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("agent_name");
+
+                    b.Property<Guid?>("AgentRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("agent_run_id");
+
+                    b.Property<string>("ArgumentsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("arguments_json");
+
+                    b.Property<int>("DurationMilliseconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("duration_milliseconds");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("error_code");
+
+                    b.Property<DateTimeOffset>("ExecutedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("executed_at");
+
+                    b.Property<Guid>("IncidentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("incident_id");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("ToolName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tool_name");
+
+                    b.Property<string>("ToolVersion")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("tool_version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IncidentId", "Id")
+                        .HasDatabaseName("ix_tool_calls_incident");
+
+                    b.HasIndex("ToolName", "ExecutedAt")
+                        .HasDatabaseName("ix_tool_calls_denied")
+                        .HasFilter("outcome = 'denied'");
+
+                    b.ToTable("tool_calls", (string)null);
                 });
 #pragma warning restore 612, 618
         }

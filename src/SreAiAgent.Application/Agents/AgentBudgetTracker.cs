@@ -1,3 +1,4 @@
+using SreAiAgent.Application.Abstractions.Workflow;
 using SreAiAgent.Application.Errors;
 using SreAiAgent.Domain.Shared;
 
@@ -26,6 +27,8 @@ public sealed class AgentBudgetTracker
     private int _llmCalls;
     private int _toolCalls;
     private long _tokens;
+    private long _inputTokens;
+    private long _outputTokens;
     private decimal _cost;
 
     public AgentBudgetTracker(AgentExecutionBudget budget, DateTimeOffset deadline, TimeProvider timeProvider)
@@ -43,6 +46,10 @@ public sealed class AgentBudgetTracker
     public int ToolCallCount => _toolCalls;
 
     public long TotalTokens => _tokens;
+
+    /// <summary>What the run consumed, for the audit trail and the run record.</summary>
+    public AgentRunUsage Snapshot()
+        => new(_llmCalls, _toolCalls, _inputTokens, _outputTokens, _cost);
 
     public decimal EstimatedCost => _cost;
 
@@ -108,6 +115,8 @@ public sealed class AgentBudgetTracker
     public void RecordUsage(long inputTokens, long outputTokens, decimal estimatedCost)
     {
         _tokens += inputTokens + outputTokens;
+        _inputTokens += inputTokens;
+        _outputTokens += outputTokens;
         _cost += estimatedCost;
     }
 
