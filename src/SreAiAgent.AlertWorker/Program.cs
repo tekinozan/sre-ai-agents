@@ -1,5 +1,6 @@
 using SreAiAgent.Application;
 using SreAiAgent.Infrastructure;
+using SreAiAgent.Infrastructure.Observability;
 
 // Composition root for the alert ingestion worker (ARCHITECTURE.md 19.1).
 //
@@ -22,7 +23,8 @@ builder.Services
     .AddSreApplication()
     .AddSreAlertIngestion()
     .AddSreAlertConsumer()
-    .AddSreOutboxDispatcher();
+    .AddSreOutboxDispatcher()
+    .AddSreTelemetry(builder.Configuration, builder.Environment);
 
 // In-flight work is given time to reach a safe point before the process exits
 // (ARCHITECTURE.md 19.2). The default five seconds is shorter than a database

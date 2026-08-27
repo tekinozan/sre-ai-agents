@@ -1,5 +1,6 @@
 using SreAiAgent.Application;
 using SreAiAgent.Infrastructure;
+using SreAiAgent.Infrastructure.Observability;
 using SreAiAgent.Workflow;
 
 // Composition root for the investigation worker (ARCHITECTURE.md 19.1).
@@ -24,7 +25,8 @@ builder.Services
     .AddSreInvestigationUseCases()
     .AddSreWorkflowWorker(builder.Configuration)
     .AddSreInvestigationConsumer()
-    .AddSreOutboxDispatcher();
+    .AddSreOutboxDispatcher()
+    .AddSreTelemetry(builder.Configuration, builder.Environment);
 
 // Longer than the alert worker's. An investigation activity can be mid-model
 // call, and cutting it off loses the tokens already paid for as well as the

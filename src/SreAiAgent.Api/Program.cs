@@ -2,6 +2,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
 using SreAiAgent.Api.Endpoints;
 using SreAiAgent.Api.Health;
 using SreAiAgent.Api.Http;
@@ -10,6 +12,7 @@ using SreAiAgent.Application;
 using SreAiAgent.Contracts.Serialization;
 using SreAiAgent.Infrastructure;
 using SreAiAgent.Infrastructure.Configuration;
+using SreAiAgent.Infrastructure.Observability;
 using SreAiAgent.Workflow;
 
 // Composition root for the HTTP surface (ARCHITECTURE.md 13). Everything here is
@@ -29,7 +32,8 @@ builder.Services
     .AddSreAlertIngestion()
     .AddSreOutboxDispatcher()
     .AddSreWorkflow(builder.Configuration)
-    .AddSreInvestigationUseCases();
+    .AddSreInvestigationUseCases()
+    .AddSreTelemetry(builder.Configuration, builder.Environment);
 
 // Bound eagerly because authentication has to be configured before the container
 // is built, and a misconfigured security section must stop the host rather than
@@ -56,6 +60,16 @@ builder.Services.ConfigureHttpJsonOptions(static options =>
 
 builder.Services.Configure<KestrelServerOptions>(options =>
     options.Limits.MaxRequestBodySize = security.MaxRequestBodyBytes);
+
+// ASP.NET Core instrumentation and the scrape endpoint are added here rather
+// than in AddSreTelemetry, because the workers have neither: an HTTP server they
+// do not run cannot be instrumented, and a scrape endpoint would be a second
+// listener whose only job is metrics.
+builder.Services.AddOpenTelemetry()
+    .WithTracing(static tracing => tracing.AddAspNetCoreInstrumentation())
+    .WithMetrics(static metrics => metrics
+        .AddAspNetCoreInstrumentation()
+        .AddPrometheusExporter());
 
 builder.Services.AddProblemDetails();
 builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database");
@@ -89,6 +103,14 @@ app.UseStatusCodePages();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
+
+// GET /metrics (ARCHITECTURE.md 12.1). Anonymous on purpose: a scrape happens
+// before a token exists, and the endpoint exposes counters and histograms rather
+// than incident content.
+if (builder.Configuration.GetValue("Telemetry:EnablePrometheusEndpoint", defaultValue: true))
+{
+    app.MapPrometheusScrapingEndpoint();
+}
 
 app.MapHealthEndpoints();
 app.MapIncidentEndpoints();
