@@ -130,7 +130,8 @@ public sealed class CreateIncidentHandler(
                 request.Environment,
                 request.Severity,
                 request.DetectedAt ?? now,
-                request.Labels));
+                request.Labels),
+            now);
 
         incidents.Add(incident);
 

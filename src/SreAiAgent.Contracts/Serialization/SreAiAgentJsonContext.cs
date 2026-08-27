@@ -41,7 +41,7 @@ namespace SreAiAgent.Contracts.Serialization;
 [JsonSerializable(typeof(RejectRequest))]
 [JsonSerializable(typeof(EditApprovalRequest))]
 [JsonSerializable(typeof(InvestigationStreamEvent))]
-[JsonSerializable(typeof(EventEnvelope<AlertReceivedPayload>))]
+[JsonSerializable(typeof(EventEnvelope<CanonicalAlert>))]
 [JsonSerializable(typeof(EventEnvelope<IncidentCreatedPayload>))]
 [JsonSerializable(typeof(EventEnvelope<InvestigationRequestedPayload>))]
 [JsonSerializable(typeof(EventEnvelope<IncidentUpdatedPayload>))]

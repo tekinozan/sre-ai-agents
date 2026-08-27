@@ -25,8 +25,22 @@ public sealed class Incident : Entity<IncidentId>
     }
 
     /// <summary>Opens a new incident from a normalized alert.</summary>
+    /// <remarks>
+    /// Detection time and record-keeping time are separate inputs on purpose.
+    /// DetectedAt belongs to the provider and can be hours old: an alert that has
+    /// been firing since this morning reports this morning. CreatedAt, UpdatedAt
+    /// and LastAlertAt belong to the platform and record when it saw the alert.
+    ///
+    /// Conflating them breaks deduplication. The active window is measured from
+    /// when the platform last saw an alert, and stamping that field with a
+    /// provider timestamp puts a freshly opened incident outside its own window,
+    /// so the next notification opens another one.
+    /// </remarks>
+    /// <param name="id">The new incident's identity.</param>
+    /// <param name="alert">The normalized alert.</param>
+    /// <param name="now">Platform time, from the injected clock.</param>
     /// <exception cref="DomainException">A required field is missing.</exception>
-    public Incident(IncidentId id, NewIncident alert)
+    public Incident(IncidentId id, NewIncident alert, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(alert);
 
@@ -46,9 +60,9 @@ public sealed class Incident : Entity<IncidentId>
         Labels = alert.Labels ?? new Dictionary<string, string>(StringComparer.Ordinal);
 
         DetectedAt = alert.DetectedAt.ToUniversalTime();
-        CreatedAt = DetectedAt;
-        UpdatedAt = DetectedAt;
-        LastAlertAt = DetectedAt;
+        CreatedAt = now.ToUniversalTime();
+        UpdatedAt = CreatedAt;
+        LastAlertAt = CreatedAt;
         AlertCount = 1;
         Status = IncidentStatus.Open;
 

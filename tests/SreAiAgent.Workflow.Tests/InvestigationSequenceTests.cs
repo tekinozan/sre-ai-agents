@@ -25,12 +25,24 @@ public sealed class InvestigationSequenceTests
         DateTimeOffset.UnixEpoch.AddYears(100),
         "corr-1");
 
+    /// <summary>
+    /// Builds the in-process sequence with a scope factory that hands every agent
+    /// run the same activities instance the test is asserting on.
+    /// </summary>
+    /// <remarks>
+    /// Production resolves a fresh scope per agent, because a DbContext cannot be
+    /// shared across a fan-out. These tests care about ordering and merging, so
+    /// the factory returns the recording fake rather than a real container.
+    /// </remarks>
+    private static InlineInvestigationSequence Sequence(IInvestigationActivities activities)
+        => new(4, new SingleInstanceScopeFactory(activities));
+
     [Fact]
     public async Task TheStepsRunInTheOrderTheArchitectureDefines()
     {
         RecordingActivities activities = new();
 
-        await new InlineInvestigationSequence(4).ExecuteAsync(activities, Input, TestContext.Current.CancellationToken);
+        await Sequence(activities).ExecuteAsync(activities, Input, TestContext.Current.CancellationToken);
 
         activities.Calls.ShouldBe(
         [
@@ -68,7 +80,7 @@ public sealed class InvestigationSequenceTests
             return RecordingActivities.Succeeded(input.Agent);
         };
 
-        await new InlineInvestigationSequence(4).ExecuteAsync(activities, Input, TestContext.Current.CancellationToken);
+        await Sequence(activities).ExecuteAsync(activities, Input, TestContext.Current.CancellationToken);
 
         activities.PersistedReport.ShouldNotBeNull().ContributingAgents.ShouldBe(
             ["database-expert", "kubernetes-expert", "log-expert"]);
@@ -79,7 +91,7 @@ public sealed class InvestigationSequenceTests
     {
         RecordingActivities activities = new() { Agents = [] };
 
-        await new InlineInvestigationSequence(4).ExecuteAsync(activities, Input, TestContext.Current.CancellationToken);
+        await Sequence(activities).ExecuteAsync(activities, Input, TestContext.Current.CancellationToken);
 
         activities.Failed.ShouldBeNull();
         activities.PersistedReport.ShouldNotBeNull().Outcome
@@ -103,7 +115,7 @@ public sealed class InvestigationSequenceTests
             ? RecordingActivities.FailedWith(input.Agent, AgentRunStatus.TimedOut)
             : RecordingActivities.Succeeded(input.Agent));
 
-        await new InlineInvestigationSequence(4).ExecuteAsync(activities, Input, TestContext.Current.CancellationToken);
+        await Sequence(activities).ExecuteAsync(activities, Input, TestContext.Current.CancellationToken);
 
         PersistReportInput report = activities.PersistedReport.ShouldNotBeNull();
         report.Outcome.ShouldBe(InvestigationOutcome.Partial);
@@ -118,7 +130,7 @@ public sealed class InvestigationSequenceTests
             LoadIncidentError = Error.Permanent(ApplicationErrorCodes.IncidentNotFound, "Gone."),
         };
 
-        await new InlineInvestigationSequence(4).ExecuteAsync(activities, Input, TestContext.Current.CancellationToken);
+        await Sequence(activities).ExecuteAsync(activities, Input, TestContext.Current.CancellationToken);
 
         activities.Calls.ShouldBe(["load", "fail"]);
         activities.Failed.ShouldNotBeNull().ErrorCode.ShouldBe(ApplicationErrorCodes.IncidentNotFound);
@@ -129,7 +141,7 @@ public sealed class InvestigationSequenceTests
     {
         RecordingActivities activities = new() { ApprovalRequired = true };
 
-        await new InlineInvestigationSequence(4).ExecuteAsync(activities, Input, TestContext.Current.CancellationToken);
+        await Sequence(activities).ExecuteAsync(activities, Input, TestContext.Current.CancellationToken);
 
         activities.PersistedReport.ShouldBeNull();
         activities.Failed.ShouldNotBeNull().ErrorCode.ShouldBe(ApplicationErrorCodes.ConfigInvalid);

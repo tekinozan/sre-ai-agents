@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using SreAiAgent.Application.Abstractions.Workflow;
 using SreAiAgent.Application.Errors;
 using SreAiAgent.Domain.Shared;
@@ -13,8 +14,31 @@ namespace SreAiAgent.Workflow.Inline;
 /// outage of the very backends being investigated.
 /// </remarks>
 /// <param name="maxDegreeOfParallelism">Concurrent agent runs, from AgentRuntimeOptions.</param>
-internal sealed class InlineInvestigationSequence(int maxDegreeOfParallelism) : InvestigationSequence
+/// <param name="scopeFactory">Supplies one dependency scope per agent run.</param>
+internal sealed class InlineInvestigationSequence(
+    int maxDegreeOfParallelism,
+    IServiceScopeFactory scopeFactory) : InvestigationSequence
 {
+    /// <inheritdoc />
+    /// <remarks>
+    /// Each agent gets its own scope, and therefore its own DbContext. A context
+    /// is not thread-safe and throws the moment a second concurrent query starts
+    /// on it, so sharing the investigation's scope across a fan-out fails as soon
+    /// as two experts are selected: the exact case the fan-out exists for.
+    /// </remarks>
+    protected override async Task<AgentRunResult> RunOneAgentAsync(
+        IInvestigationActivities activities,
+        RunAgentInput input,
+        CancellationToken cancellationToken)
+    {
+        using IServiceScope scope = scopeFactory.CreateScope();
+
+        return await scope.ServiceProvider
+            .GetRequiredService<IInvestigationActivities>()
+            .RunAgentAsync(input, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     /// <inheritdoc />
     protected override Task ForEachAgentAsync(
         int count,

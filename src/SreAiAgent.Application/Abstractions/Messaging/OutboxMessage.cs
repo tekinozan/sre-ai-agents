@@ -20,6 +20,11 @@ namespace SreAiAgent.Application.Abstractions.Messaging;
 /// <param name="CorrelationId">Correlation id for the investigation.</param>
 /// <param name="TraceParent">W3C traceparent captured at staging time.</param>
 /// <param name="OccurredAt">When the fact became true, UTC.</param>
+/// <param name="AttemptCount">
+/// Publication attempts so far. Carried on the message because the dispatcher
+/// has to decide between another retry and a dead letter, and a decision made
+/// from a value the dispatcher held separately would drift from the row.
+/// </param>
 public sealed record OutboxMessage(
     Guid Id,
     string Topic,
@@ -29,7 +34,8 @@ public sealed record OutboxMessage(
     string PartitionKey,
     string CorrelationId,
     string? TraceParent,
-    DateTimeOffset OccurredAt);
+    DateTimeOffset OccurredAt,
+    int AttemptCount);
 
 /// <summary>
 /// Claims and completes outbox rows. Implemented with
@@ -61,4 +67,15 @@ public interface IOutboxStore
         Error error,
         DateTimeOffset nextAttemptAt,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Parks a message that has exhausted its attempts.
+    /// </summary>
+    /// <remarks>
+    /// The row keeps its payload rather than being deleted, so the message can be
+    /// replayed once the cause is fixed. A poisoned message that is retried
+    /// forever stalls every message behind it in the same partition, and one that
+    /// is dropped takes the evidence of the problem with it.
+    /// </remarks>
+    Task MarkDeadLetteredAsync(Guid messageId, Error error, CancellationToken cancellationToken);
 }

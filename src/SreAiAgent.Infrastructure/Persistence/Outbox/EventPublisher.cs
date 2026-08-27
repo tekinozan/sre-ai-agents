@@ -121,6 +121,13 @@ internal sealed class EventPublisher : IEventPublisher
             IncidentCreatedPayload created => created.IncidentId.ToString(),
             IncidentCompletedPayload completed => completed.IncidentId.ToString(),
             IncidentUpdatedPayload updated => updated.IncidentId.ToString(),
+
+            // An alert has no incident yet, so it is partitioned by the identity
+            // it will deduplicate on. Repeat firings of one alert then land on
+            // one partition and are handled in order, which is what stops two
+            // consumers racing to open the same incident.
+            Contracts.Alerts.CanonicalAlert alert => $"{alert.Source}:{alert.Fingerprint ?? alert.ExternalId}",
+
             _ => Guid.CreateVersion7().ToString(),
         };
 
@@ -161,6 +168,11 @@ internal sealed class EventPublisher : IEventPublisher
 
         return payload switch
         {
+            Contracts.Alerts.CanonicalAlert alert => JsonSerializer.Serialize(
+                new EventEnvelope<Contracts.Alerts.CanonicalAlert>(
+                    eventId, eventType, 1, now, correlationId, causationId, alert),
+                SreAiAgentJsonContext.Default.EventEnvelopeCanonicalAlert),
+
             InvestigationRequestedPayload requested => JsonSerializer.Serialize(
                 new EventEnvelope<InvestigationRequestedPayload>(
                     eventId, eventType, 1, now, correlationId, causationId, requested),

@@ -196,6 +196,23 @@ public abstract class InvestigationSequence
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Runs one agent of the fan-out.
+    /// </summary>
+    /// <remarks>
+    /// A hook rather than a direct call, because the two engines differ in what
+    /// an agent run may share. The durable engine dispatches each run as its own
+    /// activity, so each one already gets a fresh scope on whichever worker picks
+    /// it up. The in-process executor runs them concurrently inside one scope,
+    /// where sharing the caller's DbContext across threads throws on the second
+    /// concurrent query.
+    /// </remarks>
+    protected virtual Task<AgentRunResult> RunOneAgentAsync(
+        IInvestigationActivities activities,
+        RunAgentInput input,
+        CancellationToken cancellationToken)
+        => activities.RunAgentAsync(input, cancellationToken);
+
+    /// <summary>
     /// Waits for a human decision. The durable engine blocks on a signal; the
     /// in-process executor has nowhere to deliver one and refuses.
     /// </summary>
@@ -234,7 +251,8 @@ public abstract class InvestigationSequence
 
                 // RunAgentAsync never throws: a failing agent is data, so one
                 // expert timing out cannot cancel the other four mid-flight.
-                results[index] = await activities.RunAgentAsync(
+                results[index] = await RunOneAgentAsync(
+                    activities,
                     new RunAgentInput(
                         incident,
                         agent,

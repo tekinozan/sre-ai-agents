@@ -165,7 +165,7 @@ public sealed partial class InlineInvestigationWorkflow : IInvestigationWorkflow
             .SetSafeTag(TraceAttributes.WorkflowAttempt, input.Attempt)
             .SetSafeTag(TraceAttributes.ConfigurationSnapshotId, input.ConfigurationSnapshotId.ToString());
 
-        InlineInvestigationSequence sequence = new(_agentOptions.MaxDegreeOfParallelism);
+        InlineInvestigationSequence sequence = new(_agentOptions.MaxDegreeOfParallelism, _scopeFactory);
 
         try
         {

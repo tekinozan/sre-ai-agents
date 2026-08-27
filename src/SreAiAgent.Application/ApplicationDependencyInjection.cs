@@ -27,13 +27,33 @@ public static class ApplicationDependencyInjection
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddScoped<CreateIncidentHandler>();
+
+        services.TryAddScoped<IIncidentRouter, IncidentRouter>();
+        services.TryAddScoped<IAgentExecutor, AgentExecutor>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the handlers that drive a workflow engine.
+    /// </summary>
+    /// <remarks>
+    /// Separate because not every host has an engine. The alert worker opens
+    /// incidents and nothing else; giving it these handlers would mean either
+    /// registering a workflow engine in the ingestion process, which is the
+    /// coupling ARCHITECTURE.md 19.1 splits the deployments to avoid, or a
+    /// container that cannot be built at all.
+    ///
+    /// Call this only after AddSreWorkflow.
+    /// </remarks>
+    public static IServiceCollection AddSreInvestigationUseCases(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
         services.TryAddScoped<StartInvestigationHandler>();
         services.TryAddScoped<RetryInvestigationHandler>();
         services.TryAddScoped<CancelInvestigationHandler>();
         services.TryAddScoped<ApprovalDecisionHandler>();
-
-        services.TryAddScoped<IIncidentRouter, IncidentRouter>();
-        services.TryAddScoped<IAgentExecutor, AgentExecutor>();
 
         return services;
     }

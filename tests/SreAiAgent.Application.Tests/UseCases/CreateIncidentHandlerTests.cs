@@ -197,7 +197,8 @@ public sealed class CreateIncidentHandlerTests
             IncidentId.New(),
             new NewIncident(
                 "acme", "alertmanager", "alert-1", "fingerprint-1",
-                "Checkout latency above threshold", null, "checkout", "production", severity, Now));
+                "Checkout latency above threshold", null, "checkout", "production", severity, Now),
+            Now);
 
         incident.DequeueEvents();
         return incident;

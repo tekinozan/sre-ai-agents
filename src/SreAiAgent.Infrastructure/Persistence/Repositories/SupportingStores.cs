@@ -23,10 +23,17 @@ internal sealed class InboxStore : IInboxStore
 
     /// <inheritdoc />
     /// <remarks>
-    /// Inserts first and interprets a unique violation as "already processed",
-    /// rather than checking and then inserting. Two deliveries of the same message
-    /// on two consumer replicas can both pass a check a microsecond apart; only
-    /// the primary key decides which one wins.
+    /// Stages the row; it does not save it. The row has to commit in the same
+    /// transaction as the effect it guards, and saving here would commit it
+    /// first: a failure afterwards would then leave a row saying the message was
+    /// handled and no trace of the work, so the redelivery that should have
+    /// repaired it would be skipped instead. The effect would be lost silently,
+    /// which is the exact outcome an inbox exists to prevent.
+    ///
+    /// The read is only a fast path. Two replicas can both see no row a
+    /// microsecond apart, so the primary key is what actually decides; a
+    /// violation at commit time means the other delivery won and the caller
+    /// treats the message as already processed.
     /// </remarks>
     public async Task<bool> TryBeginAsync(
         Guid eventId,
@@ -34,6 +41,17 @@ internal sealed class InboxStore : IInboxStore
         string consumerName,
         CancellationToken cancellationToken)
     {
+        bool seen = await _context.InboxMessages
+            .AnyAsync(
+                message => message.EventId == eventId && message.ConsumerName == consumerName,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (seen)
+        {
+            return false;
+        }
+
         _context.InboxMessages.Add(new InboxMessageEntity
         {
             EventId = eventId,
@@ -42,26 +60,7 @@ internal sealed class InboxStore : IInboxStore
             ProcessedAt = _timeProvider.GetUtcNow(),
         });
 
-        try
-        {
-            await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            return true;
-        }
-        catch (DbUpdateException)
-        {
-            // Detach so the failed insert does not poison the next SaveChanges on
-            // this scope, which would turn a benign duplicate into a broken
-            // consumer.
-            foreach (Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry entry in _context.ChangeTracker.Entries())
-            {
-                if (entry.Entity is InboxMessageEntity)
-                {
-                    entry.State = EntityState.Detached;
-                }
-            }
-
-            return false;
-        }
+        return true;
     }
 }
 
@@ -81,6 +80,14 @@ internal sealed class IdempotencyStore : IIdempotencyStore
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Stages the claim rather than saving it, so it commits with the operation
+    /// it guards. A claim written in its own transaction and then followed by a
+    /// failure blocks every retry for the lifetime of the key while nothing was
+    /// actually done, which is the opposite of what a claim is for.
+    ///
+    /// The read is a fast path only; the primary key is what decides a race.
+    /// </remarks>
     public async Task<bool> TryClaimAsync(
         string key,
         DateTimeOffset expiresAt,
@@ -91,12 +98,19 @@ internal sealed class IdempotencyStore : IIdempotencyStore
         // An expired claim is reclaimed rather than blocking forever. An alert
         // fingerprint that recurs months later is a new incident, and a key with
         // no expiry would silently suppress it.
-        int reclaimed = await _context.IdempotencyKeys
+        await _context.IdempotencyKeys
             .Where(entity => entity.Key == key && entity.ExpiresAt <= now)
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        _ = reclaimed;
+        bool claimed = await _context.IdempotencyKeys
+            .AnyAsync(entity => entity.Key == key, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (claimed)
+        {
+            return false;
+        }
 
         _context.IdempotencyKeys.Add(new IdempotencyKeyEntity
         {
@@ -105,23 +119,7 @@ internal sealed class IdempotencyStore : IIdempotencyStore
             ExpiresAt = expiresAt,
         });
 
-        try
-        {
-            await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            return true;
-        }
-        catch (DbUpdateException)
-        {
-            foreach (Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry entry in _context.ChangeTracker.Entries())
-            {
-                if (entry.Entity is IdempotencyKeyEntity)
-                {
-                    entry.State = EntityState.Detached;
-                }
-            }
-
-            return false;
-        }
+        return true;
     }
 }
 

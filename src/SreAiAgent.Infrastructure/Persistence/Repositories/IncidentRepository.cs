@@ -33,8 +33,16 @@ internal sealed class IncidentRepository : IIncidentRepository
                                        && incident.Fingerprint == fingerprint
                                        && incident.Status != IncidentStatus.Resolved
                                        && incident.Status != IncidentStatus.Cancelled
-                                       && incident.DetectedAt >= since)
-                    .OrderByDescending(incident => incident.DetectedAt)
+
+                                       // Measured from when the platform last saw
+                                       // an alert, not from when the provider says
+                                       // the condition began. A provider reporting
+                                       // a start time from this morning would
+                                       // otherwise fall outside its own window
+                                       // immediately, and every notification would
+                                       // open another incident.
+                                       && incident.LastAlertAt >= since)
+                    .OrderByDescending(incident => incident.LastAlertAt)
                     .FirstOrDefault());
 
     private readonly SreDbContext _context;

@@ -56,7 +56,8 @@ internal sealed class OutboxStore : IOutboxStore
             message.PartitionKey,
             message.CorrelationId,
             message.TraceParent,
-            message.OccurredAt))];
+            message.OccurredAt,
+            message.AttemptCount))];
     }
 
     /// <inheritdoc />

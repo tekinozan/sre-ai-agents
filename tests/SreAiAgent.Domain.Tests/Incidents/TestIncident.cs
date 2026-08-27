@@ -24,7 +24,8 @@ internal static class TestIncident
                 Service: "checkout",
                 Environment: "production",
                 Severity: severity,
-                DetectedAt: detectedAt ?? DefaultDetectedAt));
+                DetectedAt: detectedAt ?? DefaultDetectedAt),
+            detectedAt ?? DefaultDetectedAt);
 
     /// <summary>Drives an incident to a target status through legal transitions only.</summary>
     public static Incident InStatus(IncidentStatus status)

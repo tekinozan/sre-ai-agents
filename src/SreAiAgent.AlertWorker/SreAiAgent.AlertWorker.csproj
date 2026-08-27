@@ -12,4 +12,5 @@
     <ProjectReference Include="..\SreAiAgent.Infrastructure\SreAiAgent.Infrastructure.csproj" />
   </ItemGroup>
 
+
 </Project>

@@ -26,7 +26,10 @@ builder.Services
     .AddSreTools()
     .AddSrePersistence()
     .AddSreApplication()
-    .AddSreWorkflow(builder.Configuration);
+    .AddSreAlertIngestion()
+    .AddSreOutboxDispatcher()
+    .AddSreWorkflow(builder.Configuration)
+    .AddSreInvestigationUseCases();
 
 // Bound eagerly because authentication has to be configured before the container
 // is built, and a misconfigured security section must stop the host rather than
@@ -89,6 +92,7 @@ app.UseAuthorization();
 
 app.MapHealthEndpoints();
 app.MapIncidentEndpoints();
+app.MapAlertEndpoints();
 app.MapApprovalEndpoints();
 app.MapStreamEndpoints();
 

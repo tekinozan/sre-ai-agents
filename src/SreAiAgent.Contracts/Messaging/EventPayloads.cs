@@ -10,15 +10,11 @@ namespace SreAiAgent.Contracts.Messaging;
 // tempts consumers into treating Kafka as the system of record, which
 // ARCHITECTURE.md 3.2 explicitly rejects.
 
-/// <summary>A normalized alert was accepted for processing.</summary>
-public sealed record AlertReceivedPayload(
-    string Source,
-    string ExternalId,
-    string Fingerprint,
-    string Service,
-    string Environment,
-    IncidentSeverity Severity,
-    DateTimeOffset DetectedAt);
+// The alert-received topic is the one exception to the thin-payload rule above,
+// and it carries a CanonicalAlert rather than a payload declared here. Every other
+// message points at state the platform has already stored; an accepted alert has
+// no stored state yet, so a notification carrying only identifiers would name
+// something the consumer cannot go and read.
 
 /// <summary>A new incident was opened.</summary>
 public sealed record IncidentCreatedPayload(
