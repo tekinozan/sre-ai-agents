@@ -492,7 +492,11 @@
       "sreaiagent.workflow": {
         "type": "Project",
         "dependencies": {
+          "Microsoft.Extensions.Configuration.Abstractions": "[10.0.11, )",
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "[10.0.11, )",
           "Microsoft.Extensions.Hosting.Abstractions": "[10.0.11, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.11, )",
+          "Microsoft.Extensions.Options": "[10.0.11, )",
           "Microsoft.Extensions.Options.DataAnnotations": "[10.0.11, )",
           "SreAiAgent.Application": "[1.0.0, )",
           "Temporalio": "[1.18.0, )",

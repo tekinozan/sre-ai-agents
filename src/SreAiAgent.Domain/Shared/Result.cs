@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace SreAiAgent.Domain.Shared;
 
 /// <summary>
@@ -12,6 +14,7 @@ namespace SreAiAgent.Domain.Shared;
 /// <see cref="Shared.Error"/>.
 /// </remarks>
 /// <typeparam name="T">The success value type.</typeparam>
+[JsonConverter(typeof(ResultJsonConverter))]
 public readonly record struct Result<T>
 {
     private readonly T? _value;
@@ -56,6 +59,7 @@ public readonly record struct Result<T>
 }
 
 /// <summary>The outcome of an operation with no success value.</summary>
+[JsonConverter(typeof(ResultJsonConverter))]
 public readonly record struct Result
 {
     private readonly Error? _error;

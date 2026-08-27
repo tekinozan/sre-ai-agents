@@ -11,10 +11,26 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      The engine adapters are internal: which durable engine runs an
+      investigation is an implementation detail behind IInvestigationWorkflow,
+      and nothing outside this assembly should be able to reach one directly.
+      Tests need to, because the fan-out strategies are exactly what has to be
+      verified.
+    -->
+    <InternalsVisibleTo Include="SreAiAgent.Workflow.Tests" />
+    <InternalsVisibleTo Include="SreAiAgent.IntegrationTests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Temporalio" />
     <PackageReference Include="Temporalio.Extensions.Hosting" />
     <PackageReference Include="Temporalio.Extensions.OpenTelemetry" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
     <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
   </ItemGroup>
 

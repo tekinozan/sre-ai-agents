@@ -165,14 +165,16 @@ public sealed partial class InlineInvestigationWorkflow : IInvestigationWorkflow
             .SetSafeTag(TraceAttributes.WorkflowAttempt, input.Attempt)
             .SetSafeTag(TraceAttributes.ConfigurationSnapshotId, input.ConfigurationSnapshotId.ToString());
 
+        InlineInvestigationSequence sequence = new(_agentOptions.MaxDegreeOfParallelism);
+
         try
         {
-            await ExecuteAsync(activities, input, linked.Token).ConfigureAwait(false);
+            await sequence.ExecuteAsync(activities, input, linked.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (deadline.IsCancellationRequested)
         {
             activity.SetSafeTag(TraceAttributes.ResultStatus, "deadline_exceeded");
-            await FailAsync(
+            await InvestigationSequence.FailAsync(
                 activities,
                 input,
                 ApplicationErrorCodes.WorkflowDeadlineExceeded,
@@ -186,22 +188,13 @@ public sealed partial class InlineInvestigationWorkflow : IInvestigationWorkflow
             // The incident is marked failed rather than left in Investigating
             // forever. A stuck incident is invisible; a failed one is retryable
             // and shows up in sre_incident_failed_total.
-            await FailAsync(
+            await InvestigationSequence.FailAsync(
                 activities,
                 input,
                 ApplicationErrorCodes.LlmProviderError,
                 "The investigation failed unexpectedly.").ConfigureAwait(false);
         }
     }
-
-    private static async Task FailAsync(
-        IInvestigationActivities activities,
-        InvestigationWorkflowInput input,
-        ErrorCode code,
-        string reason)
-        => await activities.FailInvestigationAsync(
-            new FailInvestigationInput(input.IncidentId, code, reason, input.CorrelationId),
-            CancellationToken.None).ConfigureAwait(false);
 
     [LoggerMessage(
         EventId = 6001,
