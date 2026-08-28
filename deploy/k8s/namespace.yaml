@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sre-ai-agent
+  labels:
+    app.kubernetes.io/name: sre-ai-agent
+---
+# One service account per deployment rather than one shared account.
+#
+# Section 15.2 asks for a namespace-scoped, read-only Kubernetes identity, and
+# separate accounts are what make that enforceable: the day a write tool exists
+# it gets its own account and its own role, and the read-only hosts keep theirs
+# unchanged. A single shared account would mean granting the write permission to
+# every host at once.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sre-ai-api
+  namespace: sre-ai-agent
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sre-ai-alert-worker
+  namespace: sre-ai-agent
+automountServiceAccountToken: false
+---
+# Only the investigation worker mounts a token, because it is the only host that
+# queries the Kubernetes API as an observability source. The other two have no
+# reason to hold a credential they never use.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sre-ai-investigation-worker
+  namespace: sre-ai-agent
+---
+# Read-only, and verbs are listed rather than wildcarded.
+#
+# A wildcard here would silently grant delete the moment the role is copied to a
+# namespace with more resource types in it. The kubernetes.pods and
+# kubernetes.events tools need exactly get, list and watch.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sre-ai-observer
+  namespace: sre-ai-agent
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events", "services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sre-ai-observer
+  namespace: sre-ai-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: sre-ai-observer
+subjects:
+  - kind: ServiceAccount
+    name: sre-ai-investigation-worker
+    namespace: sre-ai-agent

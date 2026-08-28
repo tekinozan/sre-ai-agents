@@ -1,0 +1,138 @@
+{{/*
+The two workers. Separate deployments because they fail differently: a webhook
+storm should not compete with an LLM fan-out for the same process
+(ARCHITECTURE.md 19.1).
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-alert-worker
+  labels: {{- include "sre.labels" (dict "name" "sre-ai-alert-worker" "root" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.alertWorker.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sre-ai-alert-worker
+  template:
+    metadata:
+      labels: {{- include "sre.labels" (dict "name" "sre-ai-alert-worker" "root" .) | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
+    spec:
+      securityContext: {{- include "sre.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: alert-worker
+          image: {{ include "sre.image" (dict "component" "alert-worker" "root" .) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}
+            - secretRef:
+                name: {{ .Values.existingSecret }}
+          env:
+            - name: Telemetry__ServiceName
+              value: sre-ai-alert-worker
+            - name: Kafka__ConsumerGroup
+              value: {{ .Release.Name }}-alert-worker
+            {{- /* This host carries no workflow engine. Pinning the value stops a
+                   misread of the shared ConfigMap making it reach for Temporal. */}}
+            - name: Workflow__Engine
+              value: inline
+          securityContext: {{- include "sre.containerSecurityContext" . | nindent 12 }}
+          resources: {{- toYaml .Values.alertWorker.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- /* Long enough for an in-flight message to reach a safe point and commit
+             its offset; anything shorter means redelivery on every rollout. */}}
+      terminationGracePeriodSeconds: 60
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-investigation-worker
+  labels: {{- include "sre.labels" (dict "name" "sre-ai-investigation-worker" "root" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.investigationWorker.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sre-ai-investigation-worker
+  template:
+    metadata:
+      labels: {{- include "sre.labels" (dict "name" "sre-ai-investigation-worker" "root" .) | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
+    spec:
+      securityContext: {{- include "sre.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: investigation-worker
+          image: {{ include "sre.image" (dict "component" "investigation-worker" "root" .) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}
+            - secretRef:
+                name: {{ .Values.existingSecret }}
+          env:
+            - name: Telemetry__ServiceName
+              value: sre-ai-investigation-worker
+            - name: Kafka__ConsumerGroup
+              value: {{ .Release.Name }}-investigation-worker
+          securityContext: {{- include "sre.containerSecurityContext" . | nindent 12 }}
+          resources: {{- toYaml .Values.investigationWorker.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- /* Longer than the alert worker's: an activity can be mid-model call,
+             and cutting it off loses tokens already paid for. Temporal resumes
+             the workflow, but the work is repeated rather than continued. */}}
+      terminationGracePeriodSeconds: 120
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-investigation-worker
+  labels: {{- include "sre.labels" (dict "name" "sre-ai-investigation-worker" "root" .) | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sre-ai-investigation-worker
+{{- if .Values.investigationWorker.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .Release.Name }}-investigation-worker
+  labels: {{- include "sre.labels" (dict "name" "sre-ai-investigation-worker" "root" .) | nindent 4 }}
+  annotations:
+    sre-ai-agent.io/scaling-note: >-
+      CPU is a floor, not the right signal. An agent waiting on a model call is
+      idle by every CPU measure while the backlog grows; replace this with
+      sre_kafka_consumer_lag once a metrics adapter is installed.
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Release.Name }}-investigation-worker
+  minReplicas: {{ .Values.investigationWorker.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.investigationWorker.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.investigationWorker.autoscaling.targetCpu }}
+  behavior:
+    scaleDown:
+      {{- /* Slow, because a pod removed mid-investigation forces Temporal to
+             replay it elsewhere and pay for the model calls again. */}}
+      stabilizationWindowSeconds: 300
+{{- end }}

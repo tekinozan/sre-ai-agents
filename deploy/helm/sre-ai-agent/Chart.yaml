@@ -1,0 +1,11 @@
+apiVersion: v2
+name: sre-ai-agent
+description: The SRE AI agent platform (ARCHITECTURE.md 19.2)
+type: application
+
+# The chart version tracks packaging; appVersion tracks the images. They move
+# independently because a values change is not a new application.
+version: 0.1.0
+appVersion: "1.0.0"
+
+keywords: [sre, incident-response, observability]

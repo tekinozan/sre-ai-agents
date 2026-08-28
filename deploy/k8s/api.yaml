@@ -1,0 +1,140 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sre-ai-api
+  namespace: sre-ai-agent
+  labels:
+    app.kubernetes.io/name: sre-ai-api
+    app.kubernetes.io/part-of: sre-ai-agent
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sre-ai-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sre-ai-api
+        app.kubernetes.io/part-of: sre-ai-agent
+    spec:
+      serviceAccountName: sre-ai-api
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: sre-ai-agent/api:1.0.0
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: sre-ai-agent
+            - secretRef:
+                name: sre-ai-agent
+          env:
+            - name: Telemetry__ServiceName
+              value: sre-ai-api
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              # No CPU limit. Throttling a request host adds tail latency for no
+              # protection the request quota does not already give, and the API
+              # is latency-sensitive by design (ARCHITECTURE.md 19.1).
+              memory: 512Mi
+
+          # Liveness never touches the database. A liveness probe that did would
+          # restart every API pod during a failover, turning a recoverable
+          # dependency outage into a full one.
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+
+          # Readiness does, because a pod that cannot reach PostgreSQL can accept
+          # an alert and lose it. Refusing traffic sends that alert to a replica
+          # that can.
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 5
+            failureThreshold: 3
+
+          # Slow starts are tolerated without being mistaken for failures: the
+          # registries validate every artifact at boot and a cold pod may take
+          # longer than a warm one.
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      # The root filesystem is read-only, so the one writable path is an
+      # explicit empty directory rather than the whole container.
+      volumes:
+        - name: tmp
+          emptyDir: {}
+
+      terminationGracePeriodSeconds: 60
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sre-ai-api
+  namespace: sre-ai-agent
+  labels:
+    app.kubernetes.io/name: sre-ai-api
+spec:
+  selector:
+    app.kubernetes.io/name: sre-ai-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: sre-ai-api
+  namespace: sre-ai-agent
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: sre-ai-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: sre-ai-api
+  namespace: sre-ai-agent
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sre-ai-api

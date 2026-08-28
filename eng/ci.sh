@@ -29,7 +29,10 @@ dotnet test "$SOLUTION" --no-build -- --filter-not-trait "Category=Integration"
 
 if [ "$WITH_INTEGRATION" = "--with-integration" ]; then
   step "integration tests (requires a Docker daemon)"
-  dotnet test "$SOLUTION" --no-build -- --filter-trait "Category=Integration"
+  # Scoped to the project that owns them rather than run across the solution.
+  # The test platform treats "zero tests ran" as a failure, so filtering the whole
+  # solution by a trait only one project carries fails in the other seven.
+  dotnet test tests/SreAiAgent.IntegrationTests/SreAiAgent.IntegrationTests.csproj     --no-build -- --filter-trait "Category=Integration"
 fi
 
 step "vulnerable package audit"

@@ -1,0 +1,42 @@
+{{/*
+Non-secret configuration only. Everything here is readable in a code review,
+which is the line ARCHITECTURE.md 13 draws between this and the Secret the
+deployments also mount.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}
+  labels: {{- include "sre.labels" (dict "name" "sre-ai-agent" "root" .) | nindent 4 }}
+data:
+  Registries__ConfigurationRoot: /app/config
+  Registries__PromptRoot: /app/prompts
+
+  {{- /* Pinned releases, never "latest": a report months old has to stay explicable. */}}
+  Registries__AgentRelease: {{ .Values.releases.agent | quote }}
+  Registries__PromptRelease: {{ .Values.releases.prompt | quote }}
+  Registries__ModelRelease: {{ .Values.releases.model | quote }}
+  Registries__ToolRelease: {{ .Values.releases.tool | quote }}
+  Registries__PolicyRelease: {{ .Values.releases.policy | quote }}
+  Registries__FlagRelease: {{ .Values.releases.flag | quote }}
+
+  Llm__Provider: scripted
+  Llm__LogRenderedPrompts: "false"
+
+  Observability__UseFakeProviders: {{ .Values.observability.useFakeProviders | quote }}
+
+  Telemetry__OtlpEndpoint: {{ .Values.telemetry.otlpEndpoint | quote }}
+  Telemetry__HttpSamplingRatio: {{ .Values.telemetry.httpSamplingRatio | quote }}
+  Telemetry__EnablePrometheusEndpoint: "true"
+
+  Workflow__Engine: {{ .Values.workflow.engine | quote }}
+  Workflow__TemporalHostPort: {{ .Values.workflow.hostPort | quote }}
+  Workflow__TemporalNamespace: {{ .Values.workflow.namespace | quote }}
+  Workflow__TaskQueue: {{ .Values.workflow.taskQueue | quote }}
+  Workflow__DeadlineSeconds: {{ .Values.workflow.deadlineSeconds | quote }}
+
+  {{- /* Off in production: replicas racing for the migration lock is a
+         deployment failure that looks like a flake. */}}
+  Database__MigrateOnStartup: "false"
+
+  Security__AllowDevelopmentAuthentication: "false"

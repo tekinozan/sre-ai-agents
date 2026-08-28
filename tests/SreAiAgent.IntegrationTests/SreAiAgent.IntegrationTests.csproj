@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The behaviours that only a real database can demonstrate: SKIP LOCKED, unique
+    indexes deciding a race, JSONB round trips and optimistic concurrency. An
+    in-memory provider agrees with whatever the code does, which is precisely why
+    it cannot answer any of these.
+
+    Everything here carries Category=Integration, so the ordinary CI run skips it
+    and a machine without a Docker daemon is not blocked.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SreAiAgent.Infrastructure\SreAiAgent.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Testcontainers.PostgreSql" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,68 @@
+# Defaults suitable for a non-production cluster.
+#
+# Anything that must differ in production is either empty here or annotated. A
+# chart whose defaults happen to be production-safe teaches people not to read
+# the values, and the first time that is wrong it is wrong silently.
+
+image:
+  registry: sre-ai-agent
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+# Referenced, never created by the chart. Section 13 keeps production secrets in
+# a managed store; the chart only names the Secret it reads.
+existingSecret: sre-ai-agent
+
+releases:
+  agent: agents-2026.08.25.1
+  prompt: sre-prompts-2026.08.25.1
+  model: models-2026.08.25.1
+  tool: tools-2026.08.25.1
+  policy: policies-2026.08.25.1
+  flag: flags-2026.08.25.1
+
+telemetry:
+  otlpEndpoint: http://otel-collector.observability:4317
+  # Applies to HTTP ingress only. Investigations are always sampled in full.
+  httpSamplingRatio: "0.1"
+
+workflow:
+  engine: temporal
+  hostPort: temporal-frontend.temporal:7233
+  namespace: sre-ai-agent
+  taskQueue: sre-investigation
+  deadlineSeconds: "600"
+
+observability:
+  # V1 ships deterministic fakes; the real adapters are not built yet and the
+  # host refuses to start if this is false (docs/DECISIONS.md D09).
+  useFakeProviders: true
+
+api:
+  replicas: 2
+  resources:
+    requests: {cpu: 200m, memory: 256Mi}
+    # No CPU limit: throttling a latency-sensitive request host buys nothing the
+    # request quota does not already give.
+    limits: {memory: 512Mi}
+  autoscaling: {enabled: true, minReplicas: 2, maxReplicas: 10, targetCpu: 70}
+
+alertWorker:
+  replicas: 2
+  resources:
+    requests: {cpu: 200m, memory: 256Mi}
+    limits: {memory: 512Mi}
+
+investigationWorker:
+  replicas: 2
+  resources:
+    requests: {cpu: 500m, memory: 512Mi}
+    limits: {memory: 1Gi}
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 20
+    # CPU is a floor, not the right signal. An agent waiting on a model call is
+    # idle by every CPU measure while the backlog grows, so replace this with
+    # consumer lag once a metrics adapter exists (ARCHITECTURE.md 19.2).
+    targetCpu: 70
