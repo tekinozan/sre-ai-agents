@@ -10,6 +10,10 @@ The full design, including every decision this repository implements, is in
 [ARCHITECTURE.md](ARCHITECTURE.md). Implementation decisions and their rationale
 are recorded in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+If you are a coding agent, or directing one, start at [AGENTS.md](AGENTS.md): it
+carries the rules the build enforces, the ones that fail silently, and pointers to
+the task recipes in [docs/agents/](docs/agents/).
+
 ## Layout
 
 | Path | Purpose |
@@ -41,8 +45,14 @@ assemblies.
 ```bash
 dotnet build SreAiAgent.slnx
 dotnet test  SreAiAgent.slnx
-eng/ci.sh                      # the full CI gate
-eng/ci.sh --with-integration   # plus Testcontainers-backed integration tests
+bash eng/ci.sh                 # the full CI gate
+bash eng/ci.sh --with-integration   # plus Testcontainers-backed integration tests
+```
+
+On Windows without bash, `eng/ci.ps1` runs the same steps in the same order:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File eng/ci.ps1
 ```
 
 `dotnet restore --locked-mode` is part of the gate, so adding or changing a

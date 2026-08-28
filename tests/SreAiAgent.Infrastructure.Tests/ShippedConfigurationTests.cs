@@ -1,3 +1,5 @@
+using System.Text.Json;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -7,6 +9,7 @@ using SreAiAgent.Application.Agents;
 using SreAiAgent.Application.Prompting;
 using SreAiAgent.Domain.Remediation;
 using SreAiAgent.Domain.Shared;
+using SreAiAgent.Infrastructure.Llm;
 
 namespace SreAiAgent.Infrastructure.Tests;
 
@@ -148,11 +151,11 @@ public sealed class ShippedConfigurationTests : IAsyncLifetime
         // YAML scalars arrive as strings. A `maximum: 360` left as "360" is not
         // applied by any JSON Schema implementation, so the bound would silently
         // stop existing.
-        System.Text.Json.JsonElement window = descriptor.Definition.ParameterSchema
+        JsonElement window = descriptor.Definition.ParameterSchema
             .GetProperty("properties")
             .GetProperty("window_minutes");
 
-        window.GetProperty("maximum").ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Number);
+        window.GetProperty("maximum").ValueKind.ShouldBe(JsonValueKind.Number);
         window.GetProperty("maximum").GetInt32().ShouldBe(360);
         window.GetProperty("type").GetString().ShouldBe("integer");
     }
@@ -168,6 +171,56 @@ public sealed class ShippedConfigurationTests : IAsyncLifetime
         policy.Timeouts.Tool.ShouldBeLessThan(policy.Timeouts.Agent);
         policy.Timeouts.Agent.ShouldBeLessThan(policy.Timeouts.Workflow);
         policy.RiskCeiling.ShouldBe(RiskLevel.ReadOnly);
+    }
+
+    [Fact]
+    public void EveryReleasedAgentIsDeclaredInTheFlagRelease()
+    {
+        // Not one of the six checks in 7.1, and the only one here that a broken
+        // release does not announce. The flag file's defaults are
+        // state: disabled, so an agent released without a flag entry loads,
+        // passes startup validation and then never participates in anything.
+        IReadOnlyDictionary<string, string> declared =
+            _host.Services.GetRequiredService<IAgentFlagEvaluator>().DeclaredStates();
+
+        string[] undeclared = [.. _host.Services.GetRequiredService<IAgentRegistry>().All
+            .Where(agent => !declared.ContainsKey($"{agent.Name}:{agent.Version}"))
+            .Select(static agent => agent.Reference)];
+
+        undeclared.ShouldBeEmpty(
+            "An agent missing from the flag release inherits the file's defaults, which "
+            + "disable it in every environment. Nothing else in the platform reports this.");
+    }
+
+    [Fact]
+    public async Task TheScriptedProviderCanExerciseEveryReleasedAgent()
+    {
+        ScriptedChatClient client = new(TimeProvider.System);
+        List<string> unreachable = [];
+
+        foreach (AgentDefinition agent in _host.Services.GetRequiredService<IAgentRegistry>().All)
+        {
+            // The scripted provider chooses what to request from the tool names
+            // it finds in the prompt, which is what a real model does too. An
+            // agent whose entire allowlist is unknown to it asks for nothing,
+            // gathers no evidence and returns no finding — and because that is a
+            // valid, empty turn, nothing anywhere reports a problem.
+            ChatResponse response = await client.GetResponseAsync(
+                [new ChatMessage(ChatRole.User, $"available_tools: {string.Join(", ", agent.AllowedTools)}")],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            AgentTurn? turn = JsonSerializer.Deserialize(response.Text, LlmJsonContext.Default.AgentTurn);
+
+            if (turn?.ToolRequests is not { Count: > 0 })
+            {
+                unreachable.Add(agent.Reference);
+            }
+        }
+
+        unreachable.ShouldBeEmpty(
+            "V1 ships one IChatClient and it is scripted (docs/DECISIONS.md D09), so an "
+            + "agent it does not recognise spends its budget and produces nothing. Teach "
+            + "ScriptedChatClient about at least one tool the agent is allowed.");
     }
 
     private static IHost BuildHost()
