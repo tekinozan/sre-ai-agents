@@ -1,0 +1,69 @@
+# Real observability backends, layered over the base stack.
+#
+#   docker compose -f deploy/docker/compose.yaml \
+#                  -f deploy/docker/compose.observability.yaml up -d --build
+#
+# The base stack deliberately stays on the fakes. They produce one coherent
+# incident — a pool filling, latency following, errors after both — and the
+# vertical slice is deterministic because of it. Swapping that for an empty
+# Prometheus by default would make the local run prove less, not more.
+#
+# What this overlay is for is the other half of the discipline: an adapter that
+# compiles and passes its stub tests has not been shown to send a query
+# Prometheus accepts. Nothing here seeds data, so an investigation run against
+# this stack finds nothing and says so — which is itself worth seeing, because
+# "no evidence" and "no answer" have to look different in the report.
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      # Lets a test or a script push synthetic series in rather than waiting for
+      # a scrape target to produce them, which is the only way to make the data
+      # under an assertion deterministic.
+      - --web.enable-remote-write-receiver
+      - --storage.tsdb.retention.time=1h
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  loki:
+    image: grafana/loki:3.3.2
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    ports:
+      - "3100:3100"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3100/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    environment: &real-observability
+      Observability__MetricsProvider: prometheus
+      Observability__LogProvider: loki
+      Observability__PrometheusBaseAddress: http://prometheus:9090/
+      Observability__LogBackendBaseAddress: http://loki:3100/
+      # Kubernetes stays fake: there is no cluster here, and `incluster` would
+      # fail at construction rather than degrade.
+      Observability__KubernetesProvider: fake
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+
+  investigation-worker:
+    environment: *real-observability
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_healthy

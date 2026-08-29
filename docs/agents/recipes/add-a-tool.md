@@ -44,9 +44,26 @@ Numeric constraints must stay numeric. YAML scalars arrive as strings, and a
 implementation, so the bound silently stops existing.
 `ShippedConfigurationTests` asserts this.
 
-**2. `config/tools/releases/tools-<date>.yaml`** — pin the version.
+**2. `provider_expressions`, in the same file** — if the tool selects from an
+enumerated list that the backend expresses in a query language.
 
-**3. `src/SreAiAgent.Infrastructure/Tools/Adapters/`** — implement `IToolAdapter`.
+```yaml
+provider_expressions:
+  some_metric: 'sum(rate(some_metric_total{{selector}}[5m]))'
+```
+
+`{{selector}}` expands to the whole brace-enclosed label matcher, escaped by the
+adapter. It is the only point where anything a model supplied enters the query,
+and an expression without it carries no matcher at all — it answers for every
+service in every environment, and nothing downstream notices.
+
+Startup validation requires one expression per enumerated value, no expression
+for a value the schema does not offer, and identical expressions where two tools
+of the same provider answer the same selector.
+
+**3. `config/tools/releases/tools-<date>.yaml`** — pin the version.
+
+**4. `src/SreAiAgent.Infrastructure/Tools/Adapters/`** — implement `IToolAdapter`.
 
 ```csharp
 internal sealed class PrometheusLabelsAdapter(IMetricsProvider metrics) : IToolAdapter
@@ -70,13 +87,13 @@ work out the shape of a payload before it can reason about the incident. Set
 `IsPartial` when the backend answered from incomplete data, or an agent will read
 "no errors" from a partial scrape.
 
-**4. Narrow the result** in `Tools/Adapters/ToolResultEnvelopes.cs` and add the
+**5. Narrow the result** in `Tools/Adapters/ToolResultEnvelopes.cs` and add the
 envelope type to the context in that file. The result has to survive the size cap,
 pass through redaction and then fit in a prompt alongside every other piece of
 evidence. Downsample here, where the shape is understood, rather than leaving a
 byte-count truncation to cut a JSON document in half.
 
-**5. `ToolsDependencyInjection.AddSreTools`** — register the adapter.
+**6. `ToolsDependencyInjection.AddSreTools`** — register the adapter.
 
 ```csharp
 services.AddSingleton<IToolAdapter, PrometheusLabelsAdapter>();
@@ -85,12 +102,12 @@ services.AddSingleton<IToolAdapter, PrometheusLabelsAdapter>();
 Registered one by one on purpose, not by assembly scanning: which components can
 reach a production system should be visible in a diff.
 
-**6. `config/agents/*.yaml`** — grant it to the experts that should have it.
+**7. `config/agents/*.yaml`** — grant it to the experts that should have it.
 
 An allowlist. A tool added to the registry today is unavailable to every agent
 until someone grants it deliberately.
 
-**7. `ScriptedChatClient.cs`** — make the fake model request it, if you want the
+**8. `ScriptedChatClient.cs`** — make the fake model request it, if you want the
 tool exercised end to end.
 
 ## What happens if you skip one
@@ -98,6 +115,7 @@ tool exercised end to end.
 | Skipped | Result |
 |---|---|
 | Tool release entry | An agent allowing it fails startup validation. Loud. |
+| A `provider_expressions` entry | Startup validation names the selector with no expression. Loud. |
 | Adapter or its registration | `TOOL_NOT_FOUND` at call time; the run continues without that evidence |
 | Agent allowlist | `TOOL_POLICY_DENIED`, audited. The gateway working as designed |
 | Result envelope | The raw backend payload competes with evidence for prompt space |

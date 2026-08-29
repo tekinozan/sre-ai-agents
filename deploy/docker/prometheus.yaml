@@ -1,0 +1,10 @@
+# Minimal Prometheus for the local overlay.
+#
+# No scrape targets on purpose. Series arrive through the remote-write receiver,
+# because a test that waits for a scrape interval to produce the data it then
+# asserts on is a test that fails on a slow machine.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs: []

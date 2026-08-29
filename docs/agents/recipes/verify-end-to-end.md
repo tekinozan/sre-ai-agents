@@ -20,6 +20,19 @@ PostgreSQL 17, Redpanda, Temporal with its own store, the OpenTelemetry collecto
 Jaeger, the API and both workers. `Workflow__Engine` is `temporal`, so this
 exercises the durable path rather than the inline development executor.
 
+The observability providers stay on the fakes here, deliberately: they produce
+one coherent incident, and the assertions below are stable because of it. To
+exercise the real Prometheus and Loki adapters instead, add the overlay:
+
+```bash
+docker compose -f deploy/docker/compose.yaml \
+               -f deploy/docker/compose.observability.yaml up -d --build
+```
+
+Nothing seeds those backends, so an investigation against them finds no evidence
+and should say so. That is worth seeing once: "no evidence" and "no answer" have
+to read differently in a report.
+
 | What | Where |
 |---|---|
 | API | http://localhost:8080 |
