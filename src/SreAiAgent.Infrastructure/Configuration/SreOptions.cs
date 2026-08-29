@@ -180,6 +180,32 @@ public sealed class ObservabilityOptions
     /// <summary>Kubernetes namespaces this deployment may inspect, keyed by cluster.</summary>
     public IReadOnlyDictionary<string, string> KubernetesNamespaceByCluster { get; init; } =
         new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Per-request timeout for a backend call. Must stay below the tool timeout
+    /// in the tool artifact, which is itself below the agent timeout
+    /// (ARCHITECTURE.md 11.3).
+    /// </summary>
+    [Range(1, 60)]
+    public int RequestTimeoutSeconds { get; init; } = 8;
+
+    /// <summary>Floor on metric resolution, matching the tool schema's minimum.</summary>
+    [Range(1, 3600)]
+    public int MinStepSeconds { get; init; } = 15;
+
+    /// <summary>
+    /// Point budget per series. A legal step and a legal window still multiply,
+    /// and Prometheus refuses a range query above eleven thousand points.
+    /// </summary>
+    [Range(1, 11000)]
+    public int MaxPointsPerSeries { get; init; } = 720;
+
+    /// <summary>
+    /// Series budget. A query that fans out across every pod would crowd the
+    /// evidence that matters out of the prompt.
+    /// </summary>
+    [Range(1, 500)]
+    public int MaxSeries { get; init; } = 20;
 }
 
 /// <summary>OpenTelemetry export configuration.</summary>
