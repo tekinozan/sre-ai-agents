@@ -28,11 +28,18 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
     public List<Uri> Requests { get; } = [];
 
     /// <summary>The decoded value of a query string parameter from the last call.</summary>
-    public string Parameter(string name)
+    public string Parameter(string name) => Parameter(name, Requests.Count - 1);
+
+    /// <summary>
+    /// The same, from one particular call. An adapter that asks a backend more
+    /// than one question per operation — Loki needs a second request for the
+    /// match count — would otherwise only ever be asserted on its last.
+    /// </summary>
+    public string Parameter(string name, int requestIndex)
     {
         Requests.ShouldNotBeEmpty();
 
-        foreach (string pair in Requests[^1].Query.TrimStart('?').Split('&'))
+        foreach (string pair in Requests[requestIndex].Query.TrimStart('?').Split('&'))
         {
             int separator = pair.IndexOf('=', StringComparison.Ordinal);
             if (separator > 0 && string.Equals(pair[..separator], name, StringComparison.Ordinal))
@@ -41,7 +48,7 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
             }
         }
 
-        throw new InvalidOperationException($"No '{name}' parameter in '{Requests[^1]}'.");
+        throw new InvalidOperationException($"No '{name}' parameter in '{Requests[requestIndex]}'.");
     }
 
     protected override Task<HttpResponseMessage> SendAsync(

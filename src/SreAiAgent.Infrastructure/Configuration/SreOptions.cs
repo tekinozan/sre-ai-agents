@@ -206,6 +206,14 @@ public sealed class ObservabilityOptions
     /// </summary>
     [Range(1, 500)]
     public int MaxSeries { get; init; } = 20;
+
+    /// <summary>
+    /// Entry budget for a log search, applied on top of the tool schema's own
+    /// limit. The count of matches is reported separately, so trimming the page
+    /// does not hide how much there was.
+    /// </summary>
+    [Range(1, 1000)]
+    public int MaxLogEntries { get; init; } = 200;
 }
 
 /// <summary>OpenTelemetry export configuration.</summary>

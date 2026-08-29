@@ -62,4 +62,36 @@ internal sealed class PrometheusSeries
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     GenerationMode = JsonSourceGenerationMode.Default)]
 [JsonSerializable(typeof(PrometheusResponse))]
+[JsonSerializable(typeof(LokiResponse))]
 internal sealed partial class ObservabilityJsonContext : JsonSerializerContext;
+
+// Loki's response, modelled only as far as this platform reads it. Log lines
+// arrive as ["<nanoseconds as string>", "<line>"] and metric samples as
+// [<seconds as number>, "<value>"], so both stay as JsonElement.
+
+internal sealed class LokiResponse
+{
+    public string? Status { get; init; }
+
+    public LokiData? Data { get; init; }
+}
+
+internal sealed class LokiData
+{
+    public string? ResultType { get; init; }
+
+    public List<LokiStream>? Result { get; init; }
+}
+
+internal sealed class LokiStream
+{
+    /// <summary>Stream labels, present on a log query.</summary>
+    public Dictionary<string, string>? Stream { get; init; }
+
+    /// <summary>Series labels, present on a metric query such as the count.</summary>
+    public Dictionary<string, string>? Metric { get; init; }
+
+    public List<List<JsonElement>>? Values { get; init; }
+
+    public List<JsonElement>? Value { get; init; }
+}

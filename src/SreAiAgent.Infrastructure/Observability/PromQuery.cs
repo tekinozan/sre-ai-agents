@@ -72,8 +72,8 @@ internal static class PromQuery
         ArgumentNullException.ThrowIfNull(labels);
 
         StringBuilder builder = new(64);
-        builder.Append("{service=\"").Append(EscapeValue(service, "service"))
-            .Append("\",environment=\"").Append(EscapeValue(environment, "environment"))
+        builder.Append("{service=\"").Append(EscapeLiteral(service, "service"))
+            .Append("\",environment=\"").Append(EscapeLiteral(environment, "environment"))
             .Append('"');
 
         foreach ((string name, string value) in labels.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
@@ -93,7 +93,7 @@ internal static class PromQuery
                     $"Label name '{name}' is not a legal identifier. Expected [a-zA-Z_][a-zA-Z0-9_]*.");
             }
 
-            builder.Append(',').Append(name).Append("=\"").Append(EscapeValue(value, name)).Append('"');
+            builder.Append(',').Append(name).Append("=\"").Append(EscapeLiteral(value, name)).Append('"');
         }
 
         return builder.Append('}').ToString();
@@ -117,7 +117,16 @@ internal static class PromQuery
         return true;
     }
 
-    private static string EscapeValue(string value, string name)
+    /// <summary>
+    /// Escapes a value for a double-quoted string literal.
+    /// </summary>
+    /// <remarks>
+    /// Shared with the Loki adapter: LogQL uses PromQL's label matcher and string
+    /// literal syntax, so one escaping routine covers both. Keeping it in one
+    /// place matters more than the name reading perfectly from Loki's side —
+    /// two copies of this would be two chances to get it wrong.
+    /// </remarks>
+    public static string EscapeLiteral(string value, string name)
     {
         StringBuilder escaped = new(value.Length + 8);
 
