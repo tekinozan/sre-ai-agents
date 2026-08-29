@@ -166,10 +166,29 @@ public sealed class ObservabilityOptions
     public const string SectionName = "Observability";
 
     /// <summary>
-    /// Use in-memory fake adapters instead of real backends. Local development
-    /// does not reach production observability endpoints (ARCHITECTURE.md 19.3).
+    /// Replaced by the per-port selectors below. Nullable so that a configuration
+    /// still setting it fails startup instead of silently getting the defaults.
     /// </summary>
-    public bool UseFakeProviders { get; init; }
+    /// <remarks>
+    /// One switch could not express the state this platform is actually in, where
+    /// some ports have a real adapter and others do not. Left as a plain bool it
+    /// would be indistinguishable from unset, and a deployment that meant
+    /// <c>false</c> would quietly investigate fabricated data — the exact outcome
+    /// the original guard existed to prevent.
+    /// </remarks>
+    public bool? UseFakeProviders { get; init; }
+
+    /// <summary>Metrics backend: <c>fake</c> or <c>prometheus</c>.</summary>
+    [Required(AllowEmptyStrings = false)]
+    public string MetricsProvider { get; init; } = ObservabilityProviders.Fake;
+
+    /// <summary>Log backend: <c>fake</c> or <c>loki</c>.</summary>
+    [Required(AllowEmptyStrings = false)]
+    public string LogProvider { get; init; } = ObservabilityProviders.Fake;
+
+    /// <summary>Kubernetes backend: <c>fake</c>. No real adapter exists yet.</summary>
+    [Required(AllowEmptyStrings = false)]
+    public string KubernetesProvider { get; init; } = ObservabilityProviders.Fake;
 
     public string? PrometheusBaseAddress { get; init; }
 
@@ -256,4 +275,22 @@ public sealed class OutboxOptions
     /// <summary>Attempts before a message is dead-lettered rather than retried forever.</summary>
     [Range(1, 20)]
     public int MaxAttempts { get; init; } = 8;
+}
+
+/// <summary>The accepted values of the per-port observability selectors.</summary>
+/// <remarks>
+/// Named constants rather than an enum because these are configuration strings an
+/// operator types into a ConfigMap, and a binding failure on an enum reports the
+/// property rather than the value that was wrong.
+/// </remarks>
+public static class ObservabilityProviders
+{
+    public const string Fake = "fake";
+
+    public const string Prometheus = "prometheus";
+
+    public const string Loki = "loki";
+
+    /// <summary>Reads pods and events from the API server of the cluster it runs in.</summary>
+    public const string InCluster = "incluster";
 }

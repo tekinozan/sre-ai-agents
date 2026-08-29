@@ -21,7 +21,12 @@ x-platform-env: &platform-env
   Kafka__BootstrapServers: redpanda:9092
   Registries__ConfigurationRoot: /app/config
   Registries__PromptRoot: /app/prompts
-  Observability__UseFakeProviders: "true"
+  # The local stack stays on the fakes: they produce one coherent incident, and
+  # the vertical slice is deterministic because of it. Real backends come from
+  # the compose.observability.yaml overlay.
+  Observability__MetricsProvider: "fake"
+  Observability__LogProvider: "fake"
+  Observability__KubernetesProvider: "fake"
   Telemetry__OtlpEndpoint: http://otel-collector:4317
   # Every trace is kept locally. The ratio exists to protect a production
   # tracing backend from ingress volume, and there is none of either here; what

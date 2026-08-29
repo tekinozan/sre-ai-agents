@@ -32,7 +32,12 @@ data:
   # investigation of the platform itself.
   Llm__LogRenderedPrompts: "false"
 
-  Observability__UseFakeProviders: "true"
+  # Fakes, and therefore not a Production configuration — the host refuses to
+  # start with any fake provider when ASPNETCORE_ENVIRONMENT is Production.
+  # Kubernetes has no real adapter yet, so that refusal is currently correct.
+  Observability__MetricsProvider: "fake"
+  Observability__LogProvider: "fake"
+  Observability__KubernetesProvider: "fake"
 
   Telemetry__OtlpEndpoint: http://otel-collector.observability:4317
   # Investigations are sampled in full regardless of this; it applies to HTTP

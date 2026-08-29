@@ -82,8 +82,8 @@ Do not read `ARCHITECTURE.md` end to end — it is 1,800 lines. Go by section.
 | Question | File |
 |---|---|
 | How do I do this specific task? | `docs/agents/recipes/` — start here |
-| Where does this live, which of the five JSON contexts? | `docs/agents/MAP.md` |
-| Why is it built this way? | `docs/DECISIONS.md`, D01–D29 |
+| Where does this live, which of the six JSON contexts? | `docs/agents/MAP.md` |
+| Why is it built this way? | `docs/DECISIONS.md`, D01–D32 |
 | What has bitten us before? | `docs/agents/PITFALLS.md` |
 | It is broken and I am operating it | `docs/RUNBOOK.md` |
 | What is the intended design? | `ARCHITECTURE.md`, by section number |

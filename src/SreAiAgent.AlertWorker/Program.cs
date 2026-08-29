@@ -17,7 +17,7 @@ builder.Services
     .AddSreRegistries()
     .AddSreMetrics()
     .AddSreLlm()
-    .AddSreObservability()
+    .AddSreObservability(builder.Environment)
     .AddSreTools()
     .AddSrePersistence()
     .AddSreApplication()

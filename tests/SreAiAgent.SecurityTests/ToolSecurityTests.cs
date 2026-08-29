@@ -33,7 +33,7 @@ public sealed class ToolSecurityTests
             ["Registries:PolicyRelease"] = "policies-2026.08.25.1",
             ["Registries:FlagRelease"] = "flags-2026.08.25.1",
             ["Llm:Provider"] = "scripted",
-            ["Observability:UseFakeProviders"] = "true",
+            ["Observability:MetricsProvider"] = "fake",
         });
 
         builder.Services.AddLogging();
@@ -41,7 +41,7 @@ public sealed class ToolSecurityTests
             .AddSreConfiguration(builder.Configuration)
             .AddSreRegistries()
             .AddSreMetrics()
-            .AddSreObservability()
+            .AddSreObservability(builder.Environment)
             .AddSreTools();
 
         return builder.Services.BuildServiceProvider();

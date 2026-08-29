@@ -36,7 +36,7 @@ Infrastructure types are `internal`. Test projects see them through
 
 ---
 
-## The five JSON contexts
+## The six JSON contexts
 
 Reflection-based serialization is banned (D10), so every serialized type belongs
 to exactly one generated context. Picking the wrong one produces a runtime
@@ -49,6 +49,7 @@ failure that names a type but not a remedy.
 | `WorkflowPayloadJson` | `Workflow/Temporal/` | Every activity argument and result, because Temporal writes them into workflow history |
 | `JsonbConverters` | `Infrastructure/Persistence/` | Types stored in a `jsonb` column |
 | `ToolResultEnvelopes` | `Infrastructure/Tools/Adapters/` | The narrowed JSON an agent sees for a tool result |
+| `ObservabilityJsonContext` | `Infrastructure/Observability/` | The shape of somebody else's API: Prometheus and Loki responses |
 
 A type can need more than one. An activity result that is also persisted as
 `jsonb` and also returned over HTTP belongs in three.
@@ -89,7 +90,7 @@ container fails to build, or worse, how a host quietly acquires a capability.
 | `AddSreRegistries` | Prompt, model, agent, tool, flag, policy registries and the startup validator | same |
 | `AddSreLlm` | `LlmGateway` and the scripted `IChatClient` | same |
 | `AddSreTools` | Tool gateway, policy engine, rate limiter, adapters | `ToolsDependencyInjection.cs` |
-| `AddSreObservability` | Observability providers; refuses non-fake providers in V1 | same |
+| `AddSreObservability` | Observability providers, selected per port; refuses a fake in Production and a real one with no address | same |
 | `AddSrePersistence` | Pooled `SreDbContext`, repositories, queries, outbox and inbox stores | `PersistenceDependencyInjection.cs` |
 | `AddSreOutboxDispatcher` | The dispatcher background service | `MessagingDependencyInjection.cs` |
 | `AddSreAlertIngestion` | The four alert source adapters and the normalizer | same |

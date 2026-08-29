@@ -244,3 +244,53 @@ already running.
 It carries the analyzer severities. Without it in the Docker build context the
 container build applies defaults the repository has deliberately turned off and
 fails on rules CI never runs.
+
+### D30 — The backend expression lives in the tool artifact
+
+`config/tools/prometheus.query*.yaml` carries a `provider_expressions` block
+beside the enum of metrics it offers. A separate metrics-catalogue release read
+tidier and would have forced three appsettings files, compose, the ConfigMap, the
+Helm values and template and three test hosts to change before anything could
+start, because every field on `RegistryOptions` is `[Required]` with
+`ValidateOnStart`. The list of permitted metrics already existed as the enum;
+two lists of one thing in two files drift.
+
+The objection is that configuration stops being backend-neutral. It never was:
+these artifacts already declare `provider: prometheus`.
+
+**Cost:** the enum and its expressions can disagree, so startup validation gained
+a seventh check covering coverage, dead expressions, and two tools answering one
+selector differently.
+
+### D31 — One escaping routine, shared by PromQL and LogQL
+
+LogQL uses PromQL's label matcher and string literal syntax, so `PromQuery`
+serves both. The name reads oddly from Loki's side and that was accepted: two
+copies would be two chances to get it wrong, and they would drift the first time
+one was fixed.
+
+Two cases refuse rather than escape. A label named `service` or `environment` is
+rejected, because the policy engine checks the `service` *argument* against the
+execution allowlist and has no reason to look inside `labels` — an agent scoped
+to one service could otherwise read another with every authorization check
+having passed. An illegal label name is rejected because dropping it would widen
+the query rather than narrow it.
+
+### D32 — Observability providers are selected per port, and Production refuses a fake
+
+`Observability:UseFakeProviders` became `MetricsProvider`, `LogProvider` and
+`KubernetesProvider`. One switch could not describe the state the platform is
+actually in, where metrics and logs have real adapters and Kubernetes does not.
+
+The old key is kept as a nullable property whose only job is to fail startup. A
+plain `bool` cannot distinguish unset from `false`, and options binding ignores
+keys it does not know, so a deployment that meant "use real backends" would have
+silently taken the fake defaults — the exact outcome the original guard existed
+to prevent.
+
+The guard now runs in both directions: a real provider with no address is
+refused, and so is any fake provider in Production.
+
+**Cost:** since Kubernetes has no real adapter, Production is not currently a
+startable configuration. That is the honest state rather than a regression, and
+it is better said at deploy time than discovered in a report.

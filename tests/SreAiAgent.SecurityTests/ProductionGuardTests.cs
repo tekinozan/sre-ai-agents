@@ -1,6 +1,9 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using SreAiAgent.Api.Security;
+using SreAiAgent.Infrastructure;
 using SreAiAgent.Infrastructure.Configuration;
 
 namespace SreAiAgent.SecurityTests;
@@ -69,6 +72,70 @@ public sealed class ProductionGuardTests
                 Audience = "sre-ai-agent",
             },
             new Environment("Production")));
+    }
+
+    [Fact]
+    public void FakeObservabilityProvidersCannotBeUsedInProduction()
+    {
+        // The mirror of the original guard. That one stopped a real backend being
+        // asked for before an adapter existed; this one stops the reverse, which
+        // is worse: an investigation reporting real conclusions from fabricated
+        // data reads exactly like a real one.
+        OptionsValidationException failure = Should.Throw<OptionsValidationException>(
+            () => Observability("Production", ("MetricsProvider", "fake")).Value);
+
+        failure.Message.ShouldContain("fake observability provider cannot be used in Production");
+    }
+
+    [Fact]
+    public void TheRemovedFakeProviderSwitchFailsStartupRatherThanBeingIgnored()
+    {
+        // Options binding ignores keys it does not know, so a deployment carrying
+        // the old switch would silently take the defaults. Since the defaults are
+        // the fakes, a configuration that meant "use real backends" would quietly
+        // investigate fabricated data.
+        OptionsValidationException failure = Should.Throw<OptionsValidationException>(
+            () => Observability("Development", ("UseFakeProviders", "false")).Value);
+
+        failure.Message.ShouldContain("UseFakeProviders no longer exists");
+    }
+
+    [Fact]
+    public void ARealMetricsProviderWithoutAnAddressIsRefused()
+    {
+        // Registering it anyway would defer the failure to the first tool call,
+        // where it becomes one unexplained piece of missing evidence in an
+        // investigation rather than a deploy that did not happen.
+        Should.Throw<OptionsValidationException>(
+            () => Observability("Development", ("MetricsProvider", "prometheus")).Value);
+    }
+
+    [Fact]
+    public void TheFakesRemainTheDefaultOutsideProduction()
+    {
+        ObservabilityOptions options = Observability("Development").Value;
+
+        options.MetricsProvider.ShouldBe(ObservabilityProviders.Fake);
+        options.LogProvider.ShouldBe(ObservabilityProviders.Fake);
+    }
+
+    private static IOptions<ObservabilityOptions> Observability(
+        string environmentName,
+        params (string Key, string Value)[] settings)
+    {
+        ServiceCollection services = [];
+
+        IConfiguration configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(settings.ToDictionary(
+                static setting => "Observability:" + setting.Key,
+                static setting => (string?)setting.Value,
+                StringComparer.Ordinal))
+            .Build();
+
+        services.AddOptions<ObservabilityOptions>().Bind(configuration.GetSection("Observability"));
+        services.AddSreObservability(new Environment(environmentName));
+
+        return services.BuildServiceProvider().GetRequiredService<IOptions<ObservabilityOptions>>();
     }
 
     [Fact]

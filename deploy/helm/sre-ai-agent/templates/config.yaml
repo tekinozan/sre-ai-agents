@@ -23,7 +23,15 @@ data:
   Llm__Provider: scripted
   Llm__LogRenderedPrompts: "false"
 
-  Observability__UseFakeProviders: {{ .Values.observability.useFakeProviders | quote }}
+  Observability__MetricsProvider: {{ .Values.observability.metricsProvider | quote }}
+  Observability__LogProvider: {{ .Values.observability.logProvider | quote }}
+  Observability__KubernetesProvider: {{ .Values.observability.kubernetesProvider | quote }}
+  {{- with .Values.observability.prometheusBaseAddress }}
+  Observability__PrometheusBaseAddress: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.observability.logBackendBaseAddress }}
+  Observability__LogBackendBaseAddress: {{ . | quote }}
+  {{- end }}
 
   Telemetry__OtlpEndpoint: {{ .Values.telemetry.otlpEndpoint | quote }}
   Telemetry__HttpSamplingRatio: {{ .Values.telemetry.httpSamplingRatio | quote }}

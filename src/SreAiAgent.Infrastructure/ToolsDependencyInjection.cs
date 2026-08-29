@@ -1,5 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using SreAiAgent.Application.Abstractions.Observability;
 using SreAiAgent.Application.Abstractions.Tools;
 using SreAiAgent.Infrastructure.Configuration;
@@ -18,31 +20,77 @@ public static class ToolsDependencyInjection
     /// Registers the observability backends (ARCHITECTURE.md 19.3).
     /// </summary>
     /// <remarks>
-    /// V1 ships deterministic fakes only, and this method fails fast rather than
-    /// silently substituting them when real providers are asked for. A platform
-    /// that quietly investigated fabricated data while reporting real conclusions
-    /// would be worse than one that refuses to start, and the refusal is visible
-    /// during a deploy.
+    /// Selection is per port, not one switch, because the ports are not all in
+    /// the same state: metrics and logs have real adapters, Kubernetes and
+    /// database observability do not. A single boolean could not say that, and
+    /// the honest consequence is that Production is not yet a startable
+    /// configuration — which this refuses loudly rather than papering over.
     ///
-    /// The real Prometheus, log and Kubernetes adapters plug in here behind the
-    /// same ports; nothing above this line changes when they arrive.
+    /// The validation runs in both directions. A real provider with no address
+    /// fails, and so does a fake provider in Production: an investigation that
+    /// reported real conclusions from fabricated data is worse than one that
+    /// never ran, and the refusal is visible during a deploy rather than during
+    /// an incident.
     /// </remarks>
-    public static IServiceCollection AddSreObservability(this IServiceCollection services)
+    public static IServiceCollection AddSreObservability(
+        this IServiceCollection services,
+        IHostEnvironment environment)
     {
         ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(environment);
 
         services.AddOptions<ObservabilityOptions>()
             .Validate(
-                static options => options.UseFakeProviders,
-                "Observability:UseFakeProviders must be true. V1 implements deterministic fake providers "
-                + "only; the real backend adapters are not built yet, and silently investigating fabricated "
-                + "data while reporting real conclusions is worse than refusing to start.")
+                static options => options.UseFakeProviders is null,
+                "Observability:UseFakeProviders no longer exists. Set Observability:MetricsProvider "
+                + "(fake|prometheus), Observability:LogProvider (fake|loki) and "
+                + "Observability:KubernetesProvider (fake) instead. Ignoring the old key would mean a "
+                + "deployment that asked for real backends silently getting fabricated data.")
+            .Validate(
+                static options => options.MetricsProvider is ObservabilityProviders.Fake
+                    or ObservabilityProviders.Prometheus,
+                "Observability:MetricsProvider must be 'fake' or 'prometheus'.")
+            .Validate(
+                static options => options.LogProvider is ObservabilityProviders.Fake
+                    or ObservabilityProviders.Loki,
+                "Observability:LogProvider must be 'fake' or 'loki'.")
+            .Validate(
+                static options => options.KubernetesProvider is ObservabilityProviders.Fake,
+                "Observability:KubernetesProvider must be 'fake'. No real Kubernetes adapter exists yet.")
+            .Validate(
+                static options => options.MetricsProvider != ObservabilityProviders.Prometheus
+                    || !string.IsNullOrWhiteSpace(options.PrometheusBaseAddress),
+                "Observability:PrometheusBaseAddress is required when the metrics provider is 'prometheus'.")
+            .Validate(
+                static options => options.LogProvider != ObservabilityProviders.Loki
+                    || !string.IsNullOrWhiteSpace(options.LogBackendBaseAddress),
+                "Observability:LogBackendBaseAddress is required when the log provider is 'loki'.")
+            .Validate(
+                options => !environment.IsProduction()
+                    || (options.MetricsProvider != ObservabilityProviders.Fake
+                        && options.LogProvider != ObservabilityProviders.Fake
+                        && options.KubernetesProvider != ObservabilityProviders.Fake),
+                "A fake observability provider cannot be used in Production. An investigation that reports "
+                + "real conclusions from fabricated data is worse than one that never ran. Kubernetes has "
+                + "no real adapter yet, so Production is not a startable configuration.")
             .ValidateOnStart();
 
-        services.TryAddSingleton<IMetricsProvider>(static provider =>
-            new FakeMetricsProvider(provider.GetRequiredService<TimeProvider>()));
+        services.AddSreObservabilityHttpClients();
 
-        services.TryAddSingleton<ILogProvider>(static _ => new FakeLogProvider());
+        services.TryAddSingleton<IMetricsProvider>(static provider =>
+            Selected(provider).MetricsProvider is ObservabilityProviders.Prometheus
+                ? new PrometheusMetricsProvider(
+                    provider.GetRequiredService<IHttpClientFactory>(),
+                    provider.GetRequiredService<IReadOnlyToolRegistry>(),
+                    provider.GetRequiredService<IOptions<ObservabilityOptions>>())
+                : new FakeMetricsProvider(provider.GetRequiredService<TimeProvider>()));
+
+        services.TryAddSingleton<ILogProvider>(static provider =>
+            Selected(provider).LogProvider is ObservabilityProviders.Loki
+                ? new LokiLogProvider(
+                    provider.GetRequiredService<IHttpClientFactory>(),
+                    provider.GetRequiredService<IOptions<ObservabilityOptions>>())
+                : new FakeLogProvider());
 
         services.TryAddSingleton<IKubernetesObservability>(static provider =>
             new FakeKubernetesObservability(provider.GetRequiredService<TimeProvider>()));
@@ -51,6 +99,9 @@ public static class ToolsDependencyInjection
 
         return services;
     }
+
+    private static ObservabilityOptions Selected(IServiceProvider provider)
+        => provider.GetRequiredService<IOptions<ObservabilityOptions>>().Value;
 
     /// <summary>
     /// Registers the tool gateway and one adapter per tool in the release.

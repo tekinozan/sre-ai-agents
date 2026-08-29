@@ -56,7 +56,7 @@ public sealed class ToolGatewayTests
 
         PolicyRelease resolved = policy ?? policies.All.First();
 
-        ObservabilityOptions observability = new() { UseFakeProviders = true };
+        ObservabilityOptions observability = new();
         IOptions<ObservabilityOptions> observabilityOptions = Options.Create(observability);
 
         SreMetrics metrics = new(new TestMeterFactory());

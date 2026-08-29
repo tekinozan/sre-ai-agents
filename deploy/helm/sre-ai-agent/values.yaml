@@ -34,9 +34,17 @@ workflow:
   deadlineSeconds: "600"
 
 observability:
-  # V1 ships deterministic fakes; the real adapters are not built yet and the
-  # host refuses to start if this is false (docs/DECISIONS.md D09).
-  useFakeProviders: true
+  # Selected per port, because the ports are not in the same state: metrics and
+  # logs have real adapters, Kubernetes does not. A fake provider in Production
+  # is refused at startup, so these defaults do not deploy to production as they
+  # stand — which is accurate, not an oversight.
+  metricsProvider: fake
+  logProvider: fake
+  kubernetesProvider: fake
+
+  # Required when the matching provider is not `fake`.
+  prometheusBaseAddress: ""
+  logBackendBaseAddress: ""
 
 api:
   replicas: 2
