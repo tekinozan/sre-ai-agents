@@ -34,13 +34,17 @@ workflow:
   deadlineSeconds: "600"
 
 observability:
-  # Selected per port, because the ports are not in the same state: metrics and
-  # logs have real adapters, Kubernetes does not. A fake provider in Production
-  # is refused at startup, so these defaults do not deploy to production as they
-  # stand — which is accurate, not an oversight.
+  # Selected per port. A fake provider is refused at startup in Production, so
+  # these defaults are for non-production installs; a production values file sets
+  # prometheus, loki and incluster.
   metricsProvider: fake
   logProvider: fake
   kubernetesProvider: fake
+
+  # Required when kubernetesProvider is `incluster`: the namespaces this
+  # deployment may read, keyed by cluster. An empty map is refused rather than
+  # treated as permissive.
+  namespaceByCluster: {}
 
   # Required when the matching provider is not `fake`.
   prometheusBaseAddress: ""

@@ -291,6 +291,6 @@ to prevent.
 The guard now runs in both directions: a real provider with no address is
 refused, and so is any fake provider in Production.
 
-**Cost:** since Kubernetes has no real adapter, Production is not currently a
-startable configuration. That is the honest state rather than a regression, and
-it is better said at deploy time than discovered in a report.
+**Cost:** `IDatabaseObservability` still has no real adapter, so a Production
+deployment that routes a `database.health` call gets nothing. The guard makes
+that visible at deploy time rather than in a report.

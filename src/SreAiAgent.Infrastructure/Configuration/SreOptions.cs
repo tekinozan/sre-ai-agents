@@ -186,7 +186,7 @@ public sealed class ObservabilityOptions
     [Required(AllowEmptyStrings = false)]
     public string LogProvider { get; init; } = ObservabilityProviders.Fake;
 
-    /// <summary>Kubernetes backend: <c>fake</c>. No real adapter exists yet.</summary>
+    /// <summary>Kubernetes backend: <c>fake</c> or <c>incluster</c>.</summary>
     [Required(AllowEmptyStrings = false)]
     public string KubernetesProvider { get; init; } = ObservabilityProviders.Fake;
 
@@ -225,6 +225,13 @@ public sealed class ObservabilityOptions
     /// </summary>
     [Range(1, 500)]
     public int MaxSeries { get; init; } = 20;
+
+    /// <summary>
+    /// Pod and event budget. A namespace during an incident can hold hundreds of
+    /// both, and the ones that matter are the ones that changed most recently.
+    /// </summary>
+    [Range(1, 1000)]
+    public int MaxKubernetesItems { get; init; } = 100;
 
     /// <summary>
     /// Entry budget for a log search, applied on top of the tool schema's own

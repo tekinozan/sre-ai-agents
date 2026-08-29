@@ -1,3 +1,4 @@
+using k8s;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -21,10 +22,9 @@ public static class ToolsDependencyInjection
     /// </summary>
     /// <remarks>
     /// Selection is per port, not one switch, because the ports are not all in
-    /// the same state: metrics and logs have real adapters, Kubernetes and
-    /// database observability do not. A single boolean could not say that, and
-    /// the honest consequence is that Production is not yet a startable
-    /// configuration — which this refuses loudly rather than papering over.
+    /// the same state: metrics, logs and Kubernetes have real adapters, database
+    /// observability does not. A single boolean could not say that, and pinning
+    /// four ports to one value would make the honest configuration inexpressible.
     ///
     /// The validation runs in both directions. A real provider with no address
     /// fails, and so does a fake provider in Production: an investigation that
@@ -55,8 +55,9 @@ public static class ToolsDependencyInjection
                     or ObservabilityProviders.Loki,
                 "Observability:LogProvider must be 'fake' or 'loki'.")
             .Validate(
-                static options => options.KubernetesProvider is ObservabilityProviders.Fake,
-                "Observability:KubernetesProvider must be 'fake'. No real Kubernetes adapter exists yet.")
+                static options => options.KubernetesProvider is ObservabilityProviders.Fake
+                    or ObservabilityProviders.InCluster,
+                "Observability:KubernetesProvider must be 'fake' or 'incluster'.")
             .Validate(
                 static options => options.MetricsProvider != ObservabilityProviders.Prometheus
                     || !string.IsNullOrWhiteSpace(options.PrometheusBaseAddress),
@@ -66,13 +67,18 @@ public static class ToolsDependencyInjection
                     || !string.IsNullOrWhiteSpace(options.LogBackendBaseAddress),
                 "Observability:LogBackendBaseAddress is required when the log provider is 'loki'.")
             .Validate(
+                static options => options.KubernetesProvider != ObservabilityProviders.InCluster
+                    || options.KubernetesNamespaceByCluster.Count > 0,
+                "Observability:KubernetesNamespaceByCluster must name at least one cluster when the "
+                + "Kubernetes provider is 'incluster'. It is the boundary on what this deployment may "
+                + "read, and an empty map is not a permissive default.")
+            .Validate(
                 options => !environment.IsProduction()
                     || (options.MetricsProvider != ObservabilityProviders.Fake
                         && options.LogProvider != ObservabilityProviders.Fake
                         && options.KubernetesProvider != ObservabilityProviders.Fake),
                 "A fake observability provider cannot be used in Production. An investigation that reports "
-                + "real conclusions from fabricated data is worse than one that never ran. Kubernetes has "
-                + "no real adapter yet, so Production is not a startable configuration.")
+                + "real conclusions from fabricated data is worse than one that never ran.")
             .ValidateOnStart();
 
         services.AddSreObservabilityHttpClients();
@@ -92,8 +98,17 @@ public static class ToolsDependencyInjection
                     provider.GetRequiredService<IOptions<ObservabilityOptions>>())
                 : new FakeLogProvider());
 
+        // Constructed lazily: InClusterConfig throws outside a cluster, so this
+        // registration is harmless in a host that never selects the real adapter.
+        services.TryAddSingleton<IKubernetes>(static _ =>
+            new Kubernetes(KubernetesClientConfiguration.InClusterConfig()));
+
         services.TryAddSingleton<IKubernetesObservability>(static provider =>
-            new FakeKubernetesObservability(provider.GetRequiredService<TimeProvider>()));
+            Selected(provider).KubernetesProvider is ObservabilityProviders.InCluster
+                ? new KubernetesObservability(
+                    provider.GetRequiredService<IKubernetes>(),
+                    provider.GetRequiredService<IOptions<ObservabilityOptions>>())
+                : new FakeKubernetesObservability(provider.GetRequiredService<TimeProvider>()));
 
         services.TryAddSingleton<IDatabaseObservability>(static _ => new FakeDatabaseObservability());
 

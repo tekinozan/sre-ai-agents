@@ -32,6 +32,9 @@ data:
   {{- with .Values.observability.logBackendBaseAddress }}
   Observability__LogBackendBaseAddress: {{ . | quote }}
   {{- end }}
+  {{- range $cluster, $namespace := .Values.observability.namespaceByCluster }}
+  Observability__KubernetesNamespaceByCluster__{{ $cluster }}: {{ $namespace | quote }}
+  {{- end }}
 
   Telemetry__OtlpEndpoint: {{ .Values.telemetry.otlpEndpoint | quote }}
   Telemetry__HttpSamplingRatio: {{ .Values.telemetry.httpSamplingRatio | quote }}

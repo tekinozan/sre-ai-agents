@@ -133,11 +133,13 @@ Honest gaps, not solved problems.
 - **The approval path has never run.** Tables, endpoints, the workflow signal and
   the wait all exist, but nothing in V1 creates an `ApprovalRequest`, so none of
   that code has executed.
-- **Kubernetes and database observability are still deterministic fakes.**
-  Metrics and logs now have real adapters; those two do not, and
-  `AddSreObservability` refuses any fake provider in Production. Production is
-  therefore not yet a startable configuration, which is accurate rather than an
-  oversight.
+- **Database observability is still a deterministic fake.** Metrics, logs and
+  Kubernetes have real adapters; `IDatabaseObservability` does not, and
+  `AddSreObservability` refuses any fake provider in Production.
+- **The Kubernetes adapter has never run against an API server.** Its label
+  selector and namespace checks are unit tested; the mapping from pods and
+  events is not, because a stub of the client library would only assert that the
+  mapping calls the methods the mapping calls.
 - **The Helm chart has never been rendered** and the Kubernetes manifests have
   never been applied to a cluster. Only the value references and YAML parsing are
   checked.
