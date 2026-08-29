@@ -154,6 +154,12 @@ internal sealed class ToolDocument
     /// objects here would mean maintaining a JSON Schema model for no benefit.
     /// </summary>
     public Dictionary<object, object>? Parameters { get; set; }
+
+    /// <summary>
+    /// Backend query expressions, keyed by the enumerated selector a model picks.
+    /// Optional: most tools have no query language behind them.
+    /// </summary>
+    public Dictionary<string, string>? ProviderExpressions { get; set; }
 }
 
 internal sealed class ToolReleaseDocument

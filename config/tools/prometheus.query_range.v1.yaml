@@ -61,3 +61,31 @@ parameters:
       additionalProperties:
         type: string
         maxLength: 256
+
+# See prometheus.query.v1.yaml for what `{{selector}}` means. The expressions for
+# metrics both tools offer are identical, and startup validation enforces that:
+# the same metric answering differently depending on which tool an agent happened
+# to pick would make two pieces of evidence disagree for no visible reason.
+provider_expressions:
+  http_request_duration_p99_seconds: >-
+    histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{{selector}}[5m])))
+  http_request_duration_p50_seconds: >-
+    histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{{selector}}[5m])))
+  http_requests_total: >-
+    sum(rate(http_requests_total{{selector}}[5m]))
+  http_requests_error_total: >-
+    sum(rate(http_requests_error_total{{selector}}[5m]))
+  db_connection_pool_active: >-
+    sum(db_connection_pool_active{{selector}})
+  db_connection_pool_idle: >-
+    sum(db_connection_pool_idle{{selector}})
+  db_connection_pool_waiting: >-
+    sum(db_connection_pool_waiting{{selector}})
+  db_query_duration_p99_seconds: >-
+    histogram_quantile(0.99, sum by (le) (rate(db_query_duration_seconds_bucket{{selector}}[5m])))
+  container_memory_working_set_bytes: >-
+    sum(container_memory_working_set_bytes{{selector}})
+  container_cpu_usage_seconds_total: >-
+    sum(rate(container_cpu_usage_seconds_total{{selector}}[5m]))
+  kafka_consumer_lag: >-
+    sum(kafka_consumergroup_lag{{selector}})

@@ -164,7 +164,10 @@ internal sealed class ReadOnlyToolRegistry : IReadOnlyToolRegistry, IReadOnlyToo
                 document.Name,
                 document.Version,
                 document.Description?.Trim() ?? string.Empty,
-                schema));
+                schema),
+            ProviderExpressions: (document.ProviderExpressions
+                ?? new Dictionary<string, string>(StringComparer.Ordinal))
+                .ToFrozenDictionary(StringComparer.Ordinal));
     }
 
     private static RiskLevel ParseRisk(string? value, string path) => value switch

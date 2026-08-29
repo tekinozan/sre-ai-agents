@@ -161,6 +161,33 @@ public sealed class ShippedConfigurationTests : IAsyncLifetime
     }
 
     [Fact]
+    public void EveryProviderExpressionIsScopedByTheSelectorPlaceholder()
+    {
+        IReadOnlyToolRegistry tools = _host.Services.GetRequiredService<IReadOnlyToolRegistry>();
+
+        ToolDescriptor[] expressive = [.. tools.All.Where(static tool => tool.ProviderExpressions.Count > 0)];
+
+        // Startup validation having passed proves nothing if nothing ships an
+        // expression, and the validator skips tools that declare none.
+        expressive.ShouldNotBeEmpty();
+
+        foreach (ToolDescriptor tool in expressive)
+        {
+            foreach ((string selector, string expression) in tool.ProviderExpressions)
+            {
+                // Without the placeholder the query carries no label matcher, so
+                // it answers for every service in every environment at once.
+                // Nothing downstream catches that: by the time the expression is
+                // built, the service allowlist check has already passed, and the
+                // result comes back looking like an ordinary answer.
+                expression.ShouldContain(
+                    "{{selector}}",
+                    customMessage: $"{tool.Name} / {selector} builds a query with no label matcher.");
+            }
+        }
+    }
+
+    [Fact]
     public void TimeoutHierarchyHoldsInTheShippedPolicy()
     {
         IPolicyRegistry policies = _host.Services.GetRequiredService<IPolicyRegistry>();

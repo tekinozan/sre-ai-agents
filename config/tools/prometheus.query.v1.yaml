@@ -38,3 +38,30 @@ parameters:
       additionalProperties:
         type: string
         maxLength: 256
+
+# How each metric in the enum above is expressed in this provider's query
+# language. The enum and the expressions live in one file on purpose: they are
+# two halves of one fact, and in separate files they drift.
+#
+# `{{selector}}` expands to the complete brace-enclosed label matcher the adapter
+# builds — `{service="checkout",environment="production"}` — with every value
+# escaped. It is the single point where anything a model supplied enters the
+# query, which is what makes that escaping reviewable. An expression without it
+# would answer for every service in every environment at once.
+provider_expressions:
+  http_request_duration_p99_seconds: >-
+    histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{{selector}}[5m])))
+  http_requests_total: >-
+    sum(rate(http_requests_total{{selector}}[5m]))
+  http_requests_error_total: >-
+    sum(rate(http_requests_error_total{{selector}}[5m]))
+  db_connection_pool_active: >-
+    sum(db_connection_pool_active{{selector}})
+  db_connection_pool_idle: >-
+    sum(db_connection_pool_idle{{selector}})
+  db_connection_pool_waiting: >-
+    sum(db_connection_pool_waiting{{selector}})
+  container_memory_working_set_bytes: >-
+    sum(container_memory_working_set_bytes{{selector}})
+  kafka_consumer_lag: >-
+    sum(kafka_consumergroup_lag{{selector}})

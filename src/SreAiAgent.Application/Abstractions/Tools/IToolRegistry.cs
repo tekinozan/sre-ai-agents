@@ -19,6 +19,16 @@ namespace SreAiAgent.Application.Abstractions.Tools;
 /// <param name="Timeout">Tool-level timeout, below the agent timeout.</param>
 /// <param name="MaxResultBytes">Result-size cap applied before redaction.</param>
 /// <param name="Definition">The schema handed to the model.</param>
+/// <param name="ProviderExpressions">
+/// How each enumerated selector is written in the backend's query language,
+/// keyed by the selector a model chooses.
+///
+/// Deliberately on the descriptor and not on <see cref="ToolDefinition"/>: the
+/// definition is what the model is shown, and a model that could read the
+/// expression could reason about how to bend it. The platform needs the
+/// expression, the model needs the enum, and separating the two here is what
+/// keeps that true.
+/// </param>
 public sealed record ToolDescriptor(
     string Name,
     string Version,
@@ -28,7 +38,8 @@ public sealed record ToolDescriptor(
     IReadOnlySet<string> RequiredScopes,
     TimeSpan Timeout,
     int MaxResultBytes,
-    ToolDefinition Definition);
+    ToolDefinition Definition,
+    IReadOnlyDictionary<string, string> ProviderExpressions);
 
 /// <summary>
 /// Tools that cannot change external state (ARCHITECTURE.md 15.2).

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -85,6 +86,8 @@ internal sealed partial class RegistryValidator : IHostedService
         {
             ValidateBudgetsAgainstPolicy(agents.Value, policy.Value, problems);
         }
+
+        ValidateProviderExpressions(_tools.All, problems);
 
         if (problems.Count > 0)
         {
@@ -176,6 +179,109 @@ internal sealed partial class RegistryValidator : IHostedService
                 + $"model calls across {budget.MaxIterations.ToString(CultureInfo.InvariantCulture)} iterations. "
                 + "The call budget should bound the iteration budget, not exceed it, or it stops being a limit.");
         }
+    }
+
+    /// <summary>
+    /// Check 7: every selector a model may choose has an expression behind it,
+    /// and no two tools answer the same selector differently.
+    /// </summary>
+    /// <remarks>
+    /// The enum in a tool schema and the expressions that implement it are two
+    /// halves of one fact. Nothing at runtime would report a missing half: the
+    /// model picks a legal value, the adapter finds no expression, and the
+    /// investigation loses that evidence with the tool call still recorded as a
+    /// success.
+    /// </remarks>
+    private static void ValidateProviderExpressions(
+        IReadOnlyCollection<ToolDescriptor> tools,
+        List<string> problems)
+    {
+        Dictionary<string, string> expressionBySelector = new(StringComparer.Ordinal);
+        Dictionary<string, string> ownerBySelector = new(StringComparer.Ordinal);
+
+        foreach (ToolDescriptor tool in tools)
+        {
+            if (tool.ProviderExpressions.Count == 0)
+            {
+                continue;
+            }
+
+            List<string[]> enumerated = EnumeratedProperties(tool.Definition.ParameterSchema);
+
+            if (enumerated.Count != 1)
+            {
+                problems.Add(
+                    $"Tool '{tool.Name}:{tool.Version}' declares provider expressions but its schema has "
+                    + $"{enumerated.Count.ToString(CultureInfo.InvariantCulture)} enumerated properties. Exactly "
+                    + "one is required, so which selector the expressions are keyed by is not a guess.");
+                continue;
+            }
+
+            HashSet<string> selectors = new(enumerated[0], StringComparer.Ordinal);
+
+            foreach (string selector in selectors)
+            {
+                if (!tool.ProviderExpressions.ContainsKey(selector))
+                {
+                    problems.Add(
+                        $"Tool '{tool.Name}:{tool.Version}' offers '{selector}' but has no provider expression "
+                        + "for it. A model may select it and the adapter would have nothing to run.");
+                }
+            }
+
+            foreach (string key in tool.ProviderExpressions.Keys)
+            {
+                if (!selectors.Contains(key))
+                {
+                    problems.Add(
+                        $"Tool '{tool.Name}:{tool.Version}' has a provider expression for '{key}', which its "
+                        + "schema does not offer. Usually a rename that landed on only one side.");
+                }
+            }
+
+            foreach ((string selector, string expression) in tool.ProviderExpressions)
+            {
+                string identity = $"{tool.Provider}/{selector}";
+
+                if (ownerBySelector.TryGetValue(identity, out string? owner)
+                    && !string.Equals(expressionBySelector[identity], expression, StringComparison.Ordinal))
+                {
+                    problems.Add(
+                        $"Tools '{owner}' and '{tool.Name}' both answer '{selector}' from "
+                        + $"'{tool.Provider}' but with different expressions. Two pieces of evidence would "
+                        + "disagree and nothing would say why.");
+                    continue;
+                }
+
+                ownerBySelector[identity] = tool.Name;
+                expressionBySelector[identity] = expression;
+            }
+        }
+    }
+
+    private static List<string[]> EnumeratedProperties(JsonElement schema)
+    {
+        List<string[]> enumerated = [];
+
+        if (!schema.TryGetProperty("properties", out JsonElement properties)
+            || properties.ValueKind is not JsonValueKind.Object)
+        {
+            return enumerated;
+        }
+
+        foreach (JsonProperty property in properties.EnumerateObject())
+        {
+            if (property.Value.ValueKind is JsonValueKind.Object
+                && property.Value.TryGetProperty("enum", out JsonElement values)
+                && values.ValueKind is JsonValueKind.Array)
+            {
+                enumerated.Add([.. values.EnumerateArray()
+                    .Where(static value => value.ValueKind is JsonValueKind.String)
+                    .Select(static value => value.GetString()!)]);
+            }
+        }
+
+        return enumerated;
     }
 
     private static void ValidateBudgetsAgainstPolicy(
