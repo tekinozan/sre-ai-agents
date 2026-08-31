@@ -9,7 +9,7 @@ using OpenTelemetry.Trace;
 using SreAiAgent.Application.Diagnostics;
 using SreAiAgent.Infrastructure.Configuration;
 
-namespace SreAiAgent.Infrastructure.Observability;
+namespace SreAiAgent.Infrastructure.Observability.Telemetry;
 
 /// <summary>
 /// Wires the OpenTelemetry SDK to the instrumentation the platform already emits

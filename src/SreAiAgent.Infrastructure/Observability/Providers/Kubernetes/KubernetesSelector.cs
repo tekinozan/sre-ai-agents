@@ -1,6 +1,7 @@
 using System.Text;
+using SreAiAgent.Infrastructure.Observability.Providers.Shared;
 
-namespace SreAiAgent.Infrastructure.Observability;
+namespace SreAiAgent.Infrastructure.Observability.Providers.Kubernetes;
 
 /// <summary>
 /// Builds the label selector for a Kubernetes list call.

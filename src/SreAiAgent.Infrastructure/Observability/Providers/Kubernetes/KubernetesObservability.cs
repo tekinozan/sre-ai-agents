@@ -4,7 +4,7 @@ using Microsoft.Extensions.Options;
 using SreAiAgent.Application.Abstractions.Observability;
 using SreAiAgent.Infrastructure.Configuration;
 
-namespace SreAiAgent.Infrastructure.Observability;
+namespace SreAiAgent.Infrastructure.Observability.Providers.Kubernetes;
 
 /// <summary>
 /// Reads pods and events from the API server of the cluster it runs in.

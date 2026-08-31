@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using OpenTelemetry.Trace;
 using SreAiAgent.Application.Diagnostics;
-using SreAiAgent.Infrastructure.Observability;
+using SreAiAgent.Infrastructure.Observability.Telemetry;
 
 namespace SreAiAgent.Infrastructure.Tests;
 

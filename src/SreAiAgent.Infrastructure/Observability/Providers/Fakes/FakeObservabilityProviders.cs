@@ -1,6 +1,6 @@
 using SreAiAgent.Application.Abstractions.Observability;
 
-namespace SreAiAgent.Infrastructure.Observability;
+namespace SreAiAgent.Infrastructure.Observability.Providers.Fakes;
 
 // Deterministic observability backends for local development and CI
 // (ARCHITECTURE.md 19.3: a local environment does not reach production

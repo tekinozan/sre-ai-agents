@@ -1,6 +1,6 @@
 using SreAiAgent.Application;
 using SreAiAgent.Infrastructure;
-using SreAiAgent.Infrastructure.Observability;
+using SreAiAgent.Infrastructure.Observability.Telemetry;
 
 // Composition root for the alert ingestion worker (ARCHITECTURE.md 19.1).
 //

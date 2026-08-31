@@ -5,8 +5,9 @@ using Microsoft.Extensions.Options;
 using SreAiAgent.Application.Abstractions.Observability;
 using SreAiAgent.Application.Abstractions.Tools;
 using SreAiAgent.Infrastructure.Configuration;
+using SreAiAgent.Infrastructure.Observability.Providers.Shared;
 
-namespace SreAiAgent.Infrastructure.Observability;
+namespace SreAiAgent.Infrastructure.Observability.Providers.Prometheus;
 
 /// <summary>
 /// Reads metrics from Prometheus over its HTTP API (ARCHITECTURE.md 6.3).

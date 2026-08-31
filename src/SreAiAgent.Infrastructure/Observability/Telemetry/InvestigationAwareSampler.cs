@@ -1,7 +1,7 @@
 using OpenTelemetry.Trace;
 using SreAiAgent.Application.Diagnostics;
 
-namespace SreAiAgent.Infrastructure.Observability;
+namespace SreAiAgent.Infrastructure.Observability.Telemetry;
 
 /// <summary>
 /// Samples every investigation and leaves everything else to a parent-based

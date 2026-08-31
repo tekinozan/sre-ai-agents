@@ -1,6 +1,6 @@
 using SreAiAgent.Application;
 using SreAiAgent.Infrastructure;
-using SreAiAgent.Infrastructure.Observability;
+using SreAiAgent.Infrastructure.Observability.Telemetry;
 using SreAiAgent.Workflow;
 
 // Composition root for the investigation worker (ARCHITECTURE.md 19.1).

@@ -3,7 +3,7 @@ using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Options;
 using SreAiAgent.Infrastructure.Configuration;
 
-namespace SreAiAgent.Infrastructure.Observability;
+namespace SreAiAgent.Infrastructure.Observability.Providers.Shared;
 
 /// <summary>
 /// Named HTTP clients for the observability backends (ARCHITECTURE.md 14).

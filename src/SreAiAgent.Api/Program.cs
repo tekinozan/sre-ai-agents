@@ -12,7 +12,7 @@ using SreAiAgent.Application;
 using SreAiAgent.Contracts.Serialization;
 using SreAiAgent.Infrastructure;
 using SreAiAgent.Infrastructure.Configuration;
-using SreAiAgent.Infrastructure.Observability;
+using SreAiAgent.Infrastructure.Observability.Telemetry;
 using SreAiAgent.Workflow;
 
 // Composition root for the HTTP surface (ARCHITECTURE.md 13). Everything here is

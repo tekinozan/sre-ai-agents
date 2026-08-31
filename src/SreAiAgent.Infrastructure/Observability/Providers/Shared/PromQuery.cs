@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace SreAiAgent.Infrastructure.Observability;
+namespace SreAiAgent.Infrastructure.Observability.Providers.Shared;
 
 /// <summary>
 /// Builds the label matcher that scopes a metric query, and nothing else.

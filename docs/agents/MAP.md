@@ -49,7 +49,7 @@ failure that names a type but not a remedy.
 | `WorkflowPayloadJson` | `Workflow/Temporal/` | Every activity argument and result, because Temporal writes them into workflow history |
 | `JsonbConverters` | `Infrastructure/Persistence/` | Types stored in a `jsonb` column |
 | `ToolResultEnvelopes` | `Infrastructure/Tools/Adapters/` | The narrowed JSON an agent sees for a tool result |
-| `ObservabilityJsonContext` | `Infrastructure/Observability/` | The shape of somebody else's API: Prometheus and Loki responses |
+| `ObservabilityJsonContext` | `Infrastructure/Observability/Providers/Shared/` | The shape of somebody else's API: Prometheus and Loki responses |
 
 A type can need more than one. An activity result that is also persisted as
 `jsonb` and also returned over HTTP belongs in three.
@@ -95,7 +95,7 @@ container fails to build, or worse, how a host quietly acquires a capability.
 | `AddSreOutboxDispatcher` | The dispatcher background service | `MessagingDependencyInjection.cs` |
 | `AddSreAlertIngestion` | The four alert source adapters and the normalizer | same |
 | `AddSreAlertConsumer` / `AddSreInvestigationConsumer` | Kafka consumers | same |
-| `AddSreTelemetry` | OpenTelemetry tracing, metrics and log correlation | `Observability/TelemetryDependencyInjection.cs` |
+| `AddSreTelemetry` | OpenTelemetry tracing, metrics and log correlation | `Observability/Telemetry/TelemetryDependencyInjection.cs` |
 | `AddSreApplication` | Handlers with no workflow dependency | `Application/ApplicationDependencyInjection.cs` |
 | `AddSreInvestigationUseCases` | Handlers that need `IInvestigationWorkflow` — investigation worker and API only | same |
 | `AddSreWorkflow` / `AddSreWorkflowWorker` | The workflow engine and, for Temporal, its worker | `Workflow/WorkflowDependencyInjection.cs` |

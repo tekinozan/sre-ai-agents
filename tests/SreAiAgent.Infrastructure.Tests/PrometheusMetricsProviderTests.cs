@@ -2,7 +2,8 @@ using System.Net;
 using Microsoft.Extensions.Options;
 using SreAiAgent.Application.Abstractions.Observability;
 using SreAiAgent.Infrastructure.Configuration;
-using SreAiAgent.Infrastructure.Observability;
+using SreAiAgent.Infrastructure.Observability.Providers.Prometheus;
+using SreAiAgent.Infrastructure.Observability.Providers.Shared;
 using SreAiAgent.Infrastructure.Registries;
 
 namespace SreAiAgent.Infrastructure.Tests;

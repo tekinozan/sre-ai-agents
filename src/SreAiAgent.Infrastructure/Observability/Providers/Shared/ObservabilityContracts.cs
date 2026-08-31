@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace SreAiAgent.Infrastructure.Observability;
+namespace SreAiAgent.Infrastructure.Observability.Providers.Shared;
 
 // The Prometheus HTTP API response, modelled only as far as this platform reads
 // it (docs/DECISIONS.md D10: reflection-based serialization is banned, so every

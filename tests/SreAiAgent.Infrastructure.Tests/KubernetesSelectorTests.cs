@@ -1,4 +1,5 @@
-using SreAiAgent.Infrastructure.Observability;
+using SreAiAgent.Infrastructure.Observability.Providers.Kubernetes;
+using SreAiAgent.Infrastructure.Observability.Providers.Shared;
 
 namespace SreAiAgent.Infrastructure.Tests;
 

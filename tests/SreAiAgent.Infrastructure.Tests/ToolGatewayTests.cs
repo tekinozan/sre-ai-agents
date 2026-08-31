@@ -10,7 +10,7 @@ using SreAiAgent.Domain.Remediation;
 using SreAiAgent.Domain.Shared;
 using SreAiAgent.Infrastructure.Audit;
 using SreAiAgent.Infrastructure.Configuration;
-using SreAiAgent.Infrastructure.Observability;
+using SreAiAgent.Infrastructure.Observability.Providers.Fakes;
 using SreAiAgent.Infrastructure.Registries;
 using SreAiAgent.Infrastructure.Security;
 using SreAiAgent.Infrastructure.Tools;

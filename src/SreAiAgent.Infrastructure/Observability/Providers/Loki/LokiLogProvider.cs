@@ -3,8 +3,9 @@ using System.Text.Json;
 using Microsoft.Extensions.Options;
 using SreAiAgent.Application.Abstractions.Observability;
 using SreAiAgent.Infrastructure.Configuration;
+using SreAiAgent.Infrastructure.Observability.Providers.Shared;
 
-namespace SreAiAgent.Infrastructure.Observability;
+namespace SreAiAgent.Infrastructure.Observability.Providers.Loki;
 
 /// <summary>
 /// Searches logs in Loki (ARCHITECTURE.md 6.3).
