@@ -29,9 +29,23 @@ docker compose -f deploy/docker/compose.yaml \
                -f deploy/docker/compose.observability.yaml up -d --build
 ```
 
-Nothing seeds those backends, so an investigation against them finds no evidence
-and should say so. That is worth seeing once: "no evidence" and "no answer" have
-to read differently in a report.
+Then seed them, or the investigation finds nothing:
+
+```bash
+bash eng/seed-observability.sh
+powershell -ExecutionPolicy Bypass -File eng/seed-observability.ps1   # Windows
+```
+
+The seed reproduces the incident the fakes fabricate — a pool filling, clients
+queueing behind it, errors following — in the real backends, so the report a real
+run produces can be held next to the deterministic one and anything that differs
+is the adapter's doing. Running the stack unseeded once is also worth it: "no
+evidence" and "no answer" have to read differently in a report.
+
+Evidence rows should then carry `provider = prometheus` rather than
+`fake-prometheus`. `database.health` stays fake — that port has no real adapter
+— and `logs.search` is not reached at all, because the scripted provider only
+asks for it when an agent has no metrics tool and both shipped experts have one.
 
 | What | Where |
 |---|---|
@@ -52,10 +66,17 @@ curl -X POST http://localhost:8080/v1/alerts/alertmanager \
        "annotations":{"summary":"Checkout p99 latency above 2s"}}'
 ```
 
-Expect `202` and an incident id. The tenant must be `local`: development
-authentication issues that tenant and every read filters by it, so an alert
-labelled otherwise produces an incident you cannot read. A 404 there is tenant
-isolation working.
+Expect `202` with an **empty body**. This endpoint stages the alert onto the
+topic; the worker opens the incident, so there is no id to return yet. Find it in
+the database:
+
+```bash
+docker compose -f deploy/docker/compose.yaml exec postgres   psql -U sre -d sre -c "SELECT id, status FROM incidents ORDER BY created_at DESC LIMIT 1;"
+```
+
+The tenant must be `local`: development authentication issues that tenant and
+every read filters by it, so an alert labelled otherwise produces an incident you
+cannot read. A 404 there is tenant isolation working.
 
 ```bash
 curl "http://localhost:8080/v1/incidents/$ID"

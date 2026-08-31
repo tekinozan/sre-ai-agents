@@ -1,10 +1,21 @@
 # Minimal Prometheus for the local overlay.
 #
-# No scrape targets on purpose. Series arrive through the remote-write receiver,
-# because a test that waits for a scrape interval to produce the data it then
-# asserts on is a test that fails on a slow machine.
+# The only target is the pushgateway. Series arrive by being pushed to it rather
+# than by scraping a real application, because a seed that waits for an app to
+# produce the data it then asserts on is a seed that behaves differently on a
+# slow machine.
 global:
-  scrape_interval: 15s
+  # Short, so a pushed ramp accumulates enough samples for rate() within the
+  # thirty seconds a seed script is willing to spend.
+  scrape_interval: 2s
   evaluation_interval: 15s
 
-scrape_configs: []
+scrape_configs:
+  - job_name: pushgateway
+    # Required, and the single easiest thing to get wrong here. Without it
+    # Prometheus overwrites the pushed `service` and `environment` labels with
+    # the target's own, and every selector the adapters build then matches
+    # nothing — which looks exactly like a service with no metrics.
+    honor_labels: true
+    static_configs:
+      - targets: ["pushgateway:9091"]

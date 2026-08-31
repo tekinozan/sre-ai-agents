@@ -10,24 +10,41 @@
 #
 # What this overlay is for is the other half of the discipline: an adapter that
 # compiles and passes its stub tests has not been shown to send a query
-# Prometheus accepts. Nothing here seeds data, so an investigation run against
-# this stack finds nothing and says so — which is itself worth seeing, because
-# "no evidence" and "no answer" have to look different in the report.
+# Prometheus accepts.
+#
+# Bring it up, then run eng/seed-observability.ps1 (or .sh). The seed reproduces
+# the incident the fakes fabricate — a pool filling, latency following, errors
+# after both — in a real backend, so the report a real run produces can be held
+# next to the one the deterministic run produces and the difference is the
+# adapter's doing. Without the seed the stack answers honestly with nothing,
+# which is also worth seeing once.
 
 services:
+  # Where a seed pushes series. Prometheus scrapes it, so pushing a value and
+  # waiting a couple of seconds is the whole ingestion path — no protobuf, no
+  # snappy, no client library, just the text format over HTTP.
+  pushgateway:
+    image: prom/pushgateway:v1.11.0
+    ports:
+      - "9091:9091"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9091/-/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   prometheus:
     image: prom/prometheus:v3.1.0
     command:
       - --config.file=/etc/prometheus/prometheus.yml
-      # Lets a test or a script push synthetic series in rather than waiting for
-      # a scrape target to produce them, which is the only way to make the data
-      # under an assertion deterministic.
-      - --web.enable-remote-write-receiver
       - --storage.tsdb.retention.time=1h
     volumes:
       - ./prometheus.yaml:/etc/prometheus/prometheus.yml:ro
     ports:
       - "9090:9090"
+    depends_on:
+      pushgateway:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/ready"]
       interval: 5s
