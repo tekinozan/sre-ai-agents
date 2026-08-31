@@ -51,6 +51,21 @@ runs — `defaults` is `state: disabled`. `ShippedConfigurationTests` now fails 
 its budget, returns nothing. `ShippedConfigurationTests` now drives the scripted
 provider with each released agent's allowlist and asserts it asks for something.
 
+**The fake returned log entries oldest-first.** `ILogProvider` documents "newest
+first" and Loki delivers newest-first, so every investigation run against the
+fakes — including the verified vertical slice — read the window in the opposite
+order from production. It also decided which entries a limit kept: the oldest
+rather than the most recent. Found the first time `ContractTests` put the fake
+and the real adapter through the same assertion; nothing else in the repository
+compares them.
+
+**The fakes do not model absence.** They answer for every metric they know and
+ignore the requested service entirely, so "this metric has no data" and "this
+service is not the one you asked about" are states the deterministic slice never
+reaches. An agent's behaviour on missing evidence is therefore exercised only by
+the real adapters. This is why the metrics contract asserts nothing about empty
+results: it is a divergence to record, not an assertion to weaken.
+
 **Inline fan-out shared one `DbContext`** across agents running in parallel. Added
 a per-agent scope hook.
 

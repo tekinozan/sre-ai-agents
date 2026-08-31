@@ -139,8 +139,15 @@ Old release files stay. An incident from last month has to remain reproducible.
 | `Workflow.Tests` | The shared investigation sequence and Temporal payload round trips |
 | `ArchitectureTests` | Assembly references |
 | `SecurityTests` | Span leakage, write-tool denial, prompt injection, the production guard |
+| `ContractTests` | One suite per observability port, run against both the fake and the real adapter |
 | `IntegrationTests` | Anything needing real PostgreSQL; every suite carries `Category=Integration` |
 
 The default gate excludes `Category=Integration`. A suite with no matching tests
 fails the run (exit 8), which is why `IntegrationTests` carries one untraited
-convention test and why the integration step is scoped to that one project.
+convention test and why the integration step names each project rather than
+filtering the solution by the trait.
+
+`ContractTests` is the only suite that runs the same assertions against two
+implementations. That is its whole purpose: a fake exists to stand in for the
+real thing, so anywhere the two disagree it has been lying to every test that
+used it.

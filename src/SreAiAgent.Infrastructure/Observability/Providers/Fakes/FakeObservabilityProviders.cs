@@ -178,6 +178,13 @@ internal sealed class FakeLogProvider : ILogProvider
 
         List<LogEntry> matched = [.. entries.Where(entry => MatchesLevel(entry.Level, query.MinimumLevel))];
 
+        // Newest first, which is what ILogProvider documents and what Loki
+        // returns. This was wrong until the contract suite put the two side by
+        // side: every investigation run against the fakes had been reading the
+        // window in the opposite order from production, and it also decided
+        // which entries a limit kept — the oldest rather than the most recent.
+        matched.Sort(static (left, right) => right.Timestamp.CompareTo(left.Timestamp));
+
         // TotalMatched is reported separately from the returned page so an agent
         // can say "at least N" rather than reasoning over a truncated sample as
         // if it were complete.

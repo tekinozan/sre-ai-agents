@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    One suite per port, run twice: once against the fake and once against the
+    real adapter (ARCHITECTURE.md 18).
+
+    The value is in the pairing. A fake exists to stand in for the real thing, so
+    anywhere the two disagree the fake is lying to every test that uses it — and
+    nothing else in the repository would ever put them side by side. The first
+    run of this suite found the fakes returning log entries oldest-first while
+    the port documents newest-first and Loki delivers newest-first.
+
+    Everything here needs Docker, so everything carries Category=Integration.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SreAiAgent.Infrastructure\SreAiAgent.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Testcontainers" />
+  </ItemGroup>
+
+</Project>

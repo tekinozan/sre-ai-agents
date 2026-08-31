@@ -58,11 +58,13 @@ Invoke-Step 'unit, contract, architecture and security tests' {
 }
 
 if ($WithIntegration) {
-    # Scoped to the project that owns them rather than run across the solution.
-    # The test platform treats "zero tests ran" as a failure, so filtering the
-    # whole solution by a trait only one project carries fails in the other seven.
-    Invoke-Step 'integration tests (requires a Docker daemon)' {
-        dotnet test 'tests/SreAiAgent.IntegrationTests/SreAiAgent.IntegrationTests.csproj' --no-build -- --filter-trait "Category=Integration"
+    # Each project is named rather than filtering the solution by the trait. The
+    # test platform reports "zero tests ran" as a failure, so a trait filter
+    # across the solution fails in every project that does not carry it.
+    foreach ($project in @('SreAiAgent.IntegrationTests', 'SreAiAgent.ContractTests')) {
+        Invoke-Step "integration tests: $project" {
+            dotnet test "tests/$project/$project.csproj" --no-build -- --filter-trait "Category=Integration"
+        }
     }
 }
 
