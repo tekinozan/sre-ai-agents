@@ -120,7 +120,7 @@ public sealed class ConfigurationSnapshotEntity
 
     public string PromptRelease { get; set; } = string.Empty;
 
-    public string ModelRelease { get; set; } = string.Empty;
+    public string ModelAssignmentJson { get; set; } = "{}";
 
     public string ToolRelease { get; set; } = string.Empty;
 

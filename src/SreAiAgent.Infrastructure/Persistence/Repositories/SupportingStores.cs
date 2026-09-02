@@ -140,7 +140,7 @@ internal sealed class ConfigurationSnapshotStore : IConfigurationSnapshotStore
             Id = snapshot.Id,
             AgentRelease = snapshot.AgentRelease,
             PromptRelease = snapshot.PromptRelease,
-            ModelRelease = snapshot.ModelRelease,
+            ModelAssignmentJson = JsonbConverters.SerializeModelAssignment(snapshot.ModelAssignment),
             ToolRelease = snapshot.ToolRelease,
             PolicyRelease = snapshot.PolicyRelease,
             FlagSnapshot = snapshot.FlagSnapshot,
@@ -163,7 +163,8 @@ internal sealed class ConfigurationSnapshotStore : IConfigurationSnapshotStore
                 entity.Id,
                 entity.AgentRelease,
                 entity.PromptRelease,
-                entity.ModelRelease,
+                JsonbConverters.DeserializeModelAssignment(entity.ModelAssignmentJson)
+                    ?? throw new InvalidOperationException("Pinned model assignment is missing from the configuration snapshot."),
                 entity.ToolRelease,
                 entity.PolicyRelease,
                 entity.FlagSnapshot,

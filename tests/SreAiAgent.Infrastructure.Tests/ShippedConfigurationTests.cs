@@ -245,7 +245,7 @@ public sealed class ShippedConfigurationTests : IAsyncLifetime
         }
 
         unreachable.ShouldBeEmpty(
-            "V1 ships one IChatClient and it is scripted (docs/DECISIONS.md D09), so an "
+            "The scripted adapter is the only adapter the shipped bootstrap selects, so an "
             + "agent it does not recognise spends its budget and produces nothing. Teach "
             + "ScriptedChatClient about at least one tool the agent is allowed.");
     }

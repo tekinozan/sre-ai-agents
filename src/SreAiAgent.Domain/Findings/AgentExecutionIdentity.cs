@@ -12,7 +12,7 @@ namespace SreAiAgent.Domain.Findings;
 /// <param name="PromptHash">SHA-256 of the rendered prompt. The text is not stored.</param>
 /// <param name="ModelProvider">Provider key, for example <c>openai</c>.</param>
 /// <param name="ModelName">Concrete model resolved for this environment.</param>
-/// <param name="ModelProfileVersion">Pinned model profile version.</param>
+/// <param name="ModelDeploymentVersion">Pinned model profile version.</param>
 public sealed record AgentExecutionIdentity(
     string AgentName,
     string AgentVersion,
@@ -21,4 +21,4 @@ public sealed record AgentExecutionIdentity(
     string PromptHash,
     string ModelProvider,
     string ModelName,
-    string ModelProfileVersion);
+    string ModelDeploymentVersion);

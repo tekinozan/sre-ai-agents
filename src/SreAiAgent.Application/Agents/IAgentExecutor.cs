@@ -24,11 +24,9 @@ public interface IAgentExecutor
 /// Everything one agent execution needs, resolved and pinned.
 /// </summary>
 /// <remarks>
-/// The prompt, the model profile and the tool descriptors are all passed in
-/// already resolved rather than looked up by the executor. Resolution is the step
-/// that turns a release name into concrete artifacts, and doing it once at the
-/// start of the run is what guarantees every model call inside that run used the
-/// same versions, even if a release is promoted while it is executing.
+/// The prompt, pinned model candidate and tool descriptors are passed in already
+/// resolved. Resolving the candidate once guarantees every call in the run uses
+/// the immutable deployment/provider revision pinned when the incident started.
 /// </remarks>
 public sealed record AgentContext
 {
@@ -38,7 +36,7 @@ public sealed record AgentContext
 
     public required PromptDefinition Prompt { get; init; }
 
-    public required ModelProfile ModelProfile { get; init; }
+    public required PinnedModelCandidate ModelCandidate { get; init; }
 
     /// <summary>Tool descriptors the agent may use, already intersected with its allowlist.</summary>
     public required IReadOnlyList<ToolDefinition> AvailableTools { get; init; }

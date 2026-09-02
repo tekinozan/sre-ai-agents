@@ -49,6 +49,8 @@ public static class DeterministicClassifier
         ("timeout", "timeout"),
         ("unavailable", "availability"),
         ("down", "availability"),
+        ("restart", "availability"),
+        ("scale", "availability"),
     ];
 
     /// <summary>

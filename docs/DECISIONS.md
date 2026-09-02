@@ -294,3 +294,84 @@ refused, and so is any fake provider in Production.
 **Cost:** `IDatabaseObservability` still has no real adapter, so a Production
 deployment that routes a `database.health` call gets nothing. The guard makes
 that visible at deploy time rather than in a report.
+
+### D33 — Model identity is a tenant-owned immutable release, not a profile name
+
+`ModelAssignmentRelease` is what an incident pins: a tenant-scoped, versioned,
+immutable binding of every model slot to a specific `ModelDeploymentVersion`
+behind a specific `ProviderConnectionRevision`. The runtime never looks up a
+profile name at request time; the pin carries the full deployment coordinates
+and their configuration hashes, and `LlmGateway` audits both the requested and
+the observed identity.
+
+Two tenants running the same product on different providers used to require a
+profile per environment per tenant and a resolver that hoped they agreed. A
+release is a single artifact operators can diff, roll back to and reason about,
+and immutability is what makes an incident from last month reproducible today.
+
+**Cost:** two model systems live side by side during the cutover, and the
+shipped `config/models` artifacts stop being a runtime resolution path — they
+seed the first `ModelAssignmentRelease` at bootstrap and nothing else. Every
+registry test that used to assert profile lookup now asserts assignment
+resolution instead.
+
+### D34 — The bootstrap seed writes the active pointer directly
+
+`ModelAssignmentBootstrapper` runs after `DatabaseMigrator`, and when a tenant
+has no active assignment it inserts the connection, the revision, one
+deployment per profile the shipped configuration references, one assignment
+release, and the `tenant_active_model_assignments` pointer, in a single
+transaction. It skips the operator-facing verify/evaluate/activate gate that a
+later `POST /v1/model-assignment-releases/{id}/activate` walks through.
+
+There is no operator at first start. Requiring the two-step gate would make the
+compose stack, the integration suite and the eval harness unusable until a
+human logged in and clicked, and every one of those environments needs a
+working assignment with no operator present.
+
+**Cost:** a wrong `Llm:Bootstrap` endpoint becomes active without a network
+round trip to check it. Production compensates: the bootstrapper obtains the
+`ProviderRevisionVerificationEntity` row by calling
+`ProviderRevisionVerifier.VerifyAsync` and **fails startup** on a failure, so a
+misconfigured production process dies at deploy time (`AGENTS.md`).
+
+### D35 — Immutability is a database trigger, not an interceptor
+
+`provider_connection_revisions`, `model_deployment_versions`,
+`model_assignment_releases` and `provider_revision_verifications` carry a
+`BEFORE UPDATE OR DELETE ... FOR EACH ROW EXECUTE FUNCTION
+sre_reject_row_mutation()` trigger; `model_assignment_agent_slots` carries the
+same trigger for `UPDATE` only. The function raises
+`MODEL_CONFIGURATION_INVALID`, which the application error taxonomy already
+maps.
+
+An EF Core `SaveChangesInterceptor` is easier to write, but it only binds a
+process that goes through `SreDbContext`. An operator with a psql session, an
+ad-hoc migration or a future non-C# consumer sits outside that boundary, and
+the whole point of an immutable release is that no such actor can rewrite one.
+A trigger binds the row.
+
+**Cost:** raw SQL in a migration for the first time, a `Down` block that must
+drop both the trigger and the function, and a new integration test that
+`UPDATE`s a revision row and expects the trigger to raise. The application
+layer keeps the same code path for the expected-conflict case, so the caller
+contract is unchanged.
+
+### D36 — The gateway owns the retry budget; the provider HTTP client has no resilience handler and no timeout
+
+`AddHttpClient(ProviderHttpClients.Chat)` sets `Timeout =
+Timeout.InfiniteTimeSpan` and deliberately does not call
+`AddStandardResilienceHandler`. `LlmGateway` already owns the retry loop, the
+error taxonomy (`ErrorCatalog.IsRetryable`), the audit row and the linked
+cancellation token that carries the pinned deployment timeout.
+
+A second retry layer would double-charge a paid provider call without recording
+it, and a second, lower `HttpClient` deadline would surface as an
+`OperationCanceledException` no adapter's catch block maps to a stable error
+code — the caller would see `LLM_PROVIDER_ERROR` for what was actually a
+timeout, and the audit row would say the same.
+
+**Cost:** an unbounded `HttpClient` deadline that only the linked cancellation
+token closes. If `LlmGateway` ever stops threading that token into
+`GetResponseAsync`, an unresponsive provider hangs a request forever; the
+regression test that pins the timeout path is what prevents it.

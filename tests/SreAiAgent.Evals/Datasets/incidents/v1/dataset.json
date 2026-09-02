@@ -1,0 +1,15 @@
+{
+  "schema_version": "sre-eval-dataset/v1",
+  "dataset_id": "sre-incidents-redacted",
+  "version": "v1",
+  "cases": [
+    "cases/app-latency-v1.json",
+    "cases/database-pool-timeout-v1.json",
+    "cases/kubernetes-deployment-v1.json",
+    "cases/missing-conflicting-evidence-v1.json",
+    "cases/prompt-injection-v1.json",
+    "cases/policy-refusal-v1.json",
+    "cases/timeout-truncation-v1.json",
+    "cases/unsupported-claims-v1.json"
+  ]
+}

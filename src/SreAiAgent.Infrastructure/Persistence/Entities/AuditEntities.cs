@@ -76,9 +76,20 @@ public sealed class LlmCallEntity
 
     public string PromptHash { get; set; } = string.Empty;
 
-    public string ModelProvider { get; set; } = string.Empty;
+    public string Tenant { get; set; } = string.Empty;
 
-    public string ModelName { get; set; } = string.Empty;
+    public Guid AssignmentReleaseId { get; set; }
+    public string AssignmentHash { get; set; } = string.Empty;
+    public Guid DeploymentVersionId { get; set; }
+    public string DeploymentHash { get; set; } = string.Empty;
+    public Guid ProviderRevisionId { get; set; }
+    public string ProviderRevisionHash { get; set; } = string.Empty;
+    public string RequestedProvider { get; set; } = string.Empty;
+    public string RequestedModel { get; set; } = string.Empty;
+    public string ObservedProvider { get; set; } = string.Empty;
+    public string ObservedModel { get; set; } = string.Empty;
+    public string ProviderRequestId { get; set; } = string.Empty;
+    public string FinishReason { get; set; } = string.Empty;
 
     /// <summary><c>succeeded</c> or <c>failed</c>.</summary>
     public string Outcome { get; set; } = string.Empty;

@@ -40,7 +40,6 @@ public sealed partial class InvestigationActivities : IInvestigationActivities
     private readonly IAgentExecutor _agent;
     private readonly IAgentRegistry _agents;
     private readonly IPromptRegistry _prompts;
-    private readonly IModelProfileRegistry _models;
     private readonly IReadOnlyToolRegistry _tools;
     private readonly ILlmGateway _llm;
     private readonly IPromptRenderer _renderer;
@@ -57,7 +56,6 @@ public sealed partial class InvestigationActivities : IInvestigationActivities
         IAgentExecutor agent,
         IAgentRegistry agents,
         IPromptRegistry prompts,
-        IModelProfileRegistry models,
         IReadOnlyToolRegistry tools,
         ILlmGateway llm,
         IPromptRenderer renderer,
@@ -73,7 +71,6 @@ public sealed partial class InvestigationActivities : IInvestigationActivities
         _agent = agent;
         _agents = agents;
         _prompts = prompts;
-        _models = models;
         _tools = tools;
         _llm = llm;
         _renderer = renderer;
@@ -137,7 +134,7 @@ public sealed partial class InvestigationActivities : IInvestigationActivities
         return Result<ResolvedConfiguration>.Success(new ResolvedConfiguration(
             snapshot,
             snapshot.PromptRelease,
-            snapshot.ModelRelease,
+            snapshot.ModelAssignment,
             snapshot.ToolRelease,
             snapshot.PolicyRelease));
     }
@@ -261,9 +258,9 @@ public sealed partial class InvestigationActivities : IInvestigationActivities
                 context.Value.Prompt.Name,
                 context.Value.Prompt.Version,
                 context.Value.Prompt.ContentHash,
-                context.Value.ModelProfile.Provider,
-                context.Value.ModelProfile.ModelName,
-                context.Value.ModelProfile.Version),
+                context.Value.ModelCandidate.AdapterKind.ToString(),
+                context.Value.ModelCandidate.ProviderModel,
+                context.Value.ModelCandidate.DeploymentVersion.ToString(CultureInfo.InvariantCulture)),
             input.Agent.IsShadow,
             _timeProvider.GetUtcNow());
 

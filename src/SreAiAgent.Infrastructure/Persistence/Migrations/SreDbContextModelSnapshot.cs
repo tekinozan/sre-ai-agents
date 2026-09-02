@@ -177,17 +177,17 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("llm_call_count");
 
+                    b.Property<string>("ModelDeploymentVersion")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("model_deployment_version");
+
                     b.Property<string>("ModelName")
                         .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)")
                         .HasColumnName("model_name");
-
-                    b.Property<string>("ModelProfileVersion")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("model_profile_version");
 
                     b.Property<string>("ModelProvider")
                         .IsRequired()
@@ -774,11 +774,10 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("flag_snapshot");
 
-                    b.Property<string>("ModelRelease")
+                    b.Property<string>("ModelAssignmentJson")
                         .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("model_release");
+                        .HasColumnType("jsonb")
+                        .HasColumnName("model_assignment_json");
 
                     b.Property<string>("PolicyRelease")
                         .IsRequired()
@@ -872,9 +871,29 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("agent_run_id");
 
+                    b.Property<string>("AssignmentHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("assignment_hash");
+
+                    b.Property<Guid>("AssignmentReleaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("assignment_release_id");
+
                     b.Property<DateTimeOffset>("CalledAt")
                         .HasColumnType("timestamptz")
                         .HasColumnName("called_at");
+
+                    b.Property<string>("DeploymentHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("deployment_hash");
+
+                    b.Property<Guid>("DeploymentVersionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deployment_version_id");
 
                     b.Property<int>("DurationMilliseconds")
                         .HasColumnType("integer")
@@ -890,6 +909,12 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasColumnType("numeric(12,6)")
                         .HasColumnName("estimated_cost");
 
+                    b.Property<string>("FinishReason")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("finish_reason");
+
                     b.Property<Guid>("IncidentId")
                         .HasColumnType("uuid")
                         .HasColumnName("incident_id");
@@ -898,17 +923,17 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("input_tokens");
 
-                    b.Property<string>("ModelName")
+                    b.Property<string>("ObservedModel")
                         .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("model_name");
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("observed_model");
 
-                    b.Property<string>("ModelProvider")
+                    b.Property<string>("ObservedProvider")
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
-                        .HasColumnName("model_provider");
+                        .HasColumnName("observed_provider");
 
                     b.Property<string>("Outcome")
                         .IsRequired()
@@ -938,6 +963,40 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(32)")
                         .HasColumnName("prompt_version");
 
+                    b.Property<string>("ProviderRequestId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("provider_request_id");
+
+                    b.Property<string>("ProviderRevisionHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("provider_revision_hash");
+
+                    b.Property<Guid>("ProviderRevisionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provider_revision_id");
+
+                    b.Property<string>("RequestedModel")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("requested_model");
+
+                    b.Property<string>("RequestedProvider")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("requested_provider");
+
+                    b.Property<string>("Tenant")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant");
+
                     b.HasKey("Id");
 
                     b.HasIndex("IncidentId", "Id")
@@ -947,6 +1006,302 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_llm_calls_prompt");
 
                     b.ToTable("llm_calls", (string)null);
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ModelAssignmentAgentSlotEntity", b =>
+                {
+                    b.Property<string>("Tenant")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant");
+
+                    b.Property<Guid>("AssignmentReleaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("assignment_release_id");
+
+                    b.Property<string>("AgentName")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("agent_name");
+
+                    b.Property<Guid>("DeploymentVersionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deployment_version_id");
+
+                    b.HasKey("Tenant", "AssignmentReleaseId", "AgentName");
+
+                    b.HasIndex("Tenant", "DeploymentVersionId");
+
+                    b.ToTable("model_assignment_agent_slots", (string)null);
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ModelAssignmentEvaluationEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ArtifactHash")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("artifact_hash");
+
+                    b.Property<Guid>("AssignmentReleaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("assignment_release_id");
+
+                    b.Property<string>("Baseline")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("baseline");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("completed_at");
+
+                    b.Property<string>("Dataset")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("dataset");
+
+                    b.Property<bool>("Passed")
+                        .HasColumnType("boolean")
+                        .HasColumnName("passed");
+
+                    b.Property<DateTimeOffset>("RequestedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("requested_at");
+
+                    b.Property<string>("RequestedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("requested_by");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Tenant")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Tenant", "AssignmentReleaseId", "RequestedAt");
+
+                    b.ToTable("model_assignment_evaluations", (string)null);
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ModelAssignmentReleaseEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ClassifierDeploymentVersionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("classifier_deployment_version_id");
+
+                    b.Property<string>("ConfigurationHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("configuration_hash");
+
+                    b.Property<Guid>("CorrelatorDeploymentVersionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("correlator_deployment_version_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Tenant")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Tenant", "ClassifierDeploymentVersionId");
+
+                    b.HasIndex("Tenant", "CorrelatorDeploymentVersionId");
+
+                    b.HasIndex("Tenant", "Name", "Version")
+                        .IsUnique();
+
+                    b.ToTable("model_assignment_releases", (string)null);
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ModelControlPlaneAuditEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("action");
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("actor");
+
+                    b.Property<string>("ConfigurationHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("configuration_hash");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<Guid>("ResourceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("resource_id");
+
+                    b.Property<string>("ResourceType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("resource_type");
+
+                    b.Property<string>("Tenant")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Tenant", "OccurredAt");
+
+                    b.ToTable("model_control_plane_audit", (string)null);
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ModelDeploymentVersionEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ConfigurationHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("configuration_hash");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)")
+                        .HasColumnName("currency");
+
+                    b.Property<decimal>("InputCostPerMillionTokens")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("input_cost_per_million_tokens");
+
+                    b.Property<string>("LogicalName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("logical_name");
+
+                    b.Property<int>("MaxOutputTokens")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_output_tokens");
+
+                    b.Property<decimal>("OutputCostPerMillionTokens")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("output_cost_per_million_tokens");
+
+                    b.Property<Guid>("ProviderConnectionRevisionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provider_connection_revision_id");
+
+                    b.Property<string>("ProviderModel")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("provider_model");
+
+                    b.Property<string>("ProviderParametersJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("provider_parameters_json");
+
+                    b.Property<int>("RequiredCapabilities")
+                        .HasColumnType("integer")
+                        .HasColumnName("required_capabilities");
+
+                    b.Property<float>("Temperature")
+                        .HasColumnType("real")
+                        .HasColumnName("temperature");
+
+                    b.Property<string>("Tenant")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant");
+
+                    b.Property<int>("TimeoutMilliseconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("timeout_milliseconds");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Tenant", "ProviderConnectionRevisionId");
+
+                    b.HasIndex("Tenant", "LogicalName", "Version")
+                        .IsUnique();
+
+                    b.ToTable("model_deployment_versions", (string)null);
                 });
 
             modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.OutboxMessageEntity", b =>
@@ -1032,6 +1387,199 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                     b.ToTable("outbox_messages", (string)null);
                 });
 
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ProviderConnectionEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("ActiveRevisionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("active_revision_id");
+
+                    b.Property<DateTimeOffset?>("ArchivedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("archived_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("display_name");
+
+                    b.Property<string>("Tenant")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Tenant", "ActiveRevisionId");
+
+                    b.HasIndex("Tenant", "DisplayName")
+                        .IsUnique();
+
+                    b.ToTable("provider_connections", (string)null);
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ProviderConnectionRevisionEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AdapterKind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("adapter_kind");
+
+                    b.Property<string>("ApiVersion")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("api_version");
+
+                    b.Property<string>("ConfigurationHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("configuration_hash");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("CredentialRef")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("credential_ref");
+
+                    b.Property<int>("DeclaredCapabilities")
+                        .HasColumnType("integer")
+                        .HasColumnName("declared_capabilities");
+
+                    b.Property<string>("Endpoint")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("endpoint");
+
+                    b.Property<string>("Organization")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("organization");
+
+                    b.Property<Guid>("ProviderConnectionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provider_connection_id");
+
+                    b.Property<string>("Region")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("region");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("integer")
+                        .HasColumnName("revision");
+
+                    b.Property<string>("Tenant")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Tenant", "ProviderConnectionId", "Revision")
+                        .IsUnique();
+
+                    b.ToTable("provider_connection_revisions", (string)null);
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ProviderRevisionVerificationEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ProviderConnectionRevisionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provider_connection_revision_id");
+
+                    b.Property<string>("RequestId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("request_id");
+
+                    b.Property<string>("Tenant")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant");
+
+                    b.Property<DateTimeOffset>("VerifiedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("verified_at");
+
+                    b.Property<string>("VerifiedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("verified_by");
+
+                    b.Property<int>("VerifiedCapabilities")
+                        .HasColumnType("integer")
+                        .HasColumnName("verified_capabilities");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Tenant", "ProviderConnectionRevisionId", "VerifiedAt");
+
+                    b.ToTable("provider_revision_verifications", (string)null);
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.TenantActiveModelAssignmentEntity", b =>
+                {
+                    b.Property<string>("Tenant")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant");
+
+                    b.Property<DateTimeOffset>("ActivatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("activated_at");
+
+                    b.Property<string>("ActivatedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("activated_by");
+
+                    b.Property<Guid>("AssignmentReleaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("assignment_release_id");
+
+                    b.HasKey("Tenant");
+
+                    b.HasIndex("Tenant", "AssignmentReleaseId");
+
+                    b.ToTable("tenant_active_model_assignments", (string)null);
+                });
+
             modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ToolCallEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1099,6 +1647,100 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasFilter("outcome = 'denied'");
 
                     b.ToTable("tool_calls", (string)null);
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ModelAssignmentAgentSlotEntity", b =>
+                {
+                    b.HasOne("SreAiAgent.Infrastructure.Persistence.Entities.ModelAssignmentReleaseEntity", null)
+                        .WithMany()
+                        .HasForeignKey("Tenant", "AssignmentReleaseId")
+                        .HasPrincipalKey("Tenant", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SreAiAgent.Infrastructure.Persistence.Entities.ModelDeploymentVersionEntity", null)
+                        .WithMany()
+                        .HasForeignKey("Tenant", "DeploymentVersionId")
+                        .HasPrincipalKey("Tenant", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ModelAssignmentEvaluationEntity", b =>
+                {
+                    b.HasOne("SreAiAgent.Infrastructure.Persistence.Entities.ModelAssignmentReleaseEntity", null)
+                        .WithMany()
+                        .HasForeignKey("Tenant", "AssignmentReleaseId")
+                        .HasPrincipalKey("Tenant", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ModelAssignmentReleaseEntity", b =>
+                {
+                    b.HasOne("SreAiAgent.Infrastructure.Persistence.Entities.ModelDeploymentVersionEntity", null)
+                        .WithMany()
+                        .HasForeignKey("Tenant", "ClassifierDeploymentVersionId")
+                        .HasPrincipalKey("Tenant", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SreAiAgent.Infrastructure.Persistence.Entities.ModelDeploymentVersionEntity", null)
+                        .WithMany()
+                        .HasForeignKey("Tenant", "CorrelatorDeploymentVersionId")
+                        .HasPrincipalKey("Tenant", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_model_assignment_releases_model_deployment_versions_tenant~1");
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ModelDeploymentVersionEntity", b =>
+                {
+                    b.HasOne("SreAiAgent.Infrastructure.Persistence.Entities.ProviderConnectionRevisionEntity", null)
+                        .WithMany()
+                        .HasForeignKey("Tenant", "ProviderConnectionRevisionId")
+                        .HasPrincipalKey("Tenant", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ProviderConnectionEntity", b =>
+                {
+                    b.HasOne("SreAiAgent.Infrastructure.Persistence.Entities.ProviderConnectionRevisionEntity", null)
+                        .WithMany()
+                        .HasForeignKey("Tenant", "ActiveRevisionId")
+                        .HasPrincipalKey("Tenant", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ProviderConnectionRevisionEntity", b =>
+                {
+                    b.HasOne("SreAiAgent.Infrastructure.Persistence.Entities.ProviderConnectionEntity", null)
+                        .WithMany()
+                        .HasForeignKey("Tenant", "ProviderConnectionId")
+                        .HasPrincipalKey("Tenant", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ProviderRevisionVerificationEntity", b =>
+                {
+                    b.HasOne("SreAiAgent.Infrastructure.Persistence.Entities.ProviderConnectionRevisionEntity", null)
+                        .WithMany()
+                        .HasForeignKey("Tenant", "ProviderConnectionRevisionId")
+                        .HasPrincipalKey("Tenant", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.TenantActiveModelAssignmentEntity", b =>
+                {
+                    b.HasOne("SreAiAgent.Infrastructure.Persistence.Entities.ModelAssignmentReleaseEntity", null)
+                        .WithMany()
+                        .HasForeignKey("Tenant", "AssignmentReleaseId")
+                        .HasPrincipalKey("Tenant", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }

@@ -21,17 +21,30 @@ namespace SreAiAgent.Infrastructure.Llm;
 internal sealed class StructuredOutputValidator
 {
     private readonly FrozenDictionary<string, JsonSchema> _schemas;
+    private readonly FrozenDictionary<string, JsonElement> _wireSchemas;
 
     public StructuredOutputValidator()
     {
-        _schemas = new Dictionary<string, JsonSchema>(StringComparer.Ordinal)
+        Dictionary<string, string> schemaText = new(StringComparer.Ordinal)
         {
-            [AgentFindingSchemaName] = JsonSchema.FromText(AgentFindingSchema),
-            [AgentTurnSchemaName] = JsonSchema.FromText(AgentTurnSchema),
-            [ClassificationSchemaName] = JsonSchema.FromText(ClassificationSchema),
-            [CorrelationSchemaName] = JsonSchema.FromText(CorrelationSchema),
-            [RecommendationSchemaName] = JsonSchema.FromText(RecommendationSchema),
-        }.ToFrozenDictionary(StringComparer.Ordinal);
+            [AgentFindingSchemaName] = AgentFindingSchema,
+            [AgentTurnSchemaName] = AgentTurnSchema,
+            [ClassificationSchemaName] = ClassificationSchema,
+            [CorrelationSchemaName] = CorrelationSchema,
+            [RecommendationSchemaName] = RecommendationSchema,
+        };
+        _schemas = schemaText.ToFrozenDictionary(
+            static pair => pair.Key,
+            static pair => JsonSchema.FromText(pair.Value),
+            StringComparer.Ordinal);
+        _wireSchemas = schemaText.ToFrozenDictionary(
+            static pair => pair.Key,
+            static pair =>
+            {
+                using JsonDocument document = JsonDocument.Parse(pair.Value);
+                return document.RootElement.Clone();
+            },
+            StringComparer.Ordinal);
     }
 
     public const string AgentFindingSchemaName = "AgentFinding";
@@ -42,6 +55,13 @@ internal sealed class StructuredOutputValidator
 
     /// <summary>Every schema name the platform can validate, for startup checks.</summary>
     public IReadOnlyCollection<string> KnownSchemas => _schemas.Keys;
+
+    public Result<JsonElement> ResolveSchema(string schemaName)
+        => _wireSchemas.TryGetValue(schemaName, out JsonElement schema)
+            ? Result<JsonElement>.Success(schema)
+            : Result<JsonElement>.Failure(Error.Permanent(
+                ApplicationErrorCodes.ConfigInvalid,
+                $"No JSON Schema named '{schemaName}' is registered."));
 
     /// <summary>Validates a document, returning the first failure path if invalid.</summary>
     public Result Validate(string schemaName, JsonElement document)

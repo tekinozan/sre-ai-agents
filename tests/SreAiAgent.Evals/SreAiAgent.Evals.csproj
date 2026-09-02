@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);MA0009;MA0023;MA0045;MA0042;IDE0130;CA1849;CA1859;CA1826;IDE0011;CS1998;IDE0005;CS0019</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SreAiAgent.Application\SreAiAgent.Application.csproj" />
+    <ProjectReference Include="..\..\src\SreAiAgent.Infrastructure\SreAiAgent.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Datasets\**\*;Candidates\**\*;Baselines\**\*;eval-config.v1.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

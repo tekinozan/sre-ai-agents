@@ -76,14 +76,14 @@ internal sealed class RecordingActivities : IInvestigationActivities
             snapshotId,
             "agents-1",
             "prompts-1",
-            "models-1",
+            SreAiAgent.TestKit.PinnedModelFixtures.Scripted(),
             "tools-1",
             "policies-1",
             new Dictionary<string, string>(StringComparer.Ordinal),
             DateTimeOffset.UnixEpoch);
 
         return Task.FromResult(Result<ResolvedConfiguration>.Success(
-            new ResolvedConfiguration(snapshot, "prompts-1", "models-1", "tools-1", "policies-1")));
+            new ResolvedConfiguration(snapshot, "prompts-1", SreAiAgent.TestKit.PinnedModelFixtures.Scripted(), "tools-1", "policies-1")));
     }
 
     public Task<Result<IncidentClassification>> ClassifyIncidentAsync(

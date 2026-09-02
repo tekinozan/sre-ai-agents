@@ -444,6 +444,15 @@
       "sreaiagent.domain": {
         "type": "Project"
       },
+      "sreaiagent.testkit": {
+        "type": "Project",
+        "dependencies": {
+          "NSubstitute": "[6.2.0, )",
+          "Shouldly": "[4.3.0, )",
+          "SreAiAgent.Application": "[1.0.0, )",
+          "SreAiAgent.Domain": "[1.0.0, )"
+        }
+      },
       "sreaiagent.workflow": {
         "type": "Project",
         "dependencies": {

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.ChangeTracking;
 using SreAiAgent.Domain.Evidence;
 using SreAiAgent.Domain.Findings;
 using SreAiAgent.Domain.Incidents;
+using SreAiAgent.Domain.ModelProviders;
 using SreAiAgent.Domain.Recommendations;
 using SreAiAgent.Domain.Remediation;
 using SreAiAgent.Domain.Shared;
@@ -64,6 +65,16 @@ public sealed class SreDbContext : DbContext
 
     public DbSet<IdempotencyKeyEntity> IdempotencyKeys => Set<IdempotencyKeyEntity>();
 
+    public DbSet<ProviderConnectionEntity> ProviderConnections => Set<ProviderConnectionEntity>();
+    public DbSet<ProviderConnectionRevisionEntity> ProviderConnectionRevisions => Set<ProviderConnectionRevisionEntity>();
+    public DbSet<ProviderRevisionVerificationEntity> ProviderRevisionVerifications => Set<ProviderRevisionVerificationEntity>();
+    public DbSet<ModelDeploymentVersionEntity> ModelDeploymentVersions => Set<ModelDeploymentVersionEntity>();
+    public DbSet<ModelAssignmentReleaseEntity> ModelAssignmentReleases => Set<ModelAssignmentReleaseEntity>();
+    public DbSet<ModelAssignmentAgentSlotEntity> ModelAssignmentAgentSlots => Set<ModelAssignmentAgentSlotEntity>();
+    public DbSet<TenantActiveModelAssignmentEntity> TenantActiveModelAssignments => Set<TenantActiveModelAssignmentEntity>();
+    public DbSet<ModelAssignmentEvaluationEntity> ModelAssignmentEvaluations => Set<ModelAssignmentEvaluationEntity>();
+    public DbSet<ModelControlPlaneAuditEntity> ModelControlPlaneAudits => Set<ModelControlPlaneAuditEntity>();
+
     /// <inheritdoc />
     /// <inheritdoc />
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
@@ -86,6 +97,11 @@ public sealed class SreDbContext : DbContext
         configurationBuilder.Properties<RemediationActionId>().HaveConversion<RemediationActionIdConverter>();
         configurationBuilder.Properties<ToolCallId>().HaveConversion<ToolCallIdConverter>();
         configurationBuilder.Properties<LlmCallId>().HaveConversion<LlmCallIdConverter>();
+        configurationBuilder.Properties<ProviderConnectionId>().HaveConversion<ProviderConnectionIdConverter>();
+        configurationBuilder.Properties<ProviderConnectionRevisionId>().HaveConversion<ProviderConnectionRevisionIdConverter>();
+        configurationBuilder.Properties<ModelDeploymentVersionId>().HaveConversion<ModelDeploymentVersionIdConverter>();
+        configurationBuilder.Properties<ModelAssignmentReleaseId>().HaveConversion<ModelAssignmentReleaseIdConverter>();
+        configurationBuilder.Properties<ModelAssignmentEvaluationId>().HaveConversion<ModelAssignmentEvaluationIdConverter>();
 
         configurationBuilder.Properties<ErrorCode>().HaveConversion<ErrorCodeConverter>().HaveMaxLength(64);
         configurationBuilder.Properties<Confidence>().HaveConversion<ConfidenceConverter>().HavePrecision(5, 4);

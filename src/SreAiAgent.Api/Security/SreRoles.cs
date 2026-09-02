@@ -37,4 +37,16 @@ public static class SrePolicies
     /// person who authorizes it.
     /// </remarks>
     public const string DecideApprovals = "approvals:decide";
+
+    /// <summary>
+    /// Manage the tenant's model provider connections, revisions, deployment
+    /// versions and assignment releases.
+    /// </summary>
+    /// <remarks>
+    /// Reads and writes share one policy on purpose. The management surface is
+    /// operator-only; a viewer or investigator has no business enumerating
+    /// credential references, and reusing <see cref="WriteIncidents"/> would
+    /// grant it to <see cref="SreRoles.Investigator"/> too.
+    /// </remarks>
+    public const string ManageModelProviders = "model-providers:manage";
 }

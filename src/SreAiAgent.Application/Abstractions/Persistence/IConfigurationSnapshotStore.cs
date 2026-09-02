@@ -1,3 +1,4 @@
+using SreAiAgent.Application.Abstractions.Llm;
 using SreAiAgent.Domain.Shared;
 
 namespace SreAiAgent.Application.Abstractions.Persistence;
@@ -16,7 +17,7 @@ namespace SreAiAgent.Application.Abstractions.Persistence;
 /// <param name="Id">Snapshot identity, referenced by the incident.</param>
 /// <param name="AgentRelease">Pinned agent definition release.</param>
 /// <param name="PromptRelease">Pinned prompt release. Never <c>latest</c> in production.</param>
-/// <param name="ModelRelease">Pinned model profile release.</param>
+/// <param name="ModelAssignment">Exact immutable assignment/deployment/provider identities.</param>
 /// <param name="ToolRelease">Pinned tool release.</param>
 /// <param name="PolicyRelease">Pinned policy release.</param>
 /// <param name="FlagSnapshot">Agent name to evaluated availability state at pin time.</param>
@@ -25,7 +26,7 @@ public sealed record ConfigurationSnapshot(
     ConfigurationSnapshotId Id,
     string AgentRelease,
     string PromptRelease,
-    string ModelRelease,
+    PinnedModelAssignment ModelAssignment,
     string ToolRelease,
     string PolicyRelease,
     IReadOnlyDictionary<string, string> FlagSnapshot,

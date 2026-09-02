@@ -34,6 +34,10 @@ x-platform-env: &platform-env
   Telemetry__HttpSamplingRatio: "1.0"
   Workflow__Engine: temporal
   Workflow__TemporalHostPort: temporal:7233
+  Llm__Bootstrap__Tenant: local
+  Llm__Bootstrap__AdapterKind: Scripted
+  Llm__Bootstrap__Endpoint: https://scripted.invalid/
+  Llm__Bootstrap__CredentialRef: env://SRE_SCRIPTED_CREDENTIAL
 
 services:
   postgres:

@@ -721,35 +721,63 @@ Renderer:
 
 kurallarını uygular.
 
-### 8.2 Model profile
+### 8.2 Model assignment release
 
-```yaml
-name: analytical
-version: v1
-provider: openai
-model: configured-by-environment
-temperature: 0
-timeout_seconds: 45
-max_output_tokens: 4000
-structured_output: true
-tool_calling: true
-parallel_tool_calls: true
+Model kimliği artık global bir `ModelProfile` değil, tenant sahipliğinde
+immutable bir `ModelAssignmentRelease`'tir. Runtime çağrı anında profil
+ismine göre çözümleme yapmaz; incident açılırken aktif release'in içindeki
+her slot (`classifier`, `correlator` ve her serbest bırakılmış agent) için
+tam `ModelDeploymentVersion` + `ProviderConnectionRevision` koordinatı
+`ConfigurationSnapshot.ModelAssignment` içine pin edilir.
+
+```text
+ProviderConnection
+  └── ProviderConnectionRevision  (immutable, hash + declared capabilities)
+        └── ModelDeploymentVersion  (immutable, logical_name + version, temperature,
+              timeout, cost/1M, required capabilities)
+              └── ModelAssignmentRelease  (immutable, tenant + name + version)
+                    ├── Classifier  → deployment version id
+                    ├── Correlator  → deployment version id
+                    └── Agents[name] → deployment version id
 ```
 
-Model profile, prompt release'ten bağımsız versionlanır. Her investigation
-başlangıcında şu snapshot alınır:
+Her satır bir kez yazılır; PostgreSQL üzerinde `BEFORE UPDATE OR DELETE`
+trigger'ı `MODEL_CONFIGURATION_INVALID` ile reddeder (D35). Yalnızca
+`tenant_active_model_assignments` pointer'ı bir release'ten başka bir release'e
+geçmek için güncellenebilir.
+
+Her investigation başlangıcında alınan snapshot yalnızca release id'sini
+değil pin edilmiş adayları da taşır:
 
 ```json
 {
   "agent_release": "agents-release",
   "prompt_release": "sre-prompts-release",
-  "model_release": "models-release",
   "tool_release": "tools-release",
-  "policy_release": "policies-release"
+  "policy_release": "policies-release",
+  "model_assignment": {
+    "release_id": "018f4d1b-1e56-7a11-9f2b-1c2a3b4c5d6e",
+    "name": "bootstrap",
+    "version": 1,
+    "configuration_hash": "sha256:...",
+    "classifier":  { "deployment_version_id": "...", "deployment_configuration_hash": "sha256:..." },
+    "correlator":  { "deployment_version_id": "...", "deployment_configuration_hash": "sha256:..." },
+    "agents":     { "database-expert": { "deployment_version_id": "...", "deployment_configuration_hash": "sha256:..." } }
+  }
 }
 ```
 
-Bu snapshot immutable olup incident ile ilişkilendirilir.
+`LlmGateway` bu snapshot içindeki `PinnedModelCandidate`'i kullanır ve
+`llm_calls` satırına hem istenen hem de gözlenen `provider` + `model` +
+`assignment_release_id` + `deployment_version_id` + `provider_revision_id` +
+üç yapılandırma hash'ini yazar; span üzerinde `sre.model.assignment_release`
+ve `sre.model.deployment_version` etiketlenir (§16.1). Böylece hangi
+release'in konfigüre ettiği ve hangi deployment version'ın cevapladığı bir
+ay sonra bile tam olarak yeniden çözümlenebilir.
+
+Shipped `config/models/*.yaml` artifact'ları runtime çözümleme yolu değildir:
+ilk `ModelAssignmentRelease`'i seed etmek için `ModelAssignmentBootstrapper`
+tarafından okunurlar (D34); ondan sonra kaynak yalnızca veritabanıdır.
 
 ---
 

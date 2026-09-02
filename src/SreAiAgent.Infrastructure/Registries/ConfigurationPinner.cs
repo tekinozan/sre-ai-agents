@@ -1,42 +1,44 @@
 using Microsoft.Extensions.Options;
+using SreAiAgent.Application.Abstractions.Llm;
 using SreAiAgent.Application.Abstractions.Persistence;
 using SreAiAgent.Application.Agents;
+using SreAiAgent.Application.Errors;
 using SreAiAgent.Domain.Shared;
 using SreAiAgent.Infrastructure.Configuration;
+using SreAiAgent.Infrastructure.Persistence.Repositories;
 
 namespace SreAiAgent.Infrastructure.Registries;
 
-/// <summary>
-/// Captures the release set in force right now (ARCHITECTURE.md 8.2, 24.5).
-/// </summary>
-/// <remarks>
-/// The releases come from configuration rather than from the registries
-/// themselves, because the registries were loaded from those same values at
-/// startup and reading them back would only restate the answer. What the
-/// snapshot adds is a record: the identifiers are written to a row so an
-/// investigation months old can still be explained in terms of the exact
-/// artifacts it ran on, even after every one of those releases has been
-/// superseded.
-///
-/// The flag states are copied in for the same reason. Flags change far more
-/// often than releases do, and "the database expert was disabled at the time"
-/// is otherwise unrecoverable the moment somebody switches it back on.
-/// </remarks>
 internal sealed class ConfigurationPinner(
     IOptions<RegistryOptions> options,
-    IAgentFlagEvaluator flags) : IConfigurationPinner
+    IAgentFlagEvaluator flags,
+    ModelProviderRepository providers) : IConfigurationPinner
 {
     private readonly RegistryOptions _options = options.Value;
 
-    /// <inheritdoc />
-    public ConfigurationSnapshot PinCurrent(DateTimeOffset now)
-        => new(
+    public async Task<Result<ConfigurationSnapshot>> PinCurrentAsync(
+        string tenant,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        PinnedModelAssignment? assignment = await providers
+            .GetActiveSnapshotAsync(tenant, cancellationToken)
+            .ConfigureAwait(false);
+        if (assignment is null)
+        {
+            return Result<ConfigurationSnapshot>.Failure(Error.Permanent(
+                ApplicationErrorCodes.ModelAssignmentNotFound,
+                "The tenant has no active model assignment release."));
+        }
+
+        return Result<ConfigurationSnapshot>.Success(new ConfigurationSnapshot(
             ConfigurationSnapshotId.New(),
             _options.AgentRelease,
             _options.PromptRelease,
-            _options.ModelRelease,
+            assignment,
             _options.ToolRelease,
             _options.PolicyRelease,
             flags.DeclaredStates(),
-            now);
+            now));
+    }
 }

@@ -41,11 +41,22 @@ public static class ErrorCatalog
             [ApplicationErrorCodes.ModelCapabilityMismatch.Value] = new(InternalServerError, false),
             [ApplicationErrorCodes.AgentNotFound.Value] = new(InternalServerError, false),
             [ApplicationErrorCodes.ConfigurationSnapshotNotFound.Value] = new(InternalServerError, false),
+            [ApplicationErrorCodes.ProviderConnectionNotFound.Value] = new(NotFound, false),
+            [ApplicationErrorCodes.ProviderRevisionNotFound.Value] = new(NotFound, false),
+            [ApplicationErrorCodes.ModelDeploymentNotFound.Value] = new(NotFound, false),
+            [ApplicationErrorCodes.ModelAssignmentNotFound.Value] = new(NotFound, false),
+            [ApplicationErrorCodes.ModelAssignmentSlotMissing.Value] = new(Conflict, false),
+            [ApplicationErrorCodes.ModelAssignmentEvaluationRequired.Value] = new(Conflict, false),
+            [ApplicationErrorCodes.CredentialUnavailable.Value] = new(ServiceUnavailable, false),
+            [ApplicationErrorCodes.ModelResourceConflict.Value] = new(Conflict, false),
 
             // Transient provider conditions.
             [ApplicationErrorCodes.LlmRateLimited.Value] = new(ServiceUnavailable, true),
             [ApplicationErrorCodes.LlmTimeout.Value] = new(GatewayTimeout, true),
             [ApplicationErrorCodes.LlmProviderError.Value] = new(ServiceUnavailable, true),
+            [ApplicationErrorCodes.LlmAuthenticationFailed.Value] = new(ServiceUnavailable, false),
+            [ApplicationErrorCodes.LlmInvalidRequest.Value] = new(BadRequest, false),
+            [ApplicationErrorCodes.LlmUnavailable.Value] = new(ServiceUnavailable, true),
 
             // A model that ignored its schema will usually do so again, but not
             // always: sampling makes this the one model failure worth one retry.
@@ -85,6 +96,7 @@ public static class ErrorCatalog
             [DomainErrorCodes.ApprovalInvalidState.Value] = new(Conflict, false),
             [DomainErrorCodes.RemediationRiskNotPermitted.Value] = new(Forbidden, false),
             [DomainErrorCodes.ReportVersionConflict.Value] = new(Conflict, false),
+            [DomainErrorCodes.ModelConfigurationInvalid.Value] = new(BadRequest, false),
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>

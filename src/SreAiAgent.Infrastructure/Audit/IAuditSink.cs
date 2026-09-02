@@ -55,29 +55,51 @@ internal sealed record ToolCallAudit(
 /// <param name="LlmCallId">Identity of the call.</param>
 /// <param name="IncidentId">The incident under investigation.</param>
 /// <param name="AgentRunId">The run that called, when there was one.</param>
+/// <param name="Tenant">Tenant that owns the pinned assignment.</param>
 /// <param name="AgentName">Agent that called.</param>
 /// <param name="PromptName">Prompt used.</param>
 /// <param name="PromptVersion">Pinned prompt version.</param>
 /// <param name="PromptHash">Hash of the rendered prompt, not the prompt itself.</param>
-/// <param name="ModelProvider">Provider that served it.</param>
-/// <param name="ModelName">Concrete model.</param>
+/// <param name="AssignmentReleaseId">Pinned model-assignment release identity.</param>
+/// <param name="AssignmentHash">Pinned model-assignment configuration hash.</param>
+/// <param name="DeploymentVersionId">Pinned model-deployment version identity.</param>
+/// <param name="DeploymentHash">Pinned model-deployment configuration hash.</param>
+/// <param name="ProviderRevisionId">Pinned provider-connection revision identity.</param>
+/// <param name="ProviderRevisionHash">Pinned provider-connection configuration hash.</param>
+/// <param name="RequestedProvider">Provider adapter requested by the pin.</param>
+/// <param name="RequestedModel">Concrete provider model requested by the pin.</param>
+/// <param name="ObservedProvider">Provider reported by the adapter.</param>
+/// <param name="ObservedModel">Concrete model reported by the provider.</param>
+/// <param name="ProviderRequestId">Provider request identity, when reported.</param>
+/// <param name="FinishReason">Provider finish reason, when reported.</param>
 /// <param name="Outcome">succeeded or failed.</param>
 /// <param name="ErrorCode">Stable code when it failed.</param>
 /// <param name="InputTokens">Prompt tokens.</param>
 /// <param name="OutputTokens">Completion tokens.</param>
-/// <param name="EstimatedCost">Estimated cost in the profile's currency.</param>
+/// <param name="EstimatedCost">Estimated cost in the deployment's currency.</param>
 /// <param name="Duration">How long the call took.</param>
 /// <param name="CalledAt">When it happened, UTC.</param>
 internal sealed record LlmCallAudit(
     LlmCallId LlmCallId,
     IncidentId IncidentId,
     AgentRunId? AgentRunId,
+    string Tenant,
     string AgentName,
     string PromptName,
     string PromptVersion,
     string PromptHash,
-    string ModelProvider,
-    string ModelName,
+    Guid AssignmentReleaseId,
+    string AssignmentHash,
+    Guid DeploymentVersionId,
+    string DeploymentHash,
+    Guid ProviderRevisionId,
+    string ProviderRevisionHash,
+    string RequestedProvider,
+    string RequestedModel,
+    string ObservedProvider,
+    string ObservedModel,
+    string ProviderRequestId,
+    string FinishReason,
     string Outcome,
     ErrorCode? ErrorCode,
     long InputTokens,

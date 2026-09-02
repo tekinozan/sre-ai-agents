@@ -27,13 +27,12 @@ public sealed partial class InvestigationActivities
     private async Task<Result<ResolvedPrompt>> ResolvePromptAsync(
         ConfigurationSnapshotId snapshotId,
         string promptName,
-        string profileName,
+        string slot,
         CancellationToken cancellationToken)
     {
         ConfigurationSnapshot? snapshot = await _snapshots
             .GetAsync(snapshotId, cancellationToken)
             .ConfigureAwait(false);
-
         if (snapshot is null)
         {
             return Result<ResolvedPrompt>.Failure(Error.Permanent(
@@ -43,19 +42,15 @@ public sealed partial class InvestigationActivities
         Result<PromptDefinition> prompt = await _prompts
             .ResolveAsync(snapshot.PromptRelease, promptName, cancellationToken)
             .ConfigureAwait(false);
-
         if (prompt.IsFailure)
         {
             return Result<ResolvedPrompt>.Failure(prompt.Error);
         }
 
-        Result<ModelProfile> profile = await _models
-            .ResolveAsync(snapshot.ModelRelease, profileName, cancellationToken)
-            .ConfigureAwait(false);
-
-        return profile.IsFailure
-            ? Result<ResolvedPrompt>.Failure(profile.Error)
-            : Result<ResolvedPrompt>.Success(new ResolvedPrompt(prompt.Value, profile.Value));
+        Result<PinnedModelCandidate> candidate = snapshot.ModelAssignment.ResolveSlot(slot);
+        return candidate.IsFailure
+            ? Result<ResolvedPrompt>.Failure(candidate.Error)
+            : Result<ResolvedPrompt>.Success(new ResolvedPrompt(prompt.Value, candidate.Value));
     }
 
     /// <summary>Renders a prompt and calls the model, in one step.</summary>
@@ -93,9 +88,9 @@ public sealed partial class InvestigationActivities
             SystemPrompt = rendered.Value.System,
             UserPrompt = rendered.Value.User,
             ResponseSchemaName = schemaName,
-            ModelProfile = resolved.Profile,
+            Candidate = resolved.Candidate,
             Tools = [],
-            Timeout = resolved.Profile.Timeout < remaining ? resolved.Profile.Timeout : remaining,
+            Timeout = resolved.Candidate.Timeout < remaining ? resolved.Candidate.Timeout : remaining,
             Metadata = new LlmCallMetadata
             {
                 IncidentId = incidentId,
@@ -152,13 +147,10 @@ public sealed partial class InvestigationActivities
             return Result<AgentContext>.Failure(prompt.Error);
         }
 
-        Result<ModelProfile> profile = await _models
-            .ResolveAsync(snapshot.ModelRelease, definition.Value.ModelProfileRef, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (profile.IsFailure)
+        Result<PinnedModelCandidate> candidate = snapshot.ModelAssignment.ResolveSlot(definition.Value.Name);
+        if (candidate.IsFailure)
         {
-            return Result<AgentContext>.Failure(profile.Error);
+            return Result<AgentContext>.Failure(candidate.Error);
         }
 
         // The agent sees only the tools its definition allows, intersected with
@@ -187,7 +179,7 @@ public sealed partial class InvestigationActivities
             Incident = input.Incident,
             Definition = definition.Value,
             Prompt = prompt.Value,
-            ModelProfile = profile.Value,
+            ModelCandidate = candidate.Value,
             AvailableTools = available,
             ExistingEvidence = prior,
             // The agent deadline is the smaller of its own budget and what remains

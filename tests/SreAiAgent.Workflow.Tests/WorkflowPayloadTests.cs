@@ -143,13 +143,13 @@ public sealed class WorkflowPayloadTests
     {
         ConfigurationSnapshot snapshot = new(
             ConfigurationSnapshotId.New(),
-            "agents-1", "prompts-1", "models-1", "tools-1", "policies-1",
+            "agents-1", "prompts-1", SreAiAgent.TestKit.PinnedModelFixtures.Scripted(), "tools-1", "policies-1",
             new Dictionary<string, string>(StringComparer.Ordinal),
             DateTimeOffset.UnixEpoch);
 
         RoundTrip(Result<ResolvedConfiguration>.Success(
-            new ResolvedConfiguration(snapshot, "prompts-1", "models-1", "tools-1", "policies-1")))
-            .Value.PromptRelease.ShouldBe("prompts-1");
+            new ResolvedConfiguration(snapshot, "prompts-1", SreAiAgent.TestKit.PinnedModelFixtures.Scripted(), "tools-1", "policies-1")))
+            .Value.ModelAssignment.Classifier.DeploymentConfigurationHash.ShouldBe(SreAiAgent.TestKit.PinnedModelFixtures.Scripted().Classifier.DeploymentConfigurationHash);
 
         RoundTrip(Result<IncidentClassification>.Success(new IncidentClassification(
             ["database"], ClassificationMethod.Deterministic, Confidence.Certain, "Matched a label rule.")))

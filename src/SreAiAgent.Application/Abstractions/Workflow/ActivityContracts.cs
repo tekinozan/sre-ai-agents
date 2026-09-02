@@ -1,3 +1,4 @@
+using SreAiAgent.Application.Abstractions.Llm;
 using SreAiAgent.Application.Abstractions.Persistence;
 using SreAiAgent.Domain.Findings;
 using SreAiAgent.Domain.Incidents;
@@ -31,7 +32,7 @@ public sealed record IncidentSnapshot(
 public sealed record ResolvedConfiguration(
     ConfigurationSnapshot Snapshot,
     string PromptRelease,
-    string ModelRelease,
+    PinnedModelAssignment ModelAssignment,
     string ToolRelease,
     string PolicyRelease);
 

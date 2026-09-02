@@ -75,19 +75,23 @@ public sealed class LlmOptions
 {
     public const string SectionName = "Llm";
 
-    /// <summary>
-    /// Which adapter backs <c>IChatClient</c>. V1 ships only <c>scripted</c>; a
-    /// real provider is a one-line registration and a package reference.
-    /// </summary>
+    /// <summary>Root containing mounted secret files addressed by <c>file://</c> references.</summary>
     [Required(AllowEmptyStrings = false)]
-    public string Provider { get; init; } = "scripted";
+    public string CredentialFileRoot { get; init; } = "/var/run/secrets/sre-ai";
 
-    /// <summary>
-    /// Concrete model name per environment, keyed by the profile's `model` field
-    /// placeholder. Keeps one profile artifact usable in staging and production.
-    /// </summary>
+    /// <summary>Production allowlist for OpenAI-compatible custom endpoint hosts.</summary>
+    public IReadOnlyList<string> AllowedCustomEndpointHosts { get; init; } = [];
+
+    /// <summary>Activation always requires a recorded passing evaluation.</summary>
+    public bool RequireEvaluationForActivation { get; init; } = true;
+
+    /// <summary>Legacy artifact placeholder resolution; runtime selection uses pinned assignments.</summary>
     public IReadOnlyDictionary<string, string> ModelNameByProfile { get; init; } =
         new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>Retained for shipped profile validation; it is never used to select a runtime provider.</summary>
+    [Required(AllowEmptyStrings = false)]
+    public string Provider { get; init; } = "scripted";
 
     /// <summary>Retries for a transient provider failure. Bounded, with jitter.</summary>
     [Range(0, 5)]
@@ -100,6 +104,23 @@ public sealed class LlmOptions
     /// sensitive data in the system (ARCHITECTURE.md 8.1).
     /// </summary>
     public bool LogRenderedPrompts { get; init; }
+
+    public BootstrapOptions? Bootstrap { get; init; }
+
+    public sealed class BootstrapOptions
+    {
+        [Required(AllowEmptyStrings = false)] public string Tenant { get; init; } = string.Empty;
+        [Required(AllowEmptyStrings = false)] public string ConnectionDisplayName { get; init; } = "default";
+        [Required] public SreAiAgent.Domain.ModelProviders.ProviderAdapterKind AdapterKind { get; init; } = SreAiAgent.Domain.ModelProviders.ProviderAdapterKind.Scripted;
+        [Required(AllowEmptyStrings = false)] public string Endpoint { get; init; } = string.Empty;
+        public string? Region { get; init; }
+        public string? ApiVersion { get; init; }
+        public string? Organization { get; init; }
+        [Required(AllowEmptyStrings = false)] public string CredentialRef { get; init; } = string.Empty;
+        [Required(AllowEmptyStrings = false)] public string AssignmentName { get; init; } = "bootstrap";
+        [Required(AllowEmptyStrings = false)] public string ClassifierProfile { get; init; } = "fast";
+        [Required(AllowEmptyStrings = false)] public string CorrelatorProfile { get; init; } = "analytical";
+    }
 }
 
 /// <summary>Where configuration artifacts are loaded from, and which releases are pinned.</summary>

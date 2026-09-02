@@ -32,7 +32,7 @@ public sealed class AgentRun : Entity<AgentRunId>
         PromptHash = identity.PromptHash;
         ModelProvider = identity.ModelProvider;
         ModelName = identity.ModelName;
-        ModelProfileVersion = identity.ModelProfileVersion;
+        ModelDeploymentVersion = identity.ModelDeploymentVersion;
         IsShadow = isShadow;
         Status = AgentRunStatus.Running;
         StartedAt = startedAt.ToUniversalTime();
@@ -55,7 +55,7 @@ public sealed class AgentRun : Entity<AgentRunId>
 
     public string ModelName { get; private set; } = null!;
 
-    public string ModelProfileVersion { get; private set; } = null!;
+    public string ModelDeploymentVersion { get; private set; } = null!;
 
     /// <summary>
     /// True when the run is a shadow evaluation (ARCHITECTURE.md 24.6). Shadow

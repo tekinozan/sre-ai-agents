@@ -132,6 +132,19 @@ public sealed class CreateIncidentHandler(
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
+        // Pin the assignment first: an activation gate failure must reject the
+        // request rather than open an unusable incident, and the aggregate does
+        // not need to exist to answer that question.
+        Result<ConfigurationSnapshot> pinned = await pinner
+            .PinCurrentAsync(tenant, now, cancellationToken)
+            .ConfigureAwait(false);
+        if (pinned.IsFailure)
+        {
+            return Result<IncidentAcceptedResponse>.Failure(pinned.Error);
+        }
+
+        ConfigurationSnapshot snapshot = pinned.Value;
+
         Incident incident = new(
             IncidentId.New(),
             new NewIncident(
@@ -149,11 +162,6 @@ public sealed class CreateIncidentHandler(
             now);
 
         incidents.Add(incident);
-
-        // Pinned before the investigation is requested, never during it. A
-        // release promoted between the two would otherwise be picked up by work
-        // the operator believes is running on the previous one.
-        ConfigurationSnapshot snapshot = pinner.PinCurrent(now);
         snapshots.Add(snapshot);
 
         if (startInvestigation)

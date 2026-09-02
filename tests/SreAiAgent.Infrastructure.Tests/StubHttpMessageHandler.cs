@@ -26,6 +26,8 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
         => _respond = respond;
 
     public List<Uri> Requests { get; } = [];
+    public List<HttpRequestMessage> RequestsMessage { get; } = [];
+    public List<string> RequestBodies { get; } = [];
 
     /// <summary>The decoded value of a query string parameter from the last call.</summary>
     public string Parameter(string name) => Parameter(name, Requests.Count - 1);
@@ -51,14 +53,23 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
         throw new InvalidOperationException($"No '{name}' parameter in '{Requests[requestIndex]}'.");
     }
 
-    protected override Task<HttpResponseMessage> SendAsync(
+    protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         Requests.Add(request.RequestUri!);
+        RequestsMessage.Add(request);
 
-        return Task.FromResult(_respond(request));
+        // HttpClient disposes the outgoing content once SendAsync returns, so
+        // any assertion on it later reads a disposed stream. Buffer the body
+        // here while it is still readable.
+        string body = request.Content is null
+            ? string.Empty
+            : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        RequestBodies.Add(body);
+
+        return _respond(request);
     }
 }
 

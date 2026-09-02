@@ -26,7 +26,7 @@ public sealed partial class InvestigationActivities
         CancellationToken cancellationToken)
     {
         Result<ResolvedPrompt> prompt = await ResolvePromptAsync(
-            input.ConfigurationSnapshotId, "classifier.classify", "fast", cancellationToken)
+            input.ConfigurationSnapshotId, "classifier.classify", "classifier", cancellationToken)
             .ConfigureAwait(false);
 
         if (prompt.IsFailure)
@@ -92,7 +92,7 @@ public sealed partial class InvestigationActivities
         CancellationToken cancellationToken)
     {
         Result<ResolvedPrompt> prompt = await ResolvePromptAsync(
-            input.ConfigurationSnapshotId, "correlator.correlate", "analytical", cancellationToken)
+            input.ConfigurationSnapshotId, "correlator.correlate", "correlator", cancellationToken)
             .ConfigureAwait(false);
 
         if (prompt.IsFailure)
@@ -175,7 +175,7 @@ public sealed partial class InvestigationActivities
         CancellationToken cancellationToken)
     {
         Result<ResolvedPrompt> prompt = await ResolvePromptAsync(
-            input.ConfigurationSnapshotId, "correlator.recommend", "analytical", cancellationToken)
+            input.ConfigurationSnapshotId, "correlator.recommend", "correlator", cancellationToken)
             .ConfigureAwait(false);
 
         if (prompt.IsFailure)
@@ -347,5 +347,5 @@ public sealed partial class InvestigationActivities
                 $"- {hypothesis.Statement} (confidence {hypothesis.Confidence})"));
 }
 
-/// <summary>A prompt and the model profile it runs under, both resolved through a release.</summary>
-internal sealed record ResolvedPrompt(PromptDefinition Prompt, ModelProfile Profile);
+/// <summary>A prompt and the exact model candidate pinned for its assignment slot.</summary>
+internal sealed record ResolvedPrompt(PromptDefinition Prompt, PinnedModelCandidate Candidate);

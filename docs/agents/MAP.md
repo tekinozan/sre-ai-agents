@@ -88,7 +88,7 @@ container fails to build, or worse, how a host quietly acquires a capability.
 |---|---|---|
 | `AddSreConfiguration` | Options binding and `ValidateOnStart` | `Infrastructure/DependencyInjection.cs` |
 | `AddSreRegistries` | Prompt, model, agent, tool, flag, policy registries and the startup validator | same |
-| `AddSreLlm` | `LlmGateway` and the scripted `IChatClient` | same |
+| `AddSreLlm` | `LlmGateway`, the per-revision `ChatClientResolver`, the scripted and four HTTP `IProviderChatClient` adapters, the credential resolver, endpoint policy, catalog and control plane — no global `IChatClient`, every call resolves through the active `ModelAssignmentRelease` | same |
 | `AddSreTools` | Tool gateway, policy engine, rate limiter, adapters | `ToolsDependencyInjection.cs` |
 | `AddSreObservability` | Observability providers, selected per port; refuses a fake in Production and a real one with no address | same |
 | `AddSrePersistence` | Pooled `SreDbContext`, repositories, queries, outbox and inbox stores | `PersistenceDependencyInjection.cs` |

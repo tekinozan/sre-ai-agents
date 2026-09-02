@@ -110,6 +110,28 @@ public sealed class SpanAttributeLeakTests
         activity.GetTagItem(TraceAttributes.ToolName).ShouldBe("prometheus.query");
     }
 
+    [Fact]
+    public void TheDeploymentVersionAndAssignmentReleaseAreRecorded()
+    {
+        // Section 8.2 of ARCHITECTURE.md pins each investigation to an
+        // immutable model assignment release; the deployment version inside
+        // that release is what identifies the model call in a trace. Both
+        // must reach the span, or a review of a failed call cannot say which
+        // release configured it and which deployment version answered it.
+        using ActivityListener listener = Listen();
+        using Activity? activity = SreActivitySources.Llm.StartActivity("leak.probe");
+
+        activity.SetSafeTag(TraceAttributes.ModelAssignmentRelease, "018f4d1b-1e56-7a11-9f2b-1c2a3b4c5d6e");
+        activity.SetSafeTag(TraceAttributes.ModelDeploymentVersion, 3);
+
+        activity.ShouldNotBeNull();
+        activity.GetTagItem(TraceAttributes.ModelAssignmentRelease)
+            .ShouldBe("018f4d1b-1e56-7a11-9f2b-1c2a3b4c5d6e");
+        activity.GetTagItem(TraceAttributes.ModelDeploymentVersion).ShouldBe(3);
+        TraceAttributes.AllowedKeys.ShouldContain(TraceAttributes.ModelAssignmentRelease);
+        TraceAttributes.AllowedKeys.ShouldContain(TraceAttributes.ModelDeploymentVersion);
+    }
+
     private static ActivityListener Listen()
     {
         ActivityListener listener = new()

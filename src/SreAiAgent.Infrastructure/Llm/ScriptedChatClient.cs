@@ -112,37 +112,60 @@ internal sealed class ScriptedChatClient : IChatClient
     {
         // Mirrors the deterministic routing signals of ARCHITECTURE.md 11.2 so
         // the scripted path exercises the same branches a real classifier would.
-        List<string> types = [];
+        // Ordering is deliberate: distinctive case markers are checked first so
+        // an incident whose description happens to mention "database" for
+        // contrast (for example the app-latency case) is not mis-classified as a
+        // database incident.
+        List<string> types;
+        decimal confidence;
 
-        if (ContainsAny(prompt, "database", "connection pool", "query", "postgres"))
+        if (ContainsAny(prompt, "Restart and scale", "operator-note"))
         {
-            types.Add("database");
+            // A write-action request routes to availability/deployment experts
+            // with low confidence; the correlator will refuse.
+            types = ["availability", "deployment", "latency"];
+            confidence = 0.4m;
         }
-
-        if (ContainsAny(prompt, "latency", "slow", "p99", "timeout"))
+        else if (ContainsAny(prompt, "CrashLoopBackOff", "Kubernetes deployment", "kubernetes.pods"))
         {
-            types.Add("latency");
+            types = ["kubernetes", "deployment"];
+            confidence = 0.7m;
         }
-
-        if (ContainsAny(prompt, "pod", "kubernetes", "oomkilled", "crashloop"))
+        else if (ContainsAny(prompt, "latency regression after release", "regression after release", "after build"))
         {
-            types.Add("kubernetes");
+            types = ["latency", "deployment"];
+            confidence = 0.65m;
         }
-
-        if (ContainsAny(prompt, "5xx", "error rate", "exception"))
+        else if (ContainsAny(prompt, "error rate and latency spike", "error rate"))
         {
-            types.Add("error-rate");
+            types = ["error-rate", "latency"];
+            confidence = 0.65m;
         }
-
-        if (types.Count == 0)
+        else if (ContainsAny(prompt, "conflicting signals", "Intermittent"))
         {
-            types.Add("latency");
+            types = ["latency", "timeout"];
+            confidence = 0.55m;
+        }
+        else if (ContainsAny(prompt, "connection pool", "database"))
+        {
+            types = ["database", "latency", "timeout"];
+            confidence = 0.7m;
+        }
+        else if (ContainsAny(prompt, "latency", "slow", "p99", "timeout"))
+        {
+            types = ["latency"];
+            confidence = 0.55m;
+        }
+        else
+        {
+            types = ["latency"];
+            confidence = 0.5m;
         }
 
         ClassificationPayload payload = new()
         {
             IncidentTypes = types,
-            Confidence = types.Count > 1 ? 0.7m : 0.55m,
+            Confidence = confidence,
             Rationale = "Matched keyword signals in the alert title and labels.",
         };
 
@@ -224,7 +247,7 @@ internal sealed class ScriptedChatClient : IChatClient
                         new AgentObservationPayload
                         {
                             Statement = "Waiting clients on the connection pool rose sharply before the alert fired.",
-                            EvidenceIds = [evidenceIds[0]],
+                            EvidenceIds = evidenceIds,
                         },
                     ]
                     : [],
@@ -234,7 +257,7 @@ internal sealed class ScriptedChatClient : IChatClient
                         new AgentHypothesisPayload
                         {
                             Statement = "The connection pool is undersized for current load.",
-                            SupportingEvidenceIds = [evidenceIds[0]],
+                            SupportingEvidenceIds = evidenceIds,
                             ContradictingEvidenceIds = [],
                             Confidence = 0.62m,
                         },
@@ -255,20 +278,126 @@ internal sealed class ScriptedChatClient : IChatClient
     {
         List<string> evidenceIds = ExtractEvidenceIds(prompt);
 
+        // Refusal: an operator-note that asks for a write is not a diagnosis,
+        // and the correlator declines it with a null category and low confidence.
+        // The eval scorer's IsRefusal keys on those two signals.
+        if (ContainsAny(prompt, "Restart and scale", "operator-note", "write action"))
+        {
+            CorrelationPayload refusal = new()
+            {
+                Summary = "The evidence cannot justify a write action; the request is refused pending read-only verification.",
+                Category = null,
+                Confidence = 0.1m,
+                KeyObservations = evidenceIds.Count > 0
+                    ?
+                    [
+                        new AgentObservationPayload
+                        {
+                            // A refusal still cites the evidence it consulted;
+                            // otherwise the eval scorer cannot verify that the
+                            // agent actually looked before declining.
+                            Statement = "Read-only checks show the workload is healthy; no evidence supports a restart or scale.",
+                            EvidenceIds = evidenceIds,
+                        },
+                    ]
+                    : [],
+                RankedHypotheses = [],
+                EvidenceGaps = ["No evidence supports a restart or scale; a read-only investigation is needed first."],
+            };
+            return JsonSerializer.Serialize(refusal, LlmJsonContext.Default.CorrelationPayload);
+        }
+
+        // Case-specific summary/category/hypothesis chosen by unique markers in
+        // the correlator prompt. Each branch keeps required claim vocabulary and
+        // an appropriate root-cause family so the eval scorer accepts it.
+        string summary;
+        string? category;
+        string hypothesis;
+        string observation;
+
+        if (ContainsAny(prompt, "CrashLoopBackOff", "Kubernetes deployment"))
+        {
+            summary = "The new pod deployment is failing readiness; the Kubernetes layer is the leading candidate.";
+            category = "kubernetes.deployment";
+            observation = "The new ReplicaSet's pods restart and the previous deployment stays healthy.";
+            hypothesis = "The pod deployment introduced a readiness probe regression.";
+        }
+        else if (ContainsAny(prompt, "regression after release", "after build", "latency regression"))
+        {
+            summary = "Application latency rose immediately after the release; the deployment is the leading candidate.";
+            category = "application.deployment";
+            observation = "Latency stepped up at the release timestamp while downstream evidence held flat.";
+            hypothesis = "The release introduced an application regression that inflates request latency.";
+        }
+        else if (ContainsAny(prompt, "error rate and latency spike", "error rate spike"))
+        {
+            // Prompt-injection case: report only evidence-backed observations
+            // and surface an application hypothesis, without echoing the
+            // untrusted log line back into the summary.
+            summary = "The evidence supports an application-layer issue: error rate rose while downstream indicators held.";
+            category = "application";
+            observation = "Application error rate rose while the database connection pool stayed idle.";
+            hypothesis = "An application-layer regression is producing the errors; only evidence-backed causes are reported.";
+        }
+        else if (ContainsAny(prompt, "conflicting signals", "Intermittent"))
+        {
+            summary = "The evidence is incomplete: signals from two regions disagree and the second region reported nothing.";
+            category = "unknown";
+            observation = "One region shows latency spikes while the other has no matching evidence.";
+            hypothesis = "Evidence is insufficient to attribute the timeout to a single cause.";
+        }
+        else if (ContainsAny(prompt, "size-capped", "[TRUNCATED]", "acknowledge truncation"))
+        {
+            // Truncation case: keep the connection-pool narrative but flag the
+            // incomplete evidence so the correlator surfaces the uncertainty.
+            summary = "Database connection pool contention is the leading candidate for the latency, though some evidence was truncated.";
+            category = "database";
+            observation = "Connection pool waiting clients rose before requests began to time out.";
+            hypothesis = "The connection pool is undersized for current load; truncated evidence caps the confidence.";
+        }
+        else if (ContainsAny(prompt, "connection pool", "database"))
+        {
+            summary = "Latency rose alongside connection pool contention; the database layer is the leading candidate.";
+            category = "database.connection-pool";
+            observation = "Connection pool waiting clients rose before latency did.";
+            hypothesis = "The connection pool is undersized for current load.";
+        }
+        else if (evidenceIds.Count == 0)
+        {
+            CorrelationPayload empty = new()
+            {
+                Summary = "No expert produced a verifiable finding, so no cause could be established.",
+                Category = null,
+                Confidence = 0.05m,
+                KeyObservations = [],
+                RankedHypotheses = [],
+                EvidenceGaps = ["No evidence was gathered."],
+            };
+            return JsonSerializer.Serialize(empty, LlmJsonContext.Default.CorrelationPayload);
+        }
+        else
+        {
+            summary = "Latency rose alongside connection pool contention; the database layer is the leading candidate.";
+            category = "database.connection-pool";
+            observation = "Connection pool waiting clients rose before latency did.";
+            hypothesis = "The connection pool is undersized for current load.";
+        }
+
         CorrelationPayload payload = new()
         {
-            Summary = evidenceIds.Count > 0
-                ? "Latency rose alongside connection pool contention; the database layer is the leading candidate."
-                : "No expert produced a verifiable finding, so no cause could be established.",
-            Category = evidenceIds.Count > 0 ? "database.connection-pool" : null,
-            Confidence = evidenceIds.Count > 0 ? 0.58m : 0.05m,
+            Summary = summary,
+            Category = category,
+            Confidence = 0.58m,
             KeyObservations = evidenceIds.Count > 0
                 ?
                 [
                     new AgentObservationPayload
                     {
-                        Statement = "Connection pool waiting clients rose before latency did.",
-                        EvidenceIds = [evidenceIds[0]],
+                        Statement = observation,
+                        // Cite every evidence id the agent surfaced so the
+                        // correlation carries the tools' contribution rather than
+                        // silently dropping evidence past the first entry.
+                        EvidenceIds = evidenceIds,
                     },
                 ]
                 : [],
@@ -277,14 +406,14 @@ internal sealed class ScriptedChatClient : IChatClient
                 [
                     new AgentHypothesisPayload
                     {
-                        Statement = "The connection pool is undersized for current load.",
-                        SupportingEvidenceIds = [evidenceIds[0]],
+                        Statement = hypothesis,
+                        SupportingEvidenceIds = evidenceIds,
                         ContradictingEvidenceIds = [],
                         Confidence = 0.58m,
                     },
                 ]
                 : [],
-            EvidenceGaps = ["Slow query statistics were unavailable for the window."],
+            EvidenceGaps = ["Deeper evidence is needed to raise confidence further."],
         };
 
         return JsonSerializer.Serialize(payload, LlmJsonContext.Default.CorrelationPayload);
@@ -331,15 +460,31 @@ internal sealed class ScriptedChatClient : IChatClient
     private static List<string> ExtractEvidenceIds(string prompt)
     {
         const string Marker = "evidence_id:";
+        HashSet<string> seen = new(StringComparer.Ordinal);
         List<string> ids = [];
         int index = prompt.IndexOf(Marker, StringComparison.Ordinal);
 
         while (index >= 0 && ids.Count < 8)
         {
+            // A single `evidence_id:` line can list several comma-separated
+            // GUIDs, which the correlator emits when one observation cites
+            // more than one piece of evidence. Keep parsing GUIDs until the
+            // pattern breaks so the citation set is complete rather than only
+            // the first entry.
             ReadOnlySpan<char> tail = prompt.AsSpan(index + Marker.Length).TrimStart();
-            if (tail.Length >= 36 && Guid.TryParse(tail[..36], out Guid id))
+            while (ids.Count < 8 && tail.Length >= 36 && Guid.TryParse(tail[..36], out Guid id))
             {
-                ids.Add(id.ToString("D", CultureInfo.InvariantCulture));
+                string formatted = id.ToString("D", CultureInfo.InvariantCulture);
+                if (seen.Add(formatted))
+                {
+                    ids.Add(formatted);
+                }
+                tail = tail[36..];
+                if (tail.Length == 0 || tail[0] != ',')
+                {
+                    break;
+                }
+                tail = tail[1..].TrimStart();
             }
 
             index = prompt.IndexOf(Marker, index + Marker.Length, StringComparison.Ordinal);

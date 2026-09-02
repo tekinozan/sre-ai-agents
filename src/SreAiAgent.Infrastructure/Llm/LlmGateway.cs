@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SreAiAgent.Application.Abstractions.Llm;
@@ -13,20 +12,9 @@ using SreAiAgent.Infrastructure.Configuration;
 
 namespace SreAiAgent.Infrastructure.Llm;
 
-/// <summary>
-/// The platform's single route to a model (ARCHITECTURE.md 6.1).
-/// </summary>
-/// <remarks>
-/// Microsoft.Extensions.AI provides the provider abstraction; this class provides
-/// the platform policy on top of it. Everything that matters operationally lives
-/// here rather than in an SDK: schema validation, timeouts, cost accounting,
-/// audit metadata, span attributes and the mapping of provider failures onto the
-/// error taxonomy. Swapping the provider changes one DI registration and none of
-/// this.
-/// </remarks>
 internal sealed partial class LlmGateway : ILlmGateway
 {
-    private readonly IChatClient _chatClient;
+    private readonly IChatClientResolver _resolver;
     private readonly StructuredOutputValidator _validator;
     private readonly SreMetrics _metrics;
     private readonly LlmOptions _options;
@@ -35,7 +23,7 @@ internal sealed partial class LlmGateway : ILlmGateway
     private readonly ILogger<LlmGateway> _logger;
 
     public LlmGateway(
-        IChatClient chatClient,
+        IChatClientResolver resolver,
         StructuredOutputValidator validator,
         SreMetrics metrics,
         IOptions<LlmOptions> options,
@@ -43,139 +31,173 @@ internal sealed partial class LlmGateway : ILlmGateway
         TimeProvider timeProvider,
         ILogger<LlmGateway> logger)
     {
-        ArgumentNullException.ThrowIfNull(options);
-        _audit = audit;
-        _chatClient = chatClient;
+        _resolver = resolver;
         _validator = validator;
         _metrics = metrics;
         _options = options.Value;
+        _audit = audit;
         _timeProvider = timeProvider;
         _logger = logger;
     }
 
-    /// <inheritdoc />
     public async Task<Result<LlmResult<T>>> GenerateStructuredAsync<T>(
         LlmRequest<T> request,
         CancellationToken cancellationToken)
         where T : class
     {
         ArgumentNullException.ThrowIfNull(request);
-
-        using Activity? activity = SreActivitySources.Llm.StartActivity(
-            SreSpanNames.LlmCall, ActivityKind.Client);
-
+        using Activity? activity = SreActivitySources.Llm.StartActivity(SreSpanNames.LlmCall, ActivityKind.Client);
         activity
             .SetSafeTag(TraceAttributes.IncidentId, request.Metadata.IncidentId.ToString())
             .SetSafeTag(TraceAttributes.AgentName, request.Metadata.AgentName)
             .SetSafeTag(TraceAttributes.PromptName, request.Metadata.PromptName)
             .SetSafeTag(TraceAttributes.PromptVersion, request.Metadata.PromptVersion)
             .SetSafeTag(TraceAttributes.PromptHash, request.Metadata.PromptHash)
-            .SetSafeTag(TraceAttributes.ModelProvider, request.ModelProfile.Provider)
-            .SetSafeTag(TraceAttributes.ModelName, request.ModelProfile.ModelName)
+            .SetSafeTag(TraceAttributes.ModelProvider, request.Candidate.AdapterKind.ToString())
+            .SetSafeTag(TraceAttributes.ModelName, request.Candidate.DeploymentLogicalName)
+            .SetSafeTag(TraceAttributes.ModelDeploymentVersion, request.Candidate.DeploymentVersion)
+            .SetSafeTag(TraceAttributes.ModelAssignmentRelease, request.Candidate.AssignmentReleaseId.Value.ToString())
             .SetSafeTag(TraceAttributes.Tenant, request.Metadata.Tenant);
 
-        // The prompt text is never attached to the span. Only the hash is, which
-        // identifies it for an audit without putting the retrieved evidence into
-        // a tracing backend (ARCHITECTURE.md 16.1).
-
         long startTimestamp = _timeProvider.GetTimestamp();
+        Result<JsonElement> schema = _validator.ResolveSchema(request.ResponseSchemaName);
+        if (schema.IsFailure)
+        {
+            return Fail(request, activity, Elapsed(startTimestamp), schema.Error, Accounting.Empty, "failed");
+        }
 
-        // The per-call timeout is enforced here rather than trusted to the
-        // provider. A provider that hangs past its own advertised timeout would
-        // otherwise consume the agent's entire budget on one call.
+        Result<IProviderChatClient> resolved = await _resolver
+            .ResolveAsync(request.Candidate, cancellationToken)
+            .ConfigureAwait(false);
+        if (resolved.IsFailure)
+        {
+            return Fail(request, activity, Elapsed(startTimestamp), resolved.Error, Accounting.Empty, "failed");
+        }
+
+        int? seed = null;
+        if (request.Candidate.ProviderParameters.TryGetValue("seed", out string? configuredSeed))
+        {
+            seed = int.Parse(configuredSeed, NumberStyles.Integer, CultureInfo.InvariantCulture);
+        }
+
+        ProviderChatRequest providerRequest = new(
+            request.SystemPrompt,
+            request.UserPrompt,
+            request.Candidate.ProviderModel,
+            schema.Value,
+            request.Candidate.Temperature,
+            request.Candidate.MaxOutputTokens,
+            seed,
+            request.Candidate.ProviderParameters);
+
         using CancellationTokenSource timeoutSource = new(request.Timeout, _timeProvider);
-        using CancellationTokenSource linked =
-            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutSource.Token);
+        using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            timeoutSource.Token);
 
-        try
+        for (int attempt = 0; attempt <= _options.MaxRetries; attempt++)
         {
-            ChatResponse response = await _chatClient
-                .GetResponseAsync(BuildMessages(request), BuildOptions(request), linked.Token)
-                .ConfigureAwait(false);
+            try
+            {
+                Result<ProviderChatResponse> response = await resolved.Value
+                    .GetResponseAsync(providerRequest, linked.Token)
+                    .ConfigureAwait(false);
+                Result<LlmResult<T>> outcome = response.IsFailure
+                    ? Fail(
+                        request,
+                        activity,
+                        Elapsed(startTimestamp),
+                        response.Error,
+                        Accounting.Empty,
+                        "failed")
+                    : Interpret(request, response.Value, Elapsed(startTimestamp), activity);
 
-            TimeSpan latency = _timeProvider.GetElapsedTime(startTimestamp);
-            return Interpret(request, response, latency, activity);
-        }
-        catch (OperationCanceledException) when (timeoutSource.IsCancellationRequested)
-        {
-            TimeSpan latency = _timeProvider.GetElapsedTime(startTimestamp);
-            return Fail(
-                request,
-                activity,
-                latency,
-                Error.Transient(
-                    ApplicationErrorCodes.LlmTimeout,
-                    $"Model call exceeded its {request.Timeout.TotalSeconds.ToString("0.#", CultureInfo.InvariantCulture)}s timeout."));
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            // The provider exception never escapes. Section 17 requires a stable
-            // code and a safe message at the boundary; the detail is logged, not
-            // returned, because provider messages routinely echo request content.
-            TimeSpan latency = _timeProvider.GetElapsedTime(startTimestamp);
-            LogProviderFailure(_logger, request.ModelProfile.Provider, request.Metadata.AgentName, exception);
+                if (outcome.IsSuccess
+                    || attempt == _options.MaxRetries
+                    || !ErrorCatalog.IsRetryable(outcome.Error.Code))
+                {
+                    return outcome;
+                }
 
-            return Fail(
-                request,
-                activity,
-                latency,
-                Error.Transient(
-                    ApplicationErrorCodes.LlmProviderError,
-                    "The model provider returned an error."));
+                await Task.Delay(TimeSpan.FromMilliseconds(100 * (attempt + 1)), _timeProvider, linked.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (timeoutSource.IsCancellationRequested)
+            {
+                return Fail(
+                    request,
+                    activity,
+                    Elapsed(startTimestamp),
+                    Error.Transient(
+                        ApplicationErrorCodes.LlmTimeout,
+                        $"Model call exceeded its {request.Timeout.TotalSeconds.ToString("0.#", CultureInfo.InvariantCulture)}s timeout."),
+                    Accounting.Empty,
+                    "timeout");
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                LogProviderFailure(_logger, request.Candidate.AdapterKind.ToString(), request.Metadata.AgentName, exception);
+                return Fail(
+                    request,
+                    activity,
+                    Elapsed(startTimestamp),
+                    Error.Transient(ApplicationErrorCodes.LlmProviderError, "The model provider returned an error."),
+                    Accounting.Empty,
+                    "failed");
+            }
         }
+
+        // The loop returns on the final attempt; the compiler cannot prove that invariant.
+        return Fail(
+            request,
+            activity,
+            Elapsed(startTimestamp),
+            Error.Transient(ApplicationErrorCodes.LlmProviderError, "The model provider returned an error."),
+            Accounting.Empty,
+            "failed");
     }
 
     private Result<LlmResult<T>> Interpret<T>(
         LlmRequest<T> request,
-        ChatResponse response,
+        ProviderChatResponse response,
         TimeSpan latency,
         Activity? activity)
         where T : class
     {
-        long inputTokens = response.Usage?.InputTokenCount ?? 0;
-        long outputTokens = response.Usage?.OutputTokenCount ?? 0;
-        decimal cost = request.ModelProfile.EstimateCost(inputTokens, outputTokens);
-        string finishReason = response.FinishReason?.Value ?? "unknown";
+        Accounting accounting = new(
+            response.InputTokens,
+            response.OutputTokens,
+            request.Candidate.EstimateCost(response.InputTokens, response.OutputTokens),
+            response.ObservedProvider,
+            response.ObservedModel,
+            response.RequestId,
+            response.FinishReason);
 
-        // A truncated response is a failure, not something to parse optimistically.
-        // Half a finding still deserializes into an object with an empty
-        // observation list, which would be recorded as an expert that found
-        // nothing rather than as a call that did not complete.
-        if (string.Equals(finishReason, "length", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(response.FinishReason, "length", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(response.FinishReason, "max_tokens", StringComparison.OrdinalIgnoreCase))
         {
-            _metrics.LlmCall(
-                request.ModelProfile.Provider, request.ModelProfile.ModelName, "truncated",
-                inputTokens, outputTokens, cost);
-
             return Fail(request, activity, latency, Error.Transient(
                 ApplicationErrorCodes.LlmStructuredOutputInvalid,
-                "The model response was truncated by the output token limit."));
+                "The model response was truncated by the output token limit."), accounting, "truncated");
         }
 
-        string text = response.Text;
-        if (string.IsNullOrWhiteSpace(text))
+        if (string.IsNullOrWhiteSpace(response.Text))
         {
-            _metrics.LlmCall(
-                request.ModelProfile.Provider, request.ModelProfile.ModelName, "empty",
-                inputTokens, outputTokens, cost);
-
             return Fail(request, activity, latency, Error.Transient(
-                ApplicationErrorCodes.LlmStructuredOutputInvalid, "The model returned no content."));
+                ApplicationErrorCodes.LlmStructuredOutputInvalid,
+                "The model returned no content."), accounting, "empty");
         }
 
         JsonDocument document;
         try
         {
-            document = JsonDocument.Parse(text, new JsonDocumentOptions { MaxDepth = 16 });
+            document = JsonDocument.Parse(response.Text, new JsonDocumentOptions { MaxDepth = 16 });
         }
         catch (JsonException)
         {
-            _metrics.LlmCall(
-                request.ModelProfile.Provider, request.ModelProfile.ModelName, "invalid_json",
-                inputTokens, outputTokens, cost);
-
             return Fail(request, activity, latency, Error.Transient(
-                ApplicationErrorCodes.LlmStructuredOutputInvalid, "The model response was not valid JSON."));
+                ApplicationErrorCodes.LlmStructuredOutputInvalid,
+                "The model response was not valid JSON."), accounting, "invalid_json");
         }
 
         using (document)
@@ -183,50 +205,58 @@ internal sealed partial class LlmGateway : ILlmGateway
             Result validation = _validator.Validate(request.ResponseSchemaName, document.RootElement);
             if (validation.IsFailure)
             {
-                _metrics.LlmCall(
-                    request.ModelProfile.Provider, request.ModelProfile.ModelName, "schema_invalid",
-                    inputTokens, outputTokens, cost);
-
-                LogSchemaRejected(
-                    _logger, request.ResponseSchemaName, request.Metadata.AgentName, validation.Error.Message);
-
-                return Fail(request, activity, latency, validation.Error);
+                LogSchemaRejected(_logger, request.ResponseSchemaName, request.Metadata.AgentName, validation.Error.Message);
+                return Fail(request, activity, latency, validation.Error, accounting, "schema_invalid");
             }
 
             if (LlmJsonContext.Default.GetTypeInfo(typeof(T)) is not JsonTypeInfo<T> typeInfo)
             {
                 return Fail(request, activity, latency, Error.Permanent(
                     ApplicationErrorCodes.ConfigInvalid,
-                    $"No serialization metadata is generated for '{typeof(T).Name}'. "
-                    + "Add it to LlmJsonContext."));
+                    $"No serialization metadata is generated for '{typeof(T).Name}'. Add it to LlmJsonContext."),
+                    accounting,
+                    "failed");
             }
 
-            T? value = document.RootElement.Deserialize(typeInfo);
+            T? value;
+            try
+            {
+                value = document.RootElement.Deserialize(typeInfo);
+            }
+            catch (JsonException)
+            {
+                return Fail(request, activity, latency, Error.Transient(
+                    ApplicationErrorCodes.LlmStructuredOutputInvalid,
+                    "The model response could not be bound to its contract."), accounting, "schema_invalid");
+            }
+
             if (value is null)
             {
                 return Fail(request, activity, latency, Error.Transient(
                     ApplicationErrorCodes.LlmStructuredOutputInvalid,
-                    "The model response bound to null."));
+                    "The model response bound to null."), accounting, "schema_invalid");
             }
 
             _metrics.LlmCall(
-                request.ModelProfile.Provider, request.ModelProfile.ModelName, "succeeded",
-                inputTokens, outputTokens, cost);
-
+                request.Candidate.AdapterKind.ToString(),
+                request.Candidate.DeploymentLogicalName,
+                request.Candidate.DeploymentVersion,
+                "succeeded",
+                accounting.InputTokens,
+                accounting.OutputTokens,
+                accounting.EstimatedCost);
             activity.SetSafeTag(TraceAttributes.ResultStatus, "succeeded");
-
-            Audit(request, "succeeded", error: null, inputTokens, outputTokens, cost, latency);
-
+            Audit(request, "succeeded", null, accounting, latency);
             return Result<LlmResult<T>>.Success(new LlmResult<T>(
-                Value: value,
-                Provider: request.ModelProfile.Provider,
-                Model: request.ModelProfile.ModelName,
-                InputTokens: (int)inputTokens,
-                OutputTokens: (int)outputTokens,
-                Latency: latency,
-                RequestId: response.ResponseId ?? string.Empty,
-                FinishReason: finishReason,
-                EstimatedCost: cost));
+                value,
+                accounting.ObservedProvider,
+                accounting.ObservedModel,
+                ClampTokenCount(accounting.InputTokens),
+                ClampTokenCount(accounting.OutputTokens),
+                latency,
+                accounting.ProviderRequestId,
+                accounting.FinishReason,
+                accounting.EstimatedCost));
         }
     }
 
@@ -234,90 +264,98 @@ internal sealed partial class LlmGateway : ILlmGateway
         LlmRequest<T> request,
         Activity? activity,
         TimeSpan latency,
-        Error error)
+        Error error,
+        Accounting accounting,
+        string outcome)
         where T : class
     {
         activity
             .SetSafeTag(TraceAttributes.ResultStatus, "failed")
             .SetSafeTag(TraceAttributes.ErrorCode, error.Code.Value);
         activity?.SetStatus(ActivityStatusCode.Error);
-
-        if (error.Code.Value is not "LLM_STRUCTURED_OUTPUT_INVALID")
-        {
-            _metrics.LlmCall(
-                request.ModelProfile.Provider, request.ModelProfile.ModelName, "failed",
-                inputTokens: 0, outputTokens: 0, estimatedCost: 0m);
-        }
-
-        // Failures are audited too, with the tokens the attempt actually
-        // consumed. A provider that rejects a response after generating it still
-        // charges for it, and a cost total assembled only from successes is the
-        // wrong number in exactly the month someone asks about it.
-        Audit(request, "failed", error, inputTokens: 0, outputTokens: 0, estimatedCost: 0m, latency);
-
+        _metrics.LlmCall(
+            request.Candidate.AdapterKind.ToString(),
+            request.Candidate.DeploymentLogicalName,
+            request.Candidate.DeploymentVersion,
+            outcome,
+            accounting.InputTokens,
+            accounting.OutputTokens,
+            accounting.EstimatedCost);
+        Audit(request, "failed", error, accounting, latency);
         return Result<LlmResult<T>>.Failure(error);
     }
 
-    /// <summary>Stages one audit row for the call, whatever its outcome.</summary>
     private void Audit<T>(
         LlmRequest<T> request,
         string outcome,
         Error? error,
-        long inputTokens,
-        long outputTokens,
-        decimal estimatedCost,
+        Accounting accounting,
         TimeSpan latency)
         where T : class
-        => _audit.RecordLlmCall(new LlmCallAudit(
+    {
+        PinnedModelCandidate candidate = request.Candidate;
+        _audit.RecordLlmCall(new LlmCallAudit(
             LlmCallId.New(),
             request.Metadata.IncidentId,
             request.Metadata.AgentRunId,
+            request.Metadata.Tenant,
             request.Metadata.AgentName,
             request.Metadata.PromptName,
             request.Metadata.PromptVersion,
             request.Metadata.PromptHash,
-            request.ModelProfile.Provider,
-            request.ModelProfile.ModelName,
+            candidate.AssignmentReleaseId.Value,
+            candidate.AssignmentConfigurationHash,
+            candidate.DeploymentVersionId.Value,
+            candidate.DeploymentConfigurationHash,
+            candidate.ProviderConnectionRevisionId.Value,
+            candidate.ProviderConfigurationHash,
+            candidate.AdapterKind.ToString(),
+            candidate.ProviderModel,
+            accounting.ObservedProvider,
+            accounting.ObservedModel,
+            accounting.ProviderRequestId,
+            accounting.FinishReason,
             outcome,
             error?.Code,
-            inputTokens,
-            outputTokens,
-            estimatedCost,
+            accounting.InputTokens,
+            accounting.OutputTokens,
+            accounting.EstimatedCost,
             latency,
             _timeProvider.GetUtcNow()));
+    }
 
-    private static List<ChatMessage> BuildMessages<T>(LlmRequest<T> request)
-        where T : class
-        =>
-        [
-            new ChatMessage(ChatRole.System, request.SystemPrompt),
-            new ChatMessage(ChatRole.User, request.UserPrompt),
-        ];
+    private TimeSpan Elapsed(long startTimestamp) => _timeProvider.GetElapsedTime(startTimestamp);
+    private static int ClampTokenCount(long value) => (int)Math.Clamp(value, 0, int.MaxValue);
 
-    private static ChatOptions BuildOptions<T>(LlmRequest<T> request)
-        where T : class
-        => new()
-        {
-            ModelId = request.ModelProfile.ModelName,
-            Temperature = request.ModelProfile.Temperature,
-            MaxOutputTokens = request.ModelProfile.MaxOutputTokens,
-            // Asking the provider for JSON as well as validating it here is belt
-            // and braces on purpose: provider enforcement reduces the retry rate,
-            // and local validation is what makes the guarantee dependable.
-            ResponseFormat = ChatResponseFormat.Json,
-        };
+    private sealed record Accounting(
+        long InputTokens,
+        long OutputTokens,
+        decimal EstimatedCost,
+        string ObservedProvider,
+        string ObservedModel,
+        string ProviderRequestId,
+        string FinishReason)
+    {
+        public static Accounting Empty { get; } = new(0, 0, 0m, string.Empty, string.Empty, string.Empty, "unknown");
+    }
 
     [LoggerMessage(
         EventId = 2001,
         Level = LogLevel.Warning,
         Message = "Model provider {Provider} failed for agent {AgentName}.")]
     private static partial void LogProviderFailure(
-        ILogger logger, string provider, string agentName, Exception exception);
+        ILogger logger,
+        string provider,
+        string agentName,
+        Exception exception);
 
     [LoggerMessage(
         EventId = 2002,
         Level = LogLevel.Warning,
         Message = "Model output rejected against schema {SchemaName} for agent {AgentName}: {Detail}")]
     private static partial void LogSchemaRejected(
-        ILogger logger, string schemaName, string agentName, string detail);
+        ILogger logger,
+        string schemaName,
+        string agentName,
+        string detail);
 }

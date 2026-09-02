@@ -122,3 +122,8 @@ the test platform treats "zero tests ran" as failure (exit 8), in both direction
 **Adding a decision.** If you make a call that a future reader would question,
 append it to `docs/DECISIONS.md` with its reason and its cost. A decision without
 its cost is not one anybody can revisit.
+
+**Plans live in the repository.** Multi-session work gets a file in
+`docs/plans/` with a status block, committed before the first code change and
+updated as steps land. A plan that only exists in a chat session is lost with
+the session; this has already cost one reconstruction.

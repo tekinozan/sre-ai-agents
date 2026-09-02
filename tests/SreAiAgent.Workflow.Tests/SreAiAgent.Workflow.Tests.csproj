@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\SreAiAgent.Workflow\SreAiAgent.Workflow.csproj" />
+    <ProjectReference Include="..\SreAiAgent.TestKit\SreAiAgent.TestKit.csproj" />
   </ItemGroup>
 
 </Project>

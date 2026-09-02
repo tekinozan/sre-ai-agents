@@ -35,15 +35,16 @@ public sealed class CreateIncidentHandlerTests
 
     public CreateIncidentHandlerTests()
     {
-        _pinner.PinCurrent(Arg.Any<DateTimeOffset>()).Returns(new ConfigurationSnapshot(
-            ConfigurationSnapshotId.New(),
-            "agents-1",
-            "prompts-1",
-            "models-1",
-            "tools-1",
-            "policies-1",
-            new Dictionary<string, string>(StringComparer.Ordinal),
-            Now));
+        _pinner.PinCurrentAsync(Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns(Result<ConfigurationSnapshot>.Success(new ConfigurationSnapshot(
+                ConfigurationSnapshotId.New(),
+                "agents-1",
+                "prompts-1",
+                SreAiAgent.TestKit.PinnedModelFixtures.Scripted(),
+                "tools-1",
+                "policies-1",
+                new Dictionary<string, string>(StringComparer.Ordinal),
+                Now)));
 
         _idempotency.TryClaimAsync(Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
             .Returns(true);
@@ -189,6 +190,32 @@ public sealed class CreateIncidentHandlerTests
         _publisher.DidNotReceive().Enqueue(
             KafkaTopics.InvestigationRequested, Arg.Any<string>(),
             Arg.Any<InvestigationRequestedPayload>(), Arg.Any<string>(), Arg.Any<Guid?>());
+    }
+
+    [Fact]
+    public async Task APinFailureRejectsTheRequestAndOpensNoIncident()
+    {
+        _pinner.PinCurrentAsync(Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns(Result<ConfigurationSnapshot>.Failure(Error.Permanent(new ErrorCode("TEST"), "Fail")));
+
+        Result<IncidentAcceptedResponse> result = await _handler.HandleAsync(
+            Request(), "acme", Window, TestContext.Current.CancellationToken);
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.Code.Value.ShouldBe("TEST");
+        _incidents.DidNotReceive().Add(Arg.Any<Incident>());
+        _publisher.DidNotReceive().Enqueue(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<InvestigationRequestedPayload>(), Arg.Any<string>(), Arg.Any<Guid?>());
+    }
+
+    [Fact]
+    public async Task TheTenantReachesThePinner()
+    {
+        CreateIncidentRequest request = Request();
+
+        await _handler.HandleAsync(request, "acme", Window, TestContext.Current.CancellationToken);
+
+        await _pinner.Received(1).PinCurrentAsync("acme", Now, Arg.Any<CancellationToken>());
     }
 
     private static Incident Existing(IncidentSeverity severity = IncidentSeverity.High)

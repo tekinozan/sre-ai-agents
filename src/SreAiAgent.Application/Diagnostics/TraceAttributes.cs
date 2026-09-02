@@ -41,6 +41,19 @@ public static class TraceAttributes
     public const string ModelProvider = "model.provider";
     public const string ModelName = "model.name";
 
+    /// <summary>
+    /// The immutable model assignment release the incident was pinned to,
+    /// stored as the release id. Names a decision, never carries a prompt
+    /// or a response.
+    /// </summary>
+    public const string ModelAssignmentRelease = "sre.model.assignment_release";
+
+    /// <summary>
+    /// The version number of the pinned model deployment inside its logical
+    /// name. A monotonic integer, safe as a low-cardinality dimension.
+    /// </summary>
+    public const string ModelDeploymentVersion = "sre.model.deployment_version";
+
     public const string ToolName = "tool.name";
     public const string ToolVersion = "tool.version";
     public const string ToolRisk = "tool.risk";
@@ -67,7 +80,7 @@ public static class TraceAttributes
         IncidentId, IncidentStatus, IncidentSeverity, Tenant, Environment, Service,
         AgentName, AgentVersion, AgentIsShadow,
         PromptName, PromptVersion, PromptHash,
-        ModelProvider, ModelName,
+        ModelProvider, ModelName, ModelAssignmentRelease, ModelDeploymentVersion,
         ToolName, ToolVersion, ToolRisk,
         ResultStatus, ErrorCode,
         ConfigurationSnapshotId, CorrelationId, WorkflowAttempt,

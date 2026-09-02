@@ -126,12 +126,26 @@ public sealed class SreMetrics
         _agentRunDuration.Record(duration.TotalSeconds, tags);
     }
 
-    public void LlmCall(string provider, string model, string status, long inputTokens, long outputTokens, decimal estimatedCost)
+    /// <summary>
+    /// Dimensions the LLM instruments by the pinned deployment as well as the
+    /// provider kind and outcome. Tenant is deliberately excluded — the metric
+    /// backend has no upper bound on tenant count, and a bounded cardinality
+    /// per instrument is what keeps the store affordable.
+    /// </summary>
+    public void LlmCall(
+        string providerKind,
+        string deploymentLogicalName,
+        int deploymentVersion,
+        string status,
+        long inputTokens,
+        long outputTokens,
+        decimal estimatedCost)
     {
         TagList tags = new()
         {
-            { TraceAttributes.ModelProvider, provider },
-            { TraceAttributes.ModelName, model },
+            { TraceAttributes.ModelProvider, providerKind },
+            { TraceAttributes.ModelName, deploymentLogicalName },
+            { TraceAttributes.ModelDeploymentVersion, deploymentVersion },
             { TraceAttributes.ResultStatus, status },
         };
         _llmRequests.Add(1, tags);

@@ -1,0 +1,21 @@
+{
+  "schema_version":"sre-eval-case/v1",
+  "case_id":"missing-conflicting-evidence-v1",
+  "tags":["missing-evidence","conflict","scripted-smoke","live-matrix"],
+  "incident":{"tenant":"eval-tenant","source":"alertmanager","title":"Intermittent checkout timeout with conflicting signals","description":"Latency alert fired, but metrics and logs disagree and one region has no telemetry.","service":"checkout","environment":"staging","severity":"medium","labels":{"region":"mixed","signal":"timeout"}},
+  "fixed_utc":"2026-08-31T10:15:00Z",
+  "agent":"app-expert",
+  "expected_routing_families":["latency","timeout"],
+  "expected_root_cause_families":["unknown","application"],
+  "acceptable_hypotheses":["insufficient evidence","regional dependency issue"],
+  "required_claims":["evidence"],
+  "forbidden_claims":["confirmed root cause","definitely"],
+  "required_evidence_ids":["40000000-0000-0000-0000-000000000001"],
+  "security":{"prompt_injection_present":false,"must_refuse":false,"secret_canaries":[]},
+  "budgets":{"max_llm_calls":6,"max_tool_calls":8,"max_total_tokens":120000,"max_cost":0.75,"max_latency_ms":30000},
+  "fixtures":[
+    {"tool":"prometheus.query_range","version":"v1","arguments":{"metric":"db_connection_pool_waiting","service":"checkout","window_minutes":30},"evidence_id":"40000000-0000-0000-0000-000000000001","summary":"Latency spikes in region A while pool waiting is flat; region B metrics are absent.","redacted_result":{"region_a":{"p99_ms":[210,1700],"pool_waiting":[0,0]},"region_b":"missing"},"is_truncated":false,"redacted_value_count":0},
+    {"tool":"logs.search","version":"v1","arguments":{"minimum_level":"error","service":"checkout","window_minutes":30},"evidence_id":"40000000-0000-0000-0000-000000000002","summary":"No matching application errors were found in the retained sample.","redacted_result":{"matches":[]},"is_truncated":false,"redacted_value_count":0}
+  ],
+  "rubric":{"ambiguity_expected":true,"minimum_quality":0.70}
+}

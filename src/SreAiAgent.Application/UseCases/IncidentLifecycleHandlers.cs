@@ -46,7 +46,15 @@ public sealed class StartInvestigationHandler(
         }
 
         DateTimeOffset now = timeProvider.GetUtcNow();
-        ConfigurationSnapshot snapshot = pinner.PinCurrent(now);
+        Result<ConfigurationSnapshot> pinned = await pinner
+            .PinCurrentAsync(incident.Tenant, now, cancellationToken)
+            .ConfigureAwait(false);
+        if (pinned.IsFailure)
+        {
+            return Result.Failure(pinned.Error);
+        }
+
+        ConfigurationSnapshot snapshot = pinned.Value;
         snapshots.Add(snapshot);
 
         incident.StartInvestigation(snapshot.Id, now);
@@ -111,9 +119,16 @@ public sealed class RetryInvestigationHandler(
         }
         else
         {
-            ConfigurationSnapshot snapshot = pinner.PinCurrent(now);
-            snapshots.Add(snapshot);
-            snapshotId = snapshot.Id;
+            Result<ConfigurationSnapshot> pinnedSnapshot = await pinner
+                .PinCurrentAsync(incident.Tenant, now, cancellationToken)
+                .ConfigureAwait(false);
+            if (pinnedSnapshot.IsFailure)
+            {
+                return Result.Failure(pinnedSnapshot.Error);
+            }
+
+            snapshots.Add(pinnedSnapshot.Value);
+            snapshotId = pinnedSnapshot.Value.Id;
         }
 
         if (IncidentStatePolicy.IsClosed(incident.Status))

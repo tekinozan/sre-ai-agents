@@ -116,6 +116,7 @@ app.MapHealthEndpoints();
 app.MapIncidentEndpoints();
 app.MapAlertEndpoints();
 app.MapApprovalEndpoints();
+app.MapModelProviderEndpoints();
 app.MapStreamEndpoints();
 
 await app.RunAsync().ConfigureAwait(false);

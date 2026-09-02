@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using SreAiAgent.Domain.ModelProviders;
 using SreAiAgent.Domain.Shared;
 
 namespace SreAiAgent.Infrastructure.Persistence;
@@ -66,6 +67,16 @@ public sealed class ToolCallIdConverter : StronglyTypedIdConverter<ToolCallId>;
 
 /// <summary>Converts <see cref="LlmCallId"/>.</summary>
 public sealed class LlmCallIdConverter : StronglyTypedIdConverter<LlmCallId>;
+
+public sealed class ProviderConnectionIdConverter : StronglyTypedIdConverter<ProviderConnectionId>;
+
+public sealed class ProviderConnectionRevisionIdConverter : StronglyTypedIdConverter<ProviderConnectionRevisionId>;
+
+public sealed class ModelDeploymentVersionIdConverter : StronglyTypedIdConverter<ModelDeploymentVersionId>;
+
+public sealed class ModelAssignmentReleaseIdConverter : StronglyTypedIdConverter<ModelAssignmentReleaseId>;
+
+public sealed class ModelAssignmentEvaluationIdConverter : StronglyTypedIdConverter<ModelAssignmentEvaluationId>;
 
 /// <summary>
 /// Stores an <see cref="ErrorCode"/> as its string value.

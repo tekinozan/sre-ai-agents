@@ -1,3 +1,4 @@
+using SreAiAgent.Domain.Shared;
 namespace SreAiAgent.Application.Abstractions.Persistence;
 
 /// <summary>
@@ -17,7 +18,9 @@ namespace SreAiAgent.Application.Abstractions.Persistence;
 /// </remarks>
 public interface IConfigurationPinner
 {
-    /// <summary>Builds an unsaved snapshot of the current releases and flag states.</summary>
-    /// <param name="now">Pin time, from the injected clock.</param>
-    ConfigurationSnapshot PinCurrent(DateTimeOffset now);
+    /// <summary>Builds an unsaved snapshot using the tenant's active immutable assignment.</summary>
+    Task<Result<ConfigurationSnapshot>> PinCurrentAsync(
+        string tenant,
+        DateTimeOffset now,
+        CancellationToken cancellationToken);
 }

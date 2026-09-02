@@ -50,8 +50,16 @@ internal sealed class LlmCallConfiguration : IEntityTypeConfiguration<LlmCallEnt
         builder.Property(call => call.PromptName).HasMaxLength(128).IsRequired();
         builder.Property(call => call.PromptVersion).HasMaxLength(32).IsRequired();
         builder.Property(call => call.PromptHash).HasMaxLength(64).IsRequired();
-        builder.Property(call => call.ModelProvider).HasMaxLength(64).IsRequired();
-        builder.Property(call => call.ModelName).HasMaxLength(128).IsRequired();
+        builder.Property(call => call.Tenant).HasMaxLength(128).IsRequired();
+        builder.Property(call => call.AssignmentHash).HasMaxLength(64).IsRequired();
+        builder.Property(call => call.DeploymentHash).HasMaxLength(64).IsRequired();
+        builder.Property(call => call.ProviderRevisionHash).HasMaxLength(64).IsRequired();
+        builder.Property(call => call.RequestedProvider).HasMaxLength(32).IsRequired();
+        builder.Property(call => call.RequestedModel).HasMaxLength(512).IsRequired();
+        builder.Property(call => call.ObservedProvider).HasMaxLength(64).IsRequired();
+        builder.Property(call => call.ObservedModel).HasMaxLength(512).IsRequired();
+        builder.Property(call => call.ProviderRequestId).HasMaxLength(256).IsRequired();
+        builder.Property(call => call.FinishReason).HasMaxLength(64).IsRequired();
         builder.Property(call => call.Outcome).HasMaxLength(32).IsRequired();
         builder.Property(call => call.ErrorCode).HasMaxLength(64);
 

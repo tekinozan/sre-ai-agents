@@ -1,9 +1,7 @@
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SreAiAgent.Application.Abstractions.Llm;
-using SreAiAgent.Application.Abstractions.Persistence;
 using SreAiAgent.Application.Abstractions.Security;
 using SreAiAgent.Application.Abstractions.Tools;
 using SreAiAgent.Application.Abstractions.Workflow;
@@ -12,6 +10,7 @@ using SreAiAgent.Application.Diagnostics;
 using SreAiAgent.Application.Prompting;
 using SreAiAgent.Infrastructure.Configuration;
 using SreAiAgent.Infrastructure.Llm;
+using SreAiAgent.Infrastructure.Llm.Providers;
 using SreAiAgent.Infrastructure.Prompting;
 using SreAiAgent.Infrastructure.Registries;
 using SreAiAgent.Infrastructure.Security;
@@ -89,7 +88,6 @@ public static class DependencyInjection
             provider.GetRequiredService<ReadOnlyToolRegistry>());
         services.TryAddSingleton<IPolicyRegistry, PolicyRegistry>();
         services.TryAddSingleton<IAgentFlagEvaluator, AgentFlagEvaluator>();
-        services.TryAddSingleton<IConfigurationPinner, ConfigurationPinner>();
 
         // IWriteToolRegistry is deliberately not registered. V1 has no write
         // tools, and leaving the service unresolvable means a component that
@@ -106,8 +104,8 @@ public static class DependencyInjection
     /// Registers prompt rendering, redaction and the model gateway.
     /// </summary>
     /// <remarks>
-    /// The <c>IChatClient</c> registration is the only line that changes when a
-    /// real provider is adopted (docs/DECISIONS.md D09). Everything the platform
+    /// Wires up the LLM provider resolution subsystem, schema validation, prompt
+    /// rendering, and redaction (docs/DECISIONS.md D09). Everything the platform
     /// depends on, namely schema validation, budgets, audit and error mapping,
     /// lives in LlmGateway rather than in the provider adapter.
     /// </remarks>
@@ -118,7 +116,17 @@ public static class DependencyInjection
         services.TryAddSingleton<IRedactor, RegexRedactor>();
         services.TryAddSingleton<IPromptRenderer, ControlledPromptRenderer>();
         services.TryAddSingleton<StructuredOutputValidator>();
-        services.TryAddSingleton<IChatClient, ScriptedChatClient>();
+        services.TryAddSingleton<ScriptedChatClient>();
+        services.TryAddSingleton<ProviderEndpointPolicy>();
+        services.TryAddSingleton<ICredentialResolver, ExternalReferenceCredentialResolver>();
+        services.TryAddSingleton<ProviderClientCatalog>();
+        services.TryAddSingleton<ProviderRevisionVerifier>();
+
+        services.AddHttpClient(ProviderHttpClients.Chat)
+            .ConfigureHttpClient(static client => client.Timeout = Timeout.InfiniteTimeSpan);
+
+        services.TryAddScoped<IChatClientResolver, ChatClientResolver>();
+        services.TryAddScoped<IModelProviderControlPlane, ModelProviderControlPlane>();
         // Scoped, not singleton: it stages an audit row per call into the unit of
         // work of whichever activity is running, so the row commits with the work
         // it describes.

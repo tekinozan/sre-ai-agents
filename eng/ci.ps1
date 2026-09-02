@@ -6,10 +6,13 @@
 # the gate does not run it. Written for Windows PowerShell 5.1 as well as pwsh 7,
 # so no pipeline chain operators, ternaries or null-coalescing.
 #
-# Usage: pwsh eng/ci.ps1 [-WithIntegration]
+# Usage: pwsh eng/ci.ps1 [-WithIntegration] [-LiveEval]
 
 [CmdletBinding()]
-param([switch]$WithIntegration)
+param(
+    [switch]$WithIntegration,
+    [switch]$LiveEval
+)
 
 $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')
@@ -54,7 +57,15 @@ Invoke-Step 'build (warnings are errors)' {
 }
 
 Invoke-Step 'unit, contract, architecture and security tests' {
-    dotnet test $solution --no-build -- --filter-not-trait "Category=Integration"
+    dotnet test $solution --no-build -- `
+        --filter-not-trait "Category=Integration" `
+        --filter-not-trait "Category=ScriptedEval" `
+        --filter-not-trait "Category=LiveEval"
+}
+
+Invoke-Step 'deterministic scripted eval smoke' {
+    dotnet test 'tests/SreAiAgent.Evals/SreAiAgent.Evals.csproj' --no-build -- `
+        --filter-trait "Category=ScriptedEval"
 }
 
 if ($WithIntegration) {
@@ -65,6 +76,15 @@ if ($WithIntegration) {
         Invoke-Step "integration tests: $project" {
             dotnet test "tests/$project/$project.csproj" --no-build -- --filter-trait "Category=Integration"
         }
+    }
+}
+
+if ($LiveEval) {
+    # The selected test fails when the exact candidate, compatible baseline or
+    # candidate credential is missing. A requested live run is never skipped.
+    Invoke-Step 'explicit live eval matrix' {
+        dotnet test 'tests/SreAiAgent.Evals/SreAiAgent.Evals.csproj' --no-build -- `
+            --filter-trait "Category=LiveEval"
     }
 }
 

@@ -5,10 +5,12 @@ using Microsoft.Extensions.Options;
 using SreAiAgent.Application.Abstractions.Messaging;
 using SreAiAgent.Application.Abstractions.Persistence;
 using SreAiAgent.Infrastructure.Configuration;
+using SreAiAgent.Infrastructure.Llm.Providers;
 using SreAiAgent.Infrastructure.Persistence;
 using SreAiAgent.Infrastructure.Persistence.Outbox;
 using SreAiAgent.Infrastructure.Persistence.Queries;
 using SreAiAgent.Infrastructure.Persistence.Repositories;
+using SreAiAgent.Infrastructure.Registries;
 
 namespace SreAiAgent.Infrastructure;
 
@@ -69,6 +71,7 @@ public static class PersistenceDependencyInjection
         // Registered before everything else so the schema exists before any
         // other hosted service touches it.
         services.AddHostedService<DatabaseMigrator>();
+        services.AddHostedService<SreAiAgent.Infrastructure.Llm.ModelAssignmentBootstrapper>();
 
         services.TryAddScoped<IUnitOfWork, UnitOfWork>();
         services.TryAddScoped<IIncidentRepository, IncidentRepository>();
@@ -80,6 +83,9 @@ public static class PersistenceDependencyInjection
         services.TryAddScoped<IInboxStore, InboxStore>();
         services.TryAddScoped<IOutboxStore, OutboxStore>();
         services.TryAddScoped<IEventPublisher, EventPublisher>();
+        services.TryAddScoped<ModelProviderRepository>();
+        services.TryAddScoped<IProviderRevisionReader>(provider => provider.GetRequiredService<ModelProviderRepository>());
+        services.TryAddScoped<IConfigurationPinner, ConfigurationPinner>();
 
         return services;
     }

@@ -150,12 +150,9 @@ public sealed partial class AgentExecutor : IAgentExecutor
                 // The turn envelope, not the definition's output schema: the
                 // latter describes the finding that arrives inside it.
                 ResponseSchemaName = AgentTurn.SchemaName,
-                ModelProfile = context.ModelProfile,
+                Candidate = context.ModelCandidate,
                 Tools = context.AvailableTools,
-                // The per-call timeout is the smaller of the model profile's own
-                // and whatever remains of the agent's budget, so a slow call
-                // cannot overrun the agent deadline it sits inside.
-                Timeout = Min(context.ModelProfile.Timeout, budget.RemainingTime()),
+                Timeout = Min(context.ModelCandidate.Timeout, budget.RemainingTime()),
                 Metadata = session.MetadataFor(prompt.Value, runId, budget.LlmCallCount),
             };
 

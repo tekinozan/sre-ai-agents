@@ -16,7 +16,7 @@ public sealed record LlmRequest<T>
     /// </summary>
     public required string ResponseSchemaName { get; init; }
 
-    public required ModelProfile ModelProfile { get; init; }
+    public required PinnedModelCandidate Candidate { get; init; }
 
     /// <summary>Tools the model may request. Empty for a pure reasoning call.</summary>
     public IReadOnlyList<ToolDefinition> Tools { get; init; } = [];

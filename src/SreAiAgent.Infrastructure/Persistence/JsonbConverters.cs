@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using SreAiAgent.Application.Abstractions.Llm;
 using SreAiAgent.Domain.Findings;
 using SreAiAgent.Domain.Shared;
 
@@ -28,6 +29,14 @@ internal static class JsonbConverters
             ? new Dictionary<string, string>(StringComparer.Ordinal)
             : JsonSerializer.Deserialize(json, JsonbJsonContext.Default.IReadOnlyDictionaryStringString)
               ?? new Dictionary<string, string>(StringComparer.Ordinal);
+
+    public static string SerializeModelAssignment(PinnedModelAssignment value)
+        => JsonSerializer.Serialize(value, JsonbJsonContext.Default.PinnedModelAssignment);
+
+    public static PinnedModelAssignment? DeserializeModelAssignment(string json)
+        => string.IsNullOrEmpty(json)
+            ? null
+            : JsonSerializer.Deserialize(json, JsonbJsonContext.Default.PinnedModelAssignment);
 
     public static string SerializeFinding(AgentFinding value)
         => JsonSerializer.Serialize(value, JsonbJsonContext.Default.AgentFinding);
@@ -88,4 +97,6 @@ internal static class JsonbConverters
 [JsonSerializable(typeof(IReadOnlyList<Observation>))]
 [JsonSerializable(typeof(IReadOnlyList<Hypothesis>))]
 [JsonSerializable(typeof(AgentFinding))]
+[JsonSerializable(typeof(PinnedModelAssignment))]
+[JsonSerializable(typeof(PinnedModelCandidate))]
 internal sealed partial class JsonbJsonContext : JsonSerializerContext;

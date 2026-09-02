@@ -3,6 +3,7 @@ using SreAiAgent.Contracts.Alerts;
 using SreAiAgent.Contracts.Approvals;
 using SreAiAgent.Contracts.Incidents;
 using SreAiAgent.Contracts.Messaging;
+using SreAiAgent.Contracts.ModelProviders;
 using SreAiAgent.Contracts.Streaming;
 
 namespace SreAiAgent.Contracts.Serialization;
@@ -40,6 +41,22 @@ namespace SreAiAgent.Contracts.Serialization;
 [JsonSerializable(typeof(ApproveRequest))]
 [JsonSerializable(typeof(RejectRequest))]
 [JsonSerializable(typeof(EditApprovalRequest))]
+[JsonSerializable(typeof(CreateModelProviderRequest))]
+[JsonSerializable(typeof(ModelProviderConnectionResponse))]
+[JsonSerializable(typeof(IReadOnlyList<ModelProviderConnectionResponse>))]
+[JsonSerializable(typeof(CreateProviderRevisionRequest))]
+[JsonSerializable(typeof(ProviderConnectionRevisionResponse))]
+[JsonSerializable(typeof(IReadOnlyList<ProviderConnectionRevisionResponse>))]
+[JsonSerializable(typeof(ProviderRevisionVerificationResponse))]
+[JsonSerializable(typeof(CreateModelDeploymentRequest))]
+[JsonSerializable(typeof(ModelDeploymentVersionResponse))]
+[JsonSerializable(typeof(IReadOnlyList<ModelDeploymentVersionResponse>))]
+[JsonSerializable(typeof(CreateModelAssignmentReleaseRequest))]
+[JsonSerializable(typeof(ModelAssignmentReleaseResponse))]
+[JsonSerializable(typeof(IReadOnlyList<ModelAssignmentReleaseResponse>))]
+[JsonSerializable(typeof(RequestEvaluationRequest))]
+[JsonSerializable(typeof(CompleteEvaluationRequest))]
+[JsonSerializable(typeof(ModelAssignmentEvaluationResponse))]
 [JsonSerializable(typeof(InvestigationStreamEvent))]
 [JsonSerializable(typeof(EventEnvelope<CanonicalAlert>))]
 [JsonSerializable(typeof(EventEnvelope<IncidentCreatedPayload>))]

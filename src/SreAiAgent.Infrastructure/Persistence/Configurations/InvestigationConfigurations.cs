@@ -58,7 +58,7 @@ internal sealed class AgentRunConfiguration : IEntityTypeConfiguration<AgentRun>
         builder.Property(run => run.PromptHash).HasMaxLength(64).IsRequired();
         builder.Property(run => run.ModelProvider).HasMaxLength(64).IsRequired();
         builder.Property(run => run.ModelName).HasMaxLength(128).IsRequired();
-        builder.Property(run => run.ModelProfileVersion).HasMaxLength(32).IsRequired();
+        builder.Property(run => run.ModelDeploymentVersion).HasColumnName("model_deployment_version").HasMaxLength(32).IsRequired();
         builder.Property(run => run.ErrorReason).HasMaxLength(1024);
         builder.Property(run => run.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
         builder.Property(run => run.EstimatedCost).HasPrecision(12, 6);
@@ -246,7 +246,7 @@ internal sealed class ConfigurationSnapshotConfiguration : IEntityTypeConfigurat
 
         builder.Property(snapshot => snapshot.AgentRelease).HasMaxLength(128).IsRequired();
         builder.Property(snapshot => snapshot.PromptRelease).HasMaxLength(128).IsRequired();
-        builder.Property(snapshot => snapshot.ModelRelease).HasMaxLength(128).IsRequired();
+        builder.Property(snapshot => snapshot.ModelAssignmentJson).HasColumnType("jsonb").IsRequired();
         builder.Property(snapshot => snapshot.ToolRelease).HasMaxLength(128).IsRequired();
         builder.Property(snapshot => snapshot.PolicyRelease).HasMaxLength(128).IsRequired();
 
