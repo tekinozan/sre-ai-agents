@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using SreAiAgent.Api.Endpoints;
-using SreAiAgent.Api.Health;
 using SreAiAgent.Api.Http;
 using SreAiAgent.Api.Security;
 using SreAiAgent.Application;
@@ -72,7 +71,7 @@ builder.Services.AddOpenTelemetry()
         .AddPrometheusExporter());
 
 builder.Services.AddProblemDetails();
-builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database");
+builder.Services.AddSreHealthChecks().AddSreWorkflowHealthCheck(builder.Configuration);
 
 builder.Services.AddRateLimiter(options =>
 {

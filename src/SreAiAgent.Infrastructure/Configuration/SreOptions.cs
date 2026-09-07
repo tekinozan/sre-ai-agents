@@ -327,6 +327,54 @@ public sealed class TelemetryOptions
     public bool EnablePrometheusEndpoint { get; init; } = true;
 }
 
+/// <summary>
+/// Deletion of infrastructure rows whose purpose has expired.
+/// </summary>
+/// <remarks>
+/// Replay-safe horizons: each horizon must outlive the window that could still
+/// need the row. Inbox rows must outlive maximum broker redelivery and required
+/// workflow replay. Dispatched outbox rows must outlive the approved operator-replay
+/// window (dead letters are never deleted). Idempotency claims expire on their own
+/// configured window. Delivery attempt rows must outlive the approved dead-letter
+/// replay window and are pruned only when settled. Domain entities (incidents,
+/// evidence, findings, reports, audit logs) are never deleted.
+/// </remarks>
+public sealed class RetentionOptions
+{
+    public const string SectionName = "Retention";
+
+    public bool Enabled { get; init; } = true;
+
+    /// <summary>Cadence of the retention sweep loop.</summary>
+    [Range(1, 1440)]
+    public int IntervalMinutes { get; init; } = 60;
+
+    /// <summary>
+    /// Retention for processed inbox messages. Must outlive maximum broker redelivery
+    /// and required workflow replay windows.
+    /// </summary>
+    [Range(1, 365)]
+    public int InboxRetentionDays { get; init; } = 14;
+
+    /// <summary>
+    /// Retention for successfully dispatched outbox rows. Must outlive the approved
+    /// operator-replay window. Dead-lettered outbox rows are never deleted.
+    /// </summary>
+    [Range(1, 365)]
+    public int DispatchedOutboxRetentionDays { get; init; } = 7;
+
+    /// <summary>
+    /// Retention for settled delivery attempts. Must outlive the approved dead-letter
+    /// replay window. In-flight (unsettled) attempt rows are never deleted.
+    /// </summary>
+    [Range(1, 365)]
+    public int DeliveryAttemptRetentionDays { get; init; } = 7;
+
+    /// <summary>Rows deleted per statement, so one sweep cannot hold a long lock.</summary>
+    [Range(100, 50000)]
+    public int BatchSize { get; init; } = 1000;
+}
+
 /// <summary>Transactional outbox dispatcher behaviour.</summary>
 public sealed class OutboxOptions
 {

@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using SreAiAgent.Infrastructure.Persistence;
 
-namespace SreAiAgent.Api.Health;
+namespace SreAiAgent.Infrastructure.Health;
 
 /// <summary>Reports whether the business store is reachable.</summary>
 /// <remarks>

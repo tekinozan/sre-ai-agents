@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SreAiAgent.Application.Abstractions.Workflow;
 using SreAiAgent.Application.Workflows;
+using SreAiAgent.Workflow.Health;
 using SreAiAgent.Workflow.Inline;
 using SreAiAgent.Workflow.Temporal;
 using Temporalio.Converters;
@@ -91,6 +92,24 @@ public static class WorkflowDependencyInjection
             .ConfigureOptions(options => options.Interceptors = [new TracingInterceptor()])
             .AddScopedActivities<InvestigationActivityShims>()
             .AddWorkflow<TemporalInvestigationWorkflow>();
+
+        return services;
+    }
+
+    /// <summary>Adds a readiness check for the durable engine, when there is one.</summary>
+    public static IServiceCollection AddSreWorkflowHealthCheck(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        if (EngineOf(configuration) != TemporalEngine)
+        {
+            return services;
+        }
+
+        services.AddHealthChecks().AddCheck<TemporalHealthCheck>("temporal", tags: ["ready"]);
 
         return services;
     }

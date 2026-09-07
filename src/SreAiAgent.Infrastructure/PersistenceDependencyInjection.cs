@@ -90,4 +90,21 @@ public static class PersistenceDependencyInjection
 
         return services;
     }
+
+    /// <summary>
+    /// Registers the retention sweep background service.
+    /// </summary>
+    /// <remarks>
+    /// Called from the alert worker only; the investigation worker is left free of
+    /// periodic sweep overhead because it is under model-call load. Every statement
+    /// is a time-filtered delete, so a second replica running concurrently is harmless.
+    /// </remarks>
+    public static IServiceCollection AddSreRetention(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.AddHostedService<RetentionService>();
+
+        return services;
+    }
 }

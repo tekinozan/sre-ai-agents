@@ -40,6 +40,21 @@ spec:
               value: inline
           securityContext: {{- include "sre.containerSecurityContext" . | nindent 12 }}
           resources: {{- toYaml .Values.alertWorker.resources | nindent 12 }}
+          ports:
+            - name: health
+              containerPort: 8081
+          livenessProbe:
+            httpGet: {path: /health/live, port: health}
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: {path: /health/ready, port: health}
+            periodSeconds: 10
+            failureThreshold: 3
+          startupProbe:
+            httpGet: {path: /health/live, port: health}
+            periodSeconds: 5
+            failureThreshold: 30
           volumeMounts:
             - name: tmp
               mountPath: /tmp
@@ -83,6 +98,21 @@ spec:
               value: {{ .Release.Name }}-investigation-worker
           securityContext: {{- include "sre.containerSecurityContext" . | nindent 12 }}
           resources: {{- toYaml .Values.investigationWorker.resources | nindent 12 }}
+          ports:
+            - name: health
+              containerPort: 8081
+          livenessProbe:
+            httpGet: {path: /health/live, port: health}
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: {path: /health/ready, port: health}
+            periodSeconds: 10
+            failureThreshold: 3
+          startupProbe:
+            httpGet: {path: /health/live, port: health}
+            periodSeconds: 5
+            failureThreshold: 30
           volumeMounts:
             - name: tmp
               mountPath: /tmp

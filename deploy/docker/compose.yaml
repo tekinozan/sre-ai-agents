@@ -195,6 +195,11 @@ services:
       # irrelevant to it; it is pinned to inline so a misread of the shared
       # environment cannot make it try to reach Temporal.
       Workflow__Engine: inline
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/health/ready >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
   investigation-worker:
     <<: *platform-image
@@ -209,6 +214,11 @@ services:
       <<: *platform-env
       Telemetry__ServiceName: sre-ai-investigation-worker
       Kafka__ConsumerGroup: sre-ai-agent-investigation-worker
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/health/ready >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
 volumes:
   postgres-data:

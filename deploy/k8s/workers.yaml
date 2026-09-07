@@ -56,6 +56,23 @@ spec:
               memory: 256Mi
             limits:
               memory: 512Mi
+          ports:
+            - name: health
+              containerPort: 8081
+          livenessProbe:
+            httpGet: {path: /health/live, port: health}
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            # Readiness is every ten seconds rather than the API's five: a worker
+            # takes no ingress traffic, so the only consumer of its readiness is the rollout.
+            httpGet: {path: /health/ready, port: health}
+            periodSeconds: 10
+            failureThreshold: 3
+          startupProbe:
+            httpGet: {path: /health/live, port: health}
+            periodSeconds: 5
+            failureThreshold: 30
           volumeMounts:
             - name: tmp
               mountPath: /tmp
@@ -116,6 +133,23 @@ spec:
               memory: 512Mi
             limits:
               memory: 1Gi
+          ports:
+            - name: health
+              containerPort: 8081
+          livenessProbe:
+            httpGet: {path: /health/live, port: health}
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            # Readiness is every ten seconds rather than the API's five: a worker
+            # takes no ingress traffic, so the only consumer of its readiness is the rollout.
+            httpGet: {path: /health/ready, port: health}
+            periodSeconds: 10
+            failureThreshold: 3
+          startupProbe:
+            httpGet: {path: /health/live, port: health}
+            periodSeconds: 5
+            failureThreshold: 30
           volumeMounts:
             - name: tmp
               mountPath: /tmp

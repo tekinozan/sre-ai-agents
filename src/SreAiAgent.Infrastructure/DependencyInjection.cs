@@ -54,6 +54,7 @@ public static class DependencyInjection
         services.AddOptionsWithValidation<ObservabilityOptions>(ObservabilityOptions.SectionName);
         services.AddOptionsWithValidation<TelemetryOptions>(TelemetryOptions.SectionName);
         services.AddOptionsWithValidation<OutboxOptions>(OutboxOptions.SectionName);
+        services.AddOptionsWithValidation<RetentionOptions>(RetentionOptions.SectionName);
 
         return services;
     }

@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+
 namespace SreAiAgent.Api.Endpoints;
 
 /// <summary>
@@ -21,7 +23,10 @@ public static class HealthEndpoints
             .AllowAnonymous()
             .WithTags("Health");
 
-        builder.MapHealthChecks("/health/ready");
+        builder.MapHealthChecks("/health/ready", new HealthCheckOptions
+        {
+            Predicate = static registration => registration.Tags.Contains("ready"),
+        });
 
         return builder;
     }

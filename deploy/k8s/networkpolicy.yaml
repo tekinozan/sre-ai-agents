@@ -77,7 +77,16 @@ spec:
     matchLabels:
       app.kubernetes.io/name: sre-ai-alert-worker
   policyTypes: [Ingress, Egress]
-  # No ingress at all. It consumes from a topic; nothing calls it.
+  # Ingress is permitted for health and readiness probes from monitoring only.
+  # It consumes from a topic; nothing else calls it.
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8081
   egress:
     - to:
         - namespaceSelector:
@@ -107,6 +116,14 @@ spec:
     matchLabels:
       app.kubernetes.io/name: sre-ai-investigation-worker
   policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8081
   egress:
     - to:
         - namespaceSelector:
