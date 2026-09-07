@@ -72,6 +72,7 @@ public static class ApprovalEndpoints
         CancellationToken cancellationToken)
         => (await handler
                 .DecideAsync(
+                    principal.Tenant(),
                     ApprovalRequestId.From(approvalId),
                     isApproved: true,
                     principal.Actor(),
@@ -88,6 +89,7 @@ public static class ApprovalEndpoints
         CancellationToken cancellationToken)
         => (await handler
                 .DecideAsync(
+                    principal.Tenant(),
                     ApprovalRequestId.From(approvalId),
                     isApproved: false,
                     principal.Actor(),
@@ -104,6 +106,7 @@ public static class ApprovalEndpoints
         CancellationToken cancellationToken)
         => (await handler
                 .EditAsync(
+                    principal.Tenant(),
                     ApprovalRequestId.From(approvalId),
                     principal.Actor(),
                     request.ProposedActionJson,

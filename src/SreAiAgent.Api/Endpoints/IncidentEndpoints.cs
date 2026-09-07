@@ -119,18 +119,20 @@ public static class IncidentEndpoints
 
     private static async Task<IResult> InvestigateAsync(
         Guid incidentId,
+        ClaimsPrincipal principal,
         StartInvestigationHandler handler,
         CancellationToken cancellationToken)
-        => (await handler.HandleAsync(IncidentId.From(incidentId), cancellationToken).ConfigureAwait(false))
+        => (await handler.HandleAsync(principal.Tenant(), IncidentId.From(incidentId), cancellationToken).ConfigureAwait(false))
             .ToHttpResult(StatusCodes.Status202Accepted);
 
     private static async Task<IResult> RetryAsync(
         Guid incidentId,
         IncidentActionRequest request,
+        ClaimsPrincipal principal,
         RetryInvestigationHandler handler,
         CancellationToken cancellationToken)
         => (await handler
-                .HandleAsync(IncidentId.From(incidentId), request.Reason, cancellationToken)
+                .HandleAsync(principal.Tenant(), IncidentId.From(incidentId), request.Reason, cancellationToken)
                 .ConfigureAwait(false))
             .ToHttpResult(StatusCodes.Status202Accepted);
 
@@ -141,7 +143,7 @@ public static class IncidentEndpoints
         CancelInvestigationHandler handler,
         CancellationToken cancellationToken)
         => (await handler
-                .HandleAsync(IncidentId.From(incidentId), principal.Actor(), request.Reason, cancellationToken)
+                .HandleAsync(principal.Tenant(), IncidentId.From(incidentId), principal.Actor(), request.Reason, cancellationToken)
                 .ConfigureAwait(false))
             .ToHttpResult();
 }

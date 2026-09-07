@@ -24,6 +24,7 @@ public sealed class ApprovalDecisionHandler(
 {
     /// <summary>Approves or rejects a request.</summary>
     public async Task<Result> DecideAsync(
+        string tenant,
         ApprovalRequestId approvalRequestId,
         bool isApproved,
         string actor,
@@ -31,9 +32,8 @@ public sealed class ApprovalDecisionHandler(
         CancellationToken cancellationToken)
     {
         ApprovalRequest? request = await approvals
-            .GetAsync(approvalRequestId, cancellationToken)
+            .GetAsync(tenant, approvalRequestId, cancellationToken)
             .ConfigureAwait(false);
-
         if (request is null)
         {
             return Result.Failure(Error.Permanent(
@@ -69,6 +69,7 @@ public sealed class ApprovalDecisionHandler(
     /// past a ceiling that was checked against the original.
     /// </remarks>
     public async Task<Result> EditAsync(
+        string tenant,
         ApprovalRequestId approvalRequestId,
         string actor,
         string proposedActionJson,
@@ -76,9 +77,8 @@ public sealed class ApprovalDecisionHandler(
         CancellationToken cancellationToken)
     {
         ApprovalRequest? request = await approvals
-            .GetAsync(approvalRequestId, cancellationToken)
+            .GetAsync(tenant, approvalRequestId, cancellationToken)
             .ConfigureAwait(false);
-
         if (request is null)
         {
             return Result.Failure(Error.Permanent(

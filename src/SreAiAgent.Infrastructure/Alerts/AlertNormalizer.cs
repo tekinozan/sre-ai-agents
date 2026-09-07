@@ -80,4 +80,43 @@ public sealed class AlertNormalizer
             StartInvestigation = !alert.IsResolved,
         };
     }
+
+    /// <summary>
+    /// Forces the alert onto the caller's tenant.
+    /// </summary>
+    /// <remarks>
+    /// An alert arrives from a monitoring system, but it arrives through an
+    /// authenticated caller, and that token is the only trustworthy statement of
+    /// which tenant it belongs to. A payload naming a different tenant is refused
+    /// rather than corrected silently: writing an incident into someone else's
+    /// tenant is exactly what this check exists to stop.
+    /// </remarks>
+    public static Result<CreateIncidentRequest> BindTenant(CreateIncidentRequest request, string tenant)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (string.IsNullOrWhiteSpace(tenant))
+        {
+            return Result<CreateIncidentRequest>.Failure(Error.Permanent(
+                ApplicationErrorCodes.Forbidden, "The caller has no tenant claim."));
+        }
+
+        if (request.Labels is not null
+            && request.Labels.TryGetValue("tenant", out string? claimed)
+            && !string.IsNullOrWhiteSpace(claimed)
+            && !string.Equals(claimed, tenant, StringComparison.Ordinal))
+        {
+            return Result<CreateIncidentRequest>.Failure(Error.Permanent(
+                ApplicationErrorCodes.Forbidden,
+                "The alert payload names a different tenant than the caller."));
+        }
+
+        Dictionary<string, string> labels = request.Labels is null
+            ? new Dictionary<string, string>(StringComparer.Ordinal)
+            : new Dictionary<string, string>(request.Labels, StringComparer.Ordinal);
+
+        labels["tenant"] = tenant;
+
+        return Result<CreateIncidentRequest>.Success(request with { Labels = labels });
+    }
 }

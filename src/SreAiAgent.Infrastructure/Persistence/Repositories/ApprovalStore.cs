@@ -17,11 +17,15 @@ internal sealed class ApprovalStore(SreDbContext context) : IApprovalStore
 {
     /// <inheritdoc />
     public async Task<ApprovalRequest?> GetAsync(
+        string tenant,
         ApprovalRequestId approvalRequestId,
         CancellationToken cancellationToken)
         => await context.ApprovalRequests
             .AsTracking()
-            .FirstOrDefaultAsync(request => request.Id == approvalRequestId, cancellationToken)
+            .Where(request => request.Id == approvalRequestId
+                && context.Incidents.Any(incident =>
+                    incident.Id == request.IncidentId && incident.Tenant == tenant))
+            .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
 
     /// <inheritdoc />

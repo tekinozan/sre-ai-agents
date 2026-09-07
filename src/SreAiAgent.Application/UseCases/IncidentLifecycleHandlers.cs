@@ -27,11 +27,14 @@ public sealed class StartInvestigationHandler(
     TimeProvider timeProvider)
 {
     /// <summary>Requests an investigation.</summary>
-    public async Task<Result> HandleAsync(IncidentId incidentId, CancellationToken cancellationToken)
+    public async Task<Result> HandleAsync(
+        string tenant,
+        IncidentId incidentId,
+        CancellationToken cancellationToken)
     {
         Incident? incident = await incidents.GetAsync(incidentId, cancellationToken).ConfigureAwait(false);
 
-        if (incident is null)
+        if (incident is null || !string.Equals(incident.Tenant, tenant, StringComparison.Ordinal))
         {
             return Result.Failure(Error.Permanent(ApplicationErrorCodes.IncidentNotFound, "No such incident."));
         }
@@ -92,13 +95,14 @@ public sealed class RetryInvestigationHandler(
 {
     /// <summary>Requests another attempt.</summary>
     public async Task<Result> HandleAsync(
+        string tenant,
         IncidentId incidentId,
         string reason,
         CancellationToken cancellationToken)
     {
         Incident? incident = await incidents.GetAsync(incidentId, cancellationToken).ConfigureAwait(false);
 
-        if (incident is null)
+        if (incident is null || !string.Equals(incident.Tenant, tenant, StringComparison.Ordinal))
         {
             return Result.Failure(Error.Permanent(ApplicationErrorCodes.IncidentNotFound, "No such incident."));
         }
@@ -169,6 +173,7 @@ public sealed class CancelInvestigationHandler(
     /// to avoid.
     /// </remarks>
     public async Task<Result> HandleAsync(
+        string tenant,
         IncidentId incidentId,
         string actor,
         string reason,
@@ -176,7 +181,7 @@ public sealed class CancelInvestigationHandler(
     {
         Incident? incident = await incidents.GetAsync(incidentId, cancellationToken).ConfigureAwait(false);
 
-        if (incident is null)
+        if (incident is null || !string.Equals(incident.Tenant, tenant, StringComparison.Ordinal))
         {
             return Result.Failure(Error.Permanent(ApplicationErrorCodes.IncidentNotFound, "No such incident."));
         }

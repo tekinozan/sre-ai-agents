@@ -18,7 +18,10 @@ namespace SreAiAgent.Application.Abstractions.Persistence;
 public interface IApprovalStore
 {
     /// <summary>Loads a request for a decision, with change tracking on.</summary>
-    Task<ApprovalRequest?> GetAsync(ApprovalRequestId approvalRequestId, CancellationToken cancellationToken);
+    Task<ApprovalRequest?> GetAsync(
+        string tenant,
+        ApprovalRequestId approvalRequestId,
+        CancellationToken cancellationToken);
 
     /// <summary>Projects one request into its response shape.</summary>
     Task<ApprovalResponse?> FindAsync(

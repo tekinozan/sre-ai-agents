@@ -56,7 +56,14 @@ public static class AlertEndpoints
             return ResultExtensions.Problem(normalized.Error);
         }
 
-        CreateIncidentRequest request = normalized.Value;
+        Result<CreateIncidentRequest> bound = AlertNormalizer.BindTenant(normalized.Value, context.User.Tenant());
+
+        if (bound.IsFailure)
+        {
+            return ResultExtensions.Problem(bound.Error);
+        }
+
+        CreateIncidentRequest request = bound.Value;
 
         publisher.Enqueue(
             KafkaTopics.AlertReceived,
