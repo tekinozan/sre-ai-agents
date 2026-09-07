@@ -1,6 +1,6 @@
 # Production readiness execution plan
 
-> **Status:** Phase 1 complete; Phases 2–5 pending.
+> **Status:** Phases 1–2 complete; Phases 3–5 pending.
 > **Source of truth:** `PRODUCTION_READINESS_PLAN.md` (root) holds the detailed per-step specifications, code templates, and context.
 > **Scope:** This document governs execution phasing, ordering dependencies, affected files, acceptance criteria, open questions, and completion tracking.
 > **Last updated:** 2026-09-07.
@@ -10,7 +10,7 @@
 | Phase | Plan steps | Status |
 |---|---|---|
 | [Phase 1 — Tenant isolation on write paths](#phase-1--tenant-isolation-on-write-paths) | Steps 1, 2, 3, 4 | Complete |
-| [Phase 2 — Messaging: transport security and bounded poison messages](#phase-2--messaging-transport-security-and-bounded-poison-messages) | Steps 5, 6 | Not started |
+| [Phase 2 — Messaging: transport security and bounded poison messages](#phase-2--messaging-transport-security-and-bounded-poison-messages) | Steps 5, 6 | Complete |
 | [Phase 3 — Operational surface: retention, health, probes](#phase-3--operational-surface-retention-health-probes) | Steps 7, 8, 9 | Not started |
 | [Phase 4 — Outbound resilience and a production configuration that boots](#phase-4--outbound-resilience-and-a-production-configuration-that-boots) | Steps 10, 11 | Not started |
 | [Phase 5 — Proof and operations](#phase-5--proof-and-operations) | Steps 12, 13, 14 | Not started |

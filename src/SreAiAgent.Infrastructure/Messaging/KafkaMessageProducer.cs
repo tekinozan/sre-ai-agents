@@ -30,7 +30,7 @@ internal sealed class KafkaMessageProducer : IMessageProducer, IDisposable
 
         _logger = logger;
 
-        _producer = new ProducerBuilder<string, byte[]>(new ProducerConfig
+        ProducerConfig config = new()
         {
             BootstrapServers = options.Value.BootstrapServers,
 
@@ -48,7 +48,11 @@ internal sealed class KafkaMessageProducer : IMessageProducer, IDisposable
             QueueBufferingMaxMessages = 10_000,
             LingerMs = 5,
             CompressionType = CompressionType.Snappy,
-        }).Build();
+        };
+
+        KafkaClientConfiguration.ApplySecurity(config, options.Value);
+
+        _producer = new ProducerBuilder<string, byte[]>(config).Build();
     }
 
     /// <inheritdoc />

@@ -28,9 +28,10 @@ internal sealed partial class InvestigationRequestedConsumer(
     IServiceScopeFactory scopeFactory,
     IOptions<KafkaOptions> kafkaOptions,
     IOptions<WorkflowOptions> workflowOptions,
+    IMessageProducer producer,
     TimeProvider timeProvider,
     ILogger<InvestigationRequestedConsumer> logger)
-    : KafkaConsumerService<InvestigationRequestedPayload>(scopeFactory, kafkaOptions, logger)
+    : KafkaConsumerService<InvestigationRequestedPayload>(scopeFactory, kafkaOptions, producer, timeProvider, logger)
 {
     private readonly WorkflowOptions _workflow = workflowOptions.Value;
 
@@ -67,7 +68,7 @@ internal sealed partial class InvestigationRequestedConsumer(
                 // activity inside the run measures against the same instant
                 // rather than each recomputing a relative window
                 // (ARCHITECTURE.md 11.3).
-                timeProvider.GetUtcNow().AddSeconds(_workflow.DeadlineSeconds),
+                TimeProvider.GetUtcNow().AddSeconds(_workflow.DeadlineSeconds),
                 envelope.CorrelationId),
             cancellationToken).ConfigureAwait(false);
 

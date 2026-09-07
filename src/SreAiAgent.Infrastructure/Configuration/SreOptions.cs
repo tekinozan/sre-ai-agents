@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Confluent.Kafka;
 
 namespace SreAiAgent.Infrastructure.Configuration;
 
@@ -43,7 +44,7 @@ public sealed class DatabaseOptions
 }
 
 /// <summary>Kafka connection and consumer behaviour.</summary>
-public sealed class KafkaOptions
+public sealed class KafkaOptions : IValidatableObject
 {
     public const string SectionName = "Kafka";
 
@@ -68,6 +69,47 @@ public sealed class KafkaOptions
     /// <summary>How long a poisoned message is retried before it is dead-lettered.</summary>
     [Range(1, 20)]
     public int MaxDeliveryAttempts { get; init; } = 5;
+
+    /// <summary>Wire protocol. Plaintext is for the local compose stack only.</summary>
+    public SecurityProtocol SecurityProtocol { get; init; } = SecurityProtocol.Plaintext;
+
+    public SaslMechanism? SaslMechanism { get; init; }
+
+    public string? SaslUsername { get; init; }
+
+    public string? SaslPassword { get; init; }
+
+    /// <summary>Filesystem path to a PEM CA bundle mounted into the workload.</summary>
+    public string? SslCaLocation { get; init; }
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (SecurityProtocol is not (SecurityProtocol.SaslPlaintext or SecurityProtocol.SaslSsl))
+        {
+            yield break;
+        }
+
+        if (SaslMechanism is null)
+        {
+            yield return new ValidationResult(
+                "Kafka:SaslMechanism is required when the security protocol uses SASL.",
+                [nameof(SaslMechanism)]);
+        }
+
+        if (string.IsNullOrWhiteSpace(SaslUsername))
+        {
+            yield return new ValidationResult(
+                "Kafka:SaslUsername is required when the security protocol uses SASL.",
+                [nameof(SaslUsername)]);
+        }
+
+        if (string.IsNullOrWhiteSpace(SaslPassword))
+        {
+            yield return new ValidationResult(
+                "Kafka:SaslPassword is required when the security protocol uses SASL.",
+                [nameof(SaslPassword)]);
+        }
+    }
 }
 
 /// <summary>Language model gateway behaviour.</summary>

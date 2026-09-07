@@ -65,6 +65,8 @@ public sealed class SreDbContext : DbContext
 
     public DbSet<IdempotencyKeyEntity> IdempotencyKeys => Set<IdempotencyKeyEntity>();
 
+    public DbSet<ConsumerDeliveryAttemptEntity> ConsumerDeliveryAttempts => Set<ConsumerDeliveryAttemptEntity>();
+
     public DbSet<ProviderConnectionEntity> ProviderConnections => Set<ProviderConnectionEntity>();
     public DbSet<ProviderConnectionRevisionEntity> ProviderConnectionRevisions => Set<ProviderConnectionRevisionEntity>();
     public DbSet<ProviderRevisionVerificationEntity> ProviderRevisionVerifications => Set<ProviderRevisionVerificationEntity>();

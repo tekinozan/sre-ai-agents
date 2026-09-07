@@ -111,6 +111,93 @@ public sealed class WireFormatTests
     }
 
     [Fact]
+    public void DeadLetterPayloadRoundTripsWithSourceIdentity()
+    {
+        Guid eventId = Guid.CreateVersion7();
+        DeadLetterPayload payload = new(
+            OriginalTopic: "sre.alert.received.v1",
+            SourcePartition: 2,
+            SourceOffset: 42,
+            ConsumerName: "alert-worker",
+            OriginalEventType: "sre.alert.received",
+            OriginalEventId: eventId,
+            FailureReason: "Database connection timed out.",
+            ErrorCode: new ErrorCode("DEPENDENCY_UNAVAILABLE"),
+            AttemptCount: 5,
+            PayloadJson: "{\"alert\":\"data\"}");
+
+        EventEnvelope<DeadLetterPayload> envelope = new(
+            EventId: Guid.CreateVersion7(),
+            EventType: "sre.deadletter",
+            EventVersion: 1,
+            OccurredAt: new DateTimeOffset(2026, 9, 7, 12, 0, 0, TimeSpan.Zero),
+            CorrelationId: "corr-dlq",
+            CausationId: eventId,
+            Payload: payload);
+
+        string json = JsonSerializer.Serialize(
+            envelope, SreAiAgentJsonContext.Default.EventEnvelopeDeadLetterPayload);
+
+        json.ShouldContain("source_partition");
+        json.ShouldContain("source_offset");
+        json.ShouldContain("consumer_name");
+        json.ShouldContain("original_event_type");
+        json.ShouldContain("original_event_id");
+        json.ShouldContain("failure_reason");
+        json.ShouldContain("error_code");
+        json.ShouldContain("attempt_count");
+        json.ShouldContain("payload_json");
+
+        EventEnvelope<DeadLetterPayload>? roundTripped =
+            JsonSerializer.Deserialize(json, SreAiAgentJsonContext.Default.EventEnvelopeDeadLetterPayload);
+
+        roundTripped.ShouldNotBeNull();
+        roundTripped.Payload.OriginalTopic.ShouldBe("sre.alert.received.v1");
+        roundTripped.Payload.SourcePartition.ShouldBe(2);
+        roundTripped.Payload.SourceOffset.ShouldBe(42);
+        roundTripped.Payload.ConsumerName.ShouldBe("alert-worker");
+        roundTripped.Payload.OriginalEventType.ShouldBe("sre.alert.received");
+        roundTripped.Payload.OriginalEventId.ShouldBe(eventId);
+        roundTripped.Payload.AttemptCount.ShouldBe(5);
+    }
+
+    [Fact]
+    public void DeadLetterPayloadHandlesMalformedUnidentifiedRecord()
+    {
+        DeadLetterPayload payload = new(
+            OriginalTopic: "sre.alert.received.v1",
+            SourcePartition: 0,
+            SourceOffset: 123,
+            ConsumerName: "alert-worker",
+            OriginalEventType: null,
+            OriginalEventId: null,
+            FailureReason: "Unparseable JSON.",
+            ErrorCode: new ErrorCode("DEPENDENCY_UNAVAILABLE"),
+            AttemptCount: 5,
+            PayloadJson: "{broken json");
+
+        EventEnvelope<DeadLetterPayload> envelope = new(
+            EventId: Guid.CreateVersion7(),
+            EventType: "sre.deadletter",
+            EventVersion: 1,
+            OccurredAt: new DateTimeOffset(2026, 9, 7, 12, 0, 0, TimeSpan.Zero),
+            CorrelationId: "corr-unidentified",
+            CausationId: null,
+            Payload: payload);
+
+        string json = JsonSerializer.Serialize(
+            envelope, SreAiAgentJsonContext.Default.EventEnvelopeDeadLetterPayload);
+
+        EventEnvelope<DeadLetterPayload>? roundTripped =
+            JsonSerializer.Deserialize(json, SreAiAgentJsonContext.Default.EventEnvelopeDeadLetterPayload);
+
+        roundTripped.ShouldNotBeNull();
+        roundTripped.Payload.OriginalEventType.ShouldBeNull();
+        roundTripped.Payload.OriginalEventId.ShouldBeNull();
+        roundTripped.Payload.PayloadJson.ShouldBe("{broken json");
+    }
+
+    [Fact]
     public void AnUnknownProviderFieldDoesNotBreakIngestion()
     {
         // Alert sources add fields without warning; rejecting them would take

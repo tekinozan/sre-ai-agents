@@ -802,6 +802,72 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                     b.ToTable("configuration_snapshots", (string)null);
                 });
 
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ConsumerDeliveryAttemptEntity", b =>
+                {
+                    b.Property<string>("SourceTopic")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("source_topic");
+
+                    b.Property<int>("SourcePartition")
+                        .HasColumnType("integer")
+                        .HasColumnName("source_partition");
+
+                    b.Property<long>("SourceOffset")
+                        .HasColumnType("bigint")
+                        .HasColumnName("source_offset");
+
+                    b.Property<string>("ConsumerName")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("consumer_name");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_count");
+
+                    b.Property<Guid?>("EventId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("event_id");
+
+                    b.Property<string>("EventType")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("event_type");
+
+                    b.Property<DateTimeOffset>("FirstFailedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("first_failed_at");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("last_error");
+
+                    b.Property<DateTimeOffset>("LastFailedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("last_failed_at");
+
+                    b.Property<DateTimeOffset?>("SettledAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("settled_at");
+
+                    b.Property<string>("SettlementKind")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("settlement_kind");
+
+                    b.HasKey("SourceTopic", "SourcePartition", "SourceOffset", "ConsumerName");
+
+                    b.HasIndex("LastFailedAt")
+                        .HasDatabaseName("ix_delivery_attempts_last_failed_at");
+
+                    b.HasIndex("SettledAt")
+                        .HasDatabaseName("ix_delivery_attempts_settled_at");
+
+                    b.ToTable("consumer_delivery_attempts", (string)null);
+                });
+
             modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.IdempotencyKeyEntity", b =>
                 {
                     b.Property<string>("Key")

@@ -76,3 +76,31 @@ internal sealed class IdempotencyKeyConfiguration : IEntityTypeConfiguration<Ide
         builder.HasIndex(key => key.ExpiresAt).HasDatabaseName("ix_idempotency_expires_at");
     }
 }
+
+/// <summary>Maps consumer delivery attempts to <c>consumer_delivery_attempts</c>.</summary>
+internal sealed class ConsumerDeliveryAttemptConfiguration : IEntityTypeConfiguration<ConsumerDeliveryAttemptEntity>
+{
+    public void Configure(EntityTypeBuilder<ConsumerDeliveryAttemptEntity> builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.ToTable("consumer_delivery_attempts");
+
+        builder.HasKey(attempt => new
+        {
+            attempt.SourceTopic,
+            attempt.SourcePartition,
+            attempt.SourceOffset,
+            attempt.ConsumerName,
+        });
+
+        builder.Property(attempt => attempt.SourceTopic).HasMaxLength(128).IsRequired();
+        builder.Property(attempt => attempt.ConsumerName).HasMaxLength(128).IsRequired();
+        builder.Property(attempt => attempt.EventType).HasMaxLength(128);
+        builder.Property(attempt => attempt.LastError).HasMaxLength(2048);
+        builder.Property(attempt => attempt.SettlementKind).HasMaxLength(32);
+
+        builder.HasIndex(attempt => attempt.LastFailedAt).HasDatabaseName("ix_delivery_attempts_last_failed_at");
+        builder.HasIndex(attempt => attempt.SettledAt).HasDatabaseName("ix_delivery_attempts_settled_at");
+    }
+}

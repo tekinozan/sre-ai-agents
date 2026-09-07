@@ -177,12 +177,15 @@ internal sealed partial class OutboxDispatcher(
         {
             DeadLetterPayload payload = new(
                 message.Topic,
-                message.EventType,
-                message.EventId,
-                error.Message,
-                error.Code,
-                message.AttemptCount + 1,
-                message.PayloadJson);
+                SourcePartition: 0,
+                SourceOffset: 0,
+                ConsumerName: "outbox-dispatcher",
+                OriginalEventType: message.EventType,
+                OriginalEventId: message.EventId,
+                FailureReason: error.Message,
+                ErrorCode: error.Code,
+                AttemptCount: message.AttemptCount + 1,
+                PayloadJson: message.PayloadJson);
 
             EventEnvelope<DeadLetterPayload> envelope = new(
                 Guid.CreateVersion7(),

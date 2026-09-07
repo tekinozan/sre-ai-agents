@@ -109,6 +109,43 @@ public sealed class IdempotencyKeyEntity
 }
 
 /// <summary>
+/// A delivery attempt for an inbound Kafka message (ARCHITECTURE.md 10.2).
+/// </summary>
+/// <remarks>
+/// Keyed by Kafka source record (topic, partition, offset) and consumer name.
+/// The event id and event type are recorded only when an envelope was successfully
+/// decoded; they are nullable because a poison payload that cannot be decoded
+/// has no trustworthy event id, and keying on event id would let unparseable
+/// messages bypass bounded retry and stall the partition forever.
+/// </remarks>
+public sealed class ConsumerDeliveryAttemptEntity
+{
+    public string SourceTopic { get; set; } = string.Empty;
+
+    public int SourcePartition { get; set; }
+
+    public long SourceOffset { get; set; }
+
+    public string ConsumerName { get; set; } = string.Empty;
+
+    public Guid? EventId { get; set; }
+
+    public string? EventType { get; set; }
+
+    public int AttemptCount { get; set; }
+
+    public DateTimeOffset FirstFailedAt { get; set; }
+
+    public DateTimeOffset LastFailedAt { get; set; }
+
+    public string? LastError { get; set; }
+
+    public DateTimeOffset? SettledAt { get; set; }
+
+    public string? SettlementKind { get; set; }
+}
+
+/// <summary>
 /// The immutable release set pinned at investigation start
 /// (ARCHITECTURE.md 8.2 and 24.5).
 /// </summary>

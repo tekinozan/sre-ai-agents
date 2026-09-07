@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Confluent.Kafka;
@@ -11,7 +12,9 @@ using Npgsql;
 using SreAiAgent.Application.Abstractions.Messaging;
 using SreAiAgent.Application.Abstractions.Persistence;
 using SreAiAgent.Application.Diagnostics;
+using SreAiAgent.Application.Errors;
 using SreAiAgent.Contracts.Messaging;
+using SreAiAgent.Contracts.Serialization;
 using SreAiAgent.Infrastructure.Configuration;
 
 namespace SreAiAgent.Infrastructure.Messaging;
@@ -40,19 +43,30 @@ internal abstract partial class KafkaConsumerService<TPayload> : BackgroundServi
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly KafkaOptions _options;
+    private readonly IMessageProducer _producer;
+    private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
 
     protected KafkaConsumerService(
         IServiceScopeFactory scopeFactory,
         IOptions<KafkaOptions> options,
+        IMessageProducer producer,
+        TimeProvider timeProvider,
         ILogger logger)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(producer);
+        ArgumentNullException.ThrowIfNull(timeProvider);
 
         _scopeFactory = scopeFactory;
         _options = options.Value;
+        _producer = producer;
+        _timeProvider = timeProvider;
         _logger = logger;
     }
+
+    /// <summary>System clock or injected test provider.</summary>
+    protected TimeProvider TimeProvider => _timeProvider;
 
     /// <summary>The topic to subscribe to.</summary>
     protected abstract string Topic { get; }
@@ -88,7 +102,7 @@ internal abstract partial class KafkaConsumerService<TPayload> : BackgroundServi
 
     private async Task RunAsync(CancellationToken stoppingToken)
     {
-        using IConsumer<string, byte[]> consumer = new ConsumerBuilder<string, byte[]>(new ConsumerConfig
+        ConsumerConfig config = new()
         {
             BootstrapServers = _options.BootstrapServers,
             GroupId = _options.ConsumerGroup,
@@ -105,7 +119,11 @@ internal abstract partial class KafkaConsumerService<TPayload> : BackgroundServi
             AutoOffsetReset = AutoOffsetReset.Earliest,
             MaxPollIntervalMs = 300_000,
             SessionTimeoutMs = 45_000,
-        }).Build();
+        };
+
+        KafkaClientConfiguration.ApplySecurity(config, _options);
+
+        using IConsumer<string, byte[]> consumer = new ConsumerBuilder<string, byte[]>(config).Build();
 
         consumer.Subscribe(Topic);
         LogSubscribed(_logger, Topic, _options.ConsumerGroup);
@@ -156,16 +174,14 @@ internal abstract partial class KafkaConsumerService<TPayload> : BackgroundServi
         }
         catch (JsonException exception)
         {
-            // Unparseable. Retrying cannot help, and refusing to commit would
-            // stall the partition behind a message that will never be readable.
-            LogUnreadable(_logger, Topic, result.TopicPartitionOffset.ToString(), exception);
-            consumer.Commit(result);
+            await HandleMalformedRecordAsync(consumer, result, exception, cancellationToken).ConfigureAwait(false);
             return;
         }
 
         if (envelope is null)
         {
-            consumer.Commit(result);
+            JsonException exception = new("The message envelope was null.");
+            await HandleMalformedRecordAsync(consumer, result, exception, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -199,6 +215,22 @@ internal abstract partial class KafkaConsumerService<TPayload> : BackgroundServi
             // transaction. Committing the offset only afterwards is what makes a
             // crash in between a redelivery rather than a lost message.
             await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+            // Settle any prior failure attempts for this message before committing the offset.
+            // If the process crashes between settlement and commit, the message is redelivered;
+            // if it crashes between commit and settlement, the attempt row remains open until its
+            // retention horizon, which is harmless.
+            IDeliveryAttemptStore attempts = scope.ServiceProvider.GetRequiredService<IDeliveryAttemptStore>();
+            await attempts
+                .SettleAsync(
+                    result.Topic,
+                    result.Partition.Value,
+                    result.Offset.Value,
+                    ConsumerName,
+                    SettlementKind.Succeeded,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
             consumer.Commit(result);
         }
         catch (DbUpdateException exception) when (IsDuplicateDelivery(exception))
@@ -211,11 +243,7 @@ internal abstract partial class KafkaConsumerService<TPayload> : BackgroundServi
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            // Deliberately not committed. The message is redelivered, and the
-            // inbox row rolled back with the failed transaction so the retry is
-            // not mistaken for a duplicate.
-            activity?.SetStatus(ActivityStatusCode.Error);
-            LogHandlerFailed(_logger, Topic, envelope.EventType, exception);
+            await HandleFailureAsync(consumer, result, envelope, exception, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -236,6 +264,237 @@ internal abstract partial class KafkaConsumerService<TPayload> : BackgroundServi
     private static bool IsDuplicateDelivery(DbUpdateException exception)
         => exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
 
+
+    /// <summary>
+    /// Handles execution failures thrown while processing a valid message envelope.
+    /// </summary>
+    /// <remarks>
+    /// Possibly-transient handler failure: unlike unparseable records which are terminal on
+    /// delivery 1, handler failures may be caused by transient dependency outages (database
+    /// connectivity, downstream timeouts) and are retried up to MaxDeliveryAttempts.
+    /// </remarks>
+    private async Task HandleFailureAsync(
+        IConsumer<string, byte[]> consumer,
+        ConsumeResult<string, byte[]> result,
+        EventEnvelope<TPayload>? envelope,
+        Exception exception,
+        CancellationToken cancellationToken)
+    {
+        Activity? activity = Activity.Current;
+        activity?.SetStatus(ActivityStatusCode.Error);
+        LogHandlerFailed(_logger, Topic, envelope?.EventType ?? "unknown", exception);
+
+        // Independent failure persistence: resolve from a fresh scope so failure
+        // attempt tracking commits even though the handler's transaction rolled back.
+        // Reusing the rolled-back scope would roll the counter back with the effect,
+        // causing poison messages to retry forever.
+        using IServiceScope failureScope = _scopeFactory.CreateScope();
+        IDeliveryAttemptStore attempts = failureScope.ServiceProvider
+            .GetRequiredService<IDeliveryAttemptStore>();
+
+        int attempted = await attempts
+            .RecordFailureAsync(
+                result.Topic,
+                result.Partition.Value,
+                result.Offset.Value,
+                ConsumerName,
+                envelope?.EventId,
+                envelope?.EventType,
+                exception.Message,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (attempted < _options.MaxDeliveryAttempts)
+        {
+            // Not committed: redelivery is the retry, and the inbox row rolled
+            // back with the failed transaction so the retry is not mistaken for a duplicate.
+            return;
+        }
+
+        if (!await PublishDeadLetterAsync(result, envelope, exception, attempted, cancellationToken).ConfigureAwait(false))
+        {
+            // The dead letter did not reach the broker. Committing here would
+            // discard the message entirely, so leave it for redelivery.
+            return;
+        }
+
+        await attempts
+            .SettleAsync(
+                result.Topic,
+                result.Partition.Value,
+                result.Offset.Value,
+                ConsumerName,
+                SettlementKind.DeadLetter,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        Guid deadLetterEventId = DeadLetterIdentity.CreateDeterministicEventId(
+            result.Topic,
+            result.Partition.Value,
+            result.Offset.Value,
+            ConsumerName);
+
+        LogPoisonDeadLettered(_logger, Topic, envelope?.EventType ?? "unknown", deadLetterEventId, attempted);
+        consumer.Commit(result);
+    }
+
+    /// <summary>
+    /// Handles unparseable or malformed messages that cannot be decoded into an envelope.
+    /// </summary>
+    /// <remarks>
+    /// Terminal on the first delivery: unlike handler failures which may be transient (such as
+    /// a database outage or timeout) and are retried up to MaxDeliveryAttempts, a JSON decode
+    /// failure is deterministic. Repeated deliveries cannot make invalid bytes parse, and refusing
+    /// to commit would stall the partition forever behind an unreadable message.
+    ///
+    /// We record the attempt once for audit, publish the dead letter with the raw payload,
+    /// settle the attempt counter as dead_letter, and commit immediately. If the dead-letter
+    /// publication fails, we do not commit so broker redelivery will re-attempt publication.
+    /// </remarks>
+    private async Task HandleMalformedRecordAsync(
+        IConsumer<string, byte[]> consumer,
+        ConsumeResult<string, byte[]> result,
+        Exception exception,
+        CancellationToken cancellationToken)
+    {
+        Activity? activity = Activity.Current;
+        activity?.SetStatus(ActivityStatusCode.Error);
+        LogUnreadable(_logger, Topic, result.TopicPartitionOffset.ToString(), exception);
+
+        using IServiceScope failureScope = _scopeFactory.CreateScope();
+        IDeliveryAttemptStore attempts = failureScope.ServiceProvider
+            .GetRequiredService<IDeliveryAttemptStore>();
+
+        // Record the failure once so the attempt row exists as an audit trail
+        await attempts
+            .RecordFailureAsync(
+                result.Topic,
+                result.Partition.Value,
+                result.Offset.Value,
+                ConsumerName,
+                eventId: null,
+                eventType: null,
+                exception.Message,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        // Terminal error: publish the dead letter immediately without retrying
+        if (!await PublishDeadLetterAsync(result, envelope: null, exception, attempts: 1, cancellationToken).ConfigureAwait(false))
+        {
+            // The dead letter did not reach the broker. Committing here would
+            // discard the unreadable message without a trace, so leave it for redelivery.
+            return;
+        }
+
+        await attempts
+            .SettleAsync(
+                result.Topic,
+                result.Partition.Value,
+                result.Offset.Value,
+                ConsumerName,
+                SettlementKind.DeadLetter,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        Guid deadLetterEventId = DeadLetterIdentity.CreateDeterministicEventId(
+            result.Topic,
+            result.Partition.Value,
+            result.Offset.Value,
+            ConsumerName);
+
+        LogPoisonDeadLettered(_logger, Topic, "unreadable", deadLetterEventId, attempts: 1);
+        consumer.Commit(result);
+    }
+
+    private async Task<bool> PublishDeadLetterAsync(
+        ConsumeResult<string, byte[]> result,
+        EventEnvelope<TPayload>? envelope,
+        Exception exception,
+        int attempts,
+        CancellationToken cancellationToken)
+    {
+        Guid deadLetterEventId = DeadLetterIdentity.CreateDeterministicEventId(
+            result.Topic,
+            result.Partition.Value,
+            result.Offset.Value,
+            ConsumerName);
+
+        try
+        {
+            string payloadJson;
+            string? eventType = null;
+            Guid? originalEventId = null;
+            string correlationId;
+            Guid? causationId = null;
+
+            if (envelope is not null)
+            {
+                payloadJson = JsonSerializer.Serialize(envelope, EnvelopeTypeInfo);
+                eventType = envelope.EventType;
+                originalEventId = envelope.EventId;
+                correlationId = envelope.CorrelationId;
+                causationId = envelope.EventId;
+            }
+            else
+            {
+                payloadJson = result.Message.Value is { Length: > 0 }
+                    ? Encoding.UTF8.GetString(result.Message.Value)
+                    : string.Empty;
+                correlationId = DeadLetterIdentity.CreateDeterministicCorrelationId(
+                    result.Topic,
+                    result.Partition.Value,
+                    result.Offset.Value,
+                    ConsumerName);
+            }
+
+            DeadLetterPayload payload = new(
+                OriginalTopic: result.Topic,
+                SourcePartition: result.Partition.Value,
+                SourceOffset: result.Offset.Value,
+                ConsumerName: ConsumerName,
+                OriginalEventType: eventType,
+                OriginalEventId: originalEventId,
+                FailureReason: exception.Message,
+                ErrorCode: ApplicationErrorCodes.DependencyUnavailable,
+                AttemptCount: attempts,
+                PayloadJson: payloadJson);
+
+            DateTimeOffset now = _timeProvider.GetUtcNow();
+
+            EventEnvelope<DeadLetterPayload> deadLetterEnvelope = new(
+                EventId: deadLetterEventId,
+                EventType: "sre.deadletter",
+                EventVersion: 1,
+                OccurredAt: now,
+                CorrelationId: correlationId,
+                CausationId: causationId,
+                Payload: payload);
+
+            string deadLetterJson = JsonSerializer.Serialize(
+                deadLetterEnvelope,
+                SreAiAgentJsonContext.Default.EventEnvelopeDeadLetterPayload);
+
+            OutboxMessage outboxMessage = new(
+                Id: deadLetterEventId,
+                Topic: KafkaTopics.DeadLetter,
+                EventType: "sre.deadletter",
+                EventId: deadLetterEventId,
+                PayloadJson: deadLetterJson,
+                PartitionKey: result.Message.Key ?? string.Empty,
+                CorrelationId: correlationId,
+                TraceParent: Activity.Current?.Id,
+                OccurredAt: now,
+                AttemptCount: 0);
+
+            await _producer.PublishAsync(outboxMessage, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception publishException) when (publishException is not OperationCanceledException)
+        {
+            LogDeadLetterPublishFailed(_logger, result.Topic, deadLetterEventId, publishException);
+            return false;
+        }
+    }
     [LoggerMessage(
         EventId = 7201,
         Level = LogLevel.Information,
@@ -245,7 +504,7 @@ internal abstract partial class KafkaConsumerService<TPayload> : BackgroundServi
     [LoggerMessage(
         EventId = 7202,
         Level = LogLevel.Error,
-        Message = "A message on {Topic} at {Offset} could not be read and was skipped.")]
+        Message = "A message on {Topic} at {Offset} could not be read and was dead-lettered after bounded retries.")]
     private static partial void LogUnreadable(
         ILogger logger, string topic, string offset, Exception exception);
 
@@ -255,4 +514,18 @@ internal abstract partial class KafkaConsumerService<TPayload> : BackgroundServi
         Message = "Handling {EventType} from {Topic} failed; the message will be redelivered.")]
     private static partial void LogHandlerFailed(
         ILogger logger, string topic, string eventType, Exception exception);
+
+    [LoggerMessage(
+        EventId = 7301,
+        Level = LogLevel.Error,
+        Message = "Message {EventId} of type {EventType} on {Topic} was dead-lettered after {Attempts} attempts.")]
+    private static partial void LogPoisonDeadLettered(
+        ILogger logger, string topic, string eventType, Guid eventId, int attempts);
+
+    [LoggerMessage(
+        EventId = 7302,
+        Level = LogLevel.Error,
+        Message = "Could not publish the dead letter for message {EventId} on {Topic}.")]
+    private static partial void LogDeadLetterPublishFailed(
+        ILogger logger, string topic, Guid eventId, Exception exception);
 }

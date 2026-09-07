@@ -64,13 +64,16 @@ public sealed record RemediationCompletedPayload(
 
 /// <summary>
 /// A message that could not be processed after its bounded retries. Carries the
-/// original topic and payload so it can be replayed once the cause is fixed,
-/// rather than being lost with a log line.
+/// original topic, source identity and payload so it can be replayed once the
+/// cause is fixed, rather than being lost with a log line.
 /// </summary>
 public sealed record DeadLetterPayload(
     string OriginalTopic,
-    string OriginalEventType,
-    Guid OriginalEventId,
+    int SourcePartition,
+    long SourceOffset,
+    string ConsumerName,
+    string? OriginalEventType,
+    Guid? OriginalEventId,
     string FailureReason,
     ErrorCode ErrorCode,
     int AttemptCount,

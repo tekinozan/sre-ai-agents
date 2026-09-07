@@ -81,6 +81,7 @@ public static class PersistenceDependencyInjection
         services.TryAddScoped<IConfigurationSnapshotStore, ConfigurationSnapshotStore>();
         services.TryAddScoped<IIdempotencyStore, IdempotencyStore>();
         services.TryAddScoped<IInboxStore, InboxStore>();
+        services.TryAddScoped<IDeliveryAttemptStore, DeliveryAttemptStore>();
         services.TryAddScoped<IOutboxStore, OutboxStore>();
         services.TryAddScoped<IEventPublisher, EventPublisher>();
         services.TryAddScoped<ModelProviderRepository>();

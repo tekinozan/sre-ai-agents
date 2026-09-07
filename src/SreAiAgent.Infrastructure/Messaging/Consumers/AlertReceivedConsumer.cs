@@ -31,8 +31,10 @@ internal sealed partial class AlertReceivedConsumer(
     IServiceScopeFactory scopeFactory,
     IOptions<KafkaOptions> kafkaOptions,
     IOptions<DatabaseOptions> databaseOptions,
+    IMessageProducer producer,
+    TimeProvider timeProvider,
     ILogger<AlertReceivedConsumer> logger)
-    : KafkaConsumerService<CanonicalAlert>(scopeFactory, kafkaOptions, logger)
+    : KafkaConsumerService<CanonicalAlert>(scopeFactory, kafkaOptions, producer, timeProvider, logger)
 {
     private readonly DatabaseOptions _database = databaseOptions.Value;
 
@@ -84,15 +86,16 @@ internal sealed partial class AlertReceivedConsumer(
     /// <remarks>
     /// Read from a label, because an alert arrives from a monitoring system
     /// rather than from an authenticated principal and there is no token to take
-    /// it from. Anything unlabelled lands in the default tenant instead of being
-    /// dropped: losing an alert is worse than filing it in the wrong place, and a
-    /// misfiled incident is visible to whoever reads it.
+    /// it from. An unlabelled alert is no longer filed under a default tenant;
+    /// it is dead-lettered after Kafka:MaxDeliveryAttempts deliveries and kept
+    /// on sre.deadletter.v1 for replay.
     /// </remarks>
     private static string TenantFor(CanonicalAlert alert)
         => alert.Labels.TryGetValue("tenant", out string? tenant) && !string.IsNullOrWhiteSpace(tenant)
             ? tenant
-            : "default";
-
+            : throw new InvalidOperationException(
+                "The alert carries no tenant label. Ingestion binds it from the caller's token, "
+                + "so a message without one did not come through the API.");
     [LoggerMessage(
         EventId = 7401,
         Level = LogLevel.Warning,
