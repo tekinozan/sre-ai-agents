@@ -243,7 +243,7 @@ internal sealed record CandidateDefinition
     public required string Tenant { get; init; }
 
     [JsonPropertyName("provider_connection_revision")]
-    public required VersionedIdentity ProviderConnectionRevision { get; init; }
+    public required ProviderConnectionRevisionIdentity ProviderConnectionRevision { get; init; }
 
     [JsonPropertyName("model_deployment")]
     public required ModelDeploymentIdentity ModelDeployment { get; init; }
@@ -272,6 +272,21 @@ internal record VersionedIdentity
     [JsonPropertyName("hash")]
     public required string Hash { get; init; }
 }
+internal sealed record ProviderConnectionRevisionIdentity : VersionedIdentity
+{
+    [JsonPropertyName("endpoint")]
+    public required string Endpoint { get; init; }
+
+    [JsonPropertyName("region")]
+    public string? Region { get; init; }
+
+    [JsonPropertyName("api_version")]
+    public string? ApiVersion { get; init; }
+
+    [JsonPropertyName("organization")]
+    public string? Organization { get; init; }
+}
+
 
 internal sealed record ModelDeploymentIdentity : VersionedIdentity
 {
@@ -316,7 +331,7 @@ internal sealed record CandidateSnapshot
 {
     public required string CandidateId { get; init; }
     public required string Tenant { get; init; }
-    public required VersionedIdentity ProviderConnectionRevision { get; init; }
+    public required ProviderConnectionRevisionIdentity ProviderConnectionRevision { get; init; }
     public required ModelDeploymentIdentity ModelDeployment { get; init; }
     public required VersionedIdentity AssignmentRelease { get; init; }
     public required VersionedIdentity AgentRelease { get; init; }
@@ -399,4 +414,4 @@ internal sealed record SafeAttemptArtifact(string CaseId, int Repeat, HardScore 
 internal sealed record SummaryArtifact(string SchemaVersion, string RunId, string CandidateHash, string DatasetHash, EvalAggregate Aggregate, GateResult Gate);
 internal sealed record ArtifactBundle(RunManifest Manifest, IReadOnlyList<SafeAttemptArtifact> Attempts, SummaryArtifact Summary, string JunitXml);
 internal sealed record LoadedDataset(EvalDatasetManifest Manifest, IReadOnlyList<EvalCase> Cases, string Hash, string Directory);
-internal sealed record EvalRunResult(CandidateSnapshot Candidate, IReadOnlyList<EvalAttempt> Attempts, EvalAggregate Aggregate, GateResult Gate, string RunId, string ArtifactDirectory);
+internal sealed record EvalRunResult(CandidateSnapshot Candidate, IReadOnlyList<EvalAttempt> Attempts, EvalAggregate Aggregate, GateResult Gate, string RunId, string ArtifactDirectory, string? WrittenBaselinePath = null);

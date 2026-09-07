@@ -1,5 +1,6 @@
 namespace SreAiAgent.Evals.Harness;
 
+[Collection(EvalEnvironmentCollection.Name)]
 public sealed class IdentityAndLiveTests
 {
     [Fact]

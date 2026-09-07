@@ -11,6 +11,8 @@ namespace SreAiAgent.Evals.Harness;
 [JsonSerializable(typeof(EvalConfig))]
 [JsonSerializable(typeof(CandidateDefinition))]
 [JsonSerializable(typeof(CandidateSnapshot))]
+[JsonSerializable(typeof(ProviderConnectionRevisionIdentity))]
+[JsonSerializable(typeof(ModelDeploymentIdentity))]
 [JsonSerializable(typeof(EvalBaseline))]
 [JsonSerializable(typeof(RunManifest))]
 [JsonSerializable(typeof(SafeAttemptArtifact))]

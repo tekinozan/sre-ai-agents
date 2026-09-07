@@ -3,6 +3,7 @@ using System.Globalization;
 using SreAiAgent.Application.Abstractions.Llm;
 using SreAiAgent.Application.Agents;
 using SreAiAgent.Domain.ModelProviders;
+using SreAiAgent.Infrastructure.Llm.Providers;
 
 namespace SreAiAgent.Evals.Harness;
 
@@ -10,6 +11,7 @@ internal static class PinnedCandidateFactory
 {
     public static async Task<(PinnedModelAssignment Assignment, ProviderConnectionRevision Revision)> AssignmentAsync(
         CandidateSnapshot snapshot,
+        string? credentialEnvironmentVariable,
         IEnumerable<string> agentNames,
         IModelProfileRegistry models,
         IAgentRegistry agents,
@@ -20,20 +22,28 @@ internal static class PinnedCandidateFactory
         var revisionVersion = int.Parse(snapshot.ProviderConnectionRevision.Version, CultureInfo.InvariantCulture);
         var adapterKind = ParseAdapter(snapshot.ModelDeployment.Provider);
 
+        string credentialRef = adapterKind == ProviderAdapterKind.Scripted
+            ? "env://MOCK"
+            : !string.IsNullOrWhiteSpace(credentialEnvironmentVariable) && CandidateFreezer.IsSafeEnvironmentVariableName(credentialEnvironmentVariable)
+                ? $"env://{credentialEnvironmentVariable}"
+                : throw new InvalidOperationException("A live candidate requires a safe, valid credential environment variable name.");
+
+        ProviderCapabilityDescriptor descriptor = ProviderClientCatalog.Descriptor(adapterKind);
+        ModelCapability declaredCapabilities = descriptor.Capabilities;
+
         var revision = ProviderConnectionRevision.Create(
             connectionId,
             snapshot.Tenant,
             revisionVersion,
             adapterKind,
-            "https://scripted.invalid",
-            null,
-            null,
-            null,
-            "env://MOCK",
-            ModelCapability.StructuredOutput | ModelCapability.SystemMessage | ModelCapability.ToolCalling,
+            snapshot.ProviderConnectionRevision.Endpoint,
+            snapshot.ProviderConnectionRevision.Region,
+            snapshot.ProviderConnectionRevision.ApiVersion,
+            snapshot.ProviderConnectionRevision.Organization,
+            credentialRef,
+            declaredCapabilities,
             timeProvider.GetUtcNow(),
             "eval_harness");
-
         var releaseVersion = int.Parse(snapshot.AssignmentRelease.Version, CultureInfo.InvariantCulture);
 
         var classifierProfile = (await models.ResolveAsync(snapshot.ModelRelease.Id, "fast", cancellationToken)).Value;
@@ -45,7 +55,7 @@ internal static class PinnedCandidateFactory
         var agentDeps = new Dictionary<string, ModelDeploymentVersion>();
         var pinnedAgents = new Dictionary<string, PinnedModelCandidate>();
 
-        foreach (string name in agentNames.Distinct())
+        foreach (string name in agentNames.Distinct(StringComparer.Ordinal))
         {
             var agentDef = (await agents.ResolveAsync(snapshot.AgentRelease.Id, name, cancellationToken)).Value;
             var agentProfile = (await models.ResolveAsync(snapshot.ModelRelease.Id, agentDef.ModelProfileRef, cancellationToken)).Value;
@@ -76,7 +86,7 @@ internal static class PinnedCandidateFactory
             ConfigurationHash = release.ConfigurationHash,
             Classifier = CreateCandidate(snapshot, "classifier", classifierDep, revision, release),
             Correlator = CreateCandidate(snapshot, "correlator", correlatorDep, revision, release),
-            Agents = pinnedAgents.ToFrozenDictionary()
+            Agents = pinnedAgents.ToFrozenDictionary(StringComparer.Ordinal)
         };
         return (assignment, revision);
     }
@@ -88,20 +98,27 @@ internal static class PinnedCandidateFactory
         ProviderConnectionRevision revision,
         TimeProvider timeProvider)
     {
+        ModelCapability requiredCapabilities = revision.DeclaredCapabilities;
+        Dictionary<string, string> parameters = new(StringComparer.Ordinal);
+        if ((requiredCapabilities & ModelCapability.Seed) != ModelCapability.None)
+        {
+            parameters["seed"] = snapshot.Generation.Seed.ToString(CultureInfo.InvariantCulture);
+        }
+
         return ModelDeploymentVersion.Create(
             snapshot.Tenant,
             logicalName,
             1, // version
             revision.Id,
             snapshot.ModelDeployment.Model,
-            revision.DeclaredCapabilities, // require everything declared for the scripted mock
+            requiredCapabilities,
             (float)snapshot.Generation.Temperature,
             snapshot.Generation.MaximumOutputTokens,
             TimeSpan.FromSeconds(snapshot.RunSettings.TimeoutSeconds),
             profile.InputCostPerMillionTokens,
             profile.OutputCostPerMillionTokens,
             "USD",
-            FrozenDictionary<string, string>.Empty,
+            parameters,
             timeProvider.GetUtcNow(),
             "eval_harness");
     }

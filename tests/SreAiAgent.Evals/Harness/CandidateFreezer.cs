@@ -69,9 +69,9 @@ internal static partial class CandidateFreezer
             throw new InvalidOperationException("A requested live eval cannot use the scripted provider.");
         }
 
-        if (string.IsNullOrWhiteSpace(candidate.CredentialEnvironmentVariable))
+        if (string.IsNullOrWhiteSpace(candidate.CredentialEnvironmentVariable) || !IsSafeEnvironmentVariableName(candidate.CredentialEnvironmentVariable))
         {
-            throw new InvalidOperationException("The live candidate does not pin a credential environment variable.");
+            throw new InvalidOperationException("The live candidate must pin a safe, valid credential environment variable name.");
         }
 
         string? credential = environment(candidate.CredentialEnvironmentVariable);
@@ -96,6 +96,7 @@ internal static partial class CandidateFreezer
             candidate.Tenant,
             candidate.ProviderConnectionRevision.Id,
             candidate.ProviderConnectionRevision.Version,
+            candidate.ProviderConnectionRevision.Endpoint,
             candidate.ModelDeployment.Id,
             candidate.ModelDeployment.Version,
             candidate.AssignmentRelease.Id,
@@ -112,6 +113,25 @@ internal static partial class CandidateFreezer
             throw new InvalidDataException("Candidate identities must be exact and cannot use latest or mutable aliases.");
         }
 
+        if (!Uri.TryCreate(candidate.ProviderConnectionRevision.Endpoint, UriKind.Absolute, out Uri? uri))
+        {
+            throw new InvalidDataException($"Candidate endpoint '{candidate.ProviderConnectionRevision.Endpoint}' must be a valid absolute URI.");
+        }
+
+        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException($"Candidate endpoint '{candidate.ProviderConnectionRevision.Endpoint}' must use HTTPS.");
+        }
+
+        if (candidate.CredentialEnvironmentVariable is not null && !IsSafeEnvironmentVariableName(candidate.CredentialEnvironmentVariable))
+        {
+            throw new InvalidDataException($"Credential environment variable name '{candidate.CredentialEnvironmentVariable}' is invalid. It must be a 1-128 character alphanumeric identifier allowing underscores.");
+        }
+        if (string.Equals(candidate.ModelDeployment.Provider, "azure_openai", StringComparison.OrdinalIgnoreCase)
+            && string.IsNullOrWhiteSpace(candidate.ProviderConnectionRevision.ApiVersion))
+        {
+            throw new InvalidDataException("Azure OpenAI candidates must pin an api_version in provider_connection_revision.");
+        }
         foreach (string hash in new[] { candidate.ProviderConnectionRevision.Hash, candidate.ModelDeployment.Hash, candidate.AssignmentRelease.Hash })
         {
             if (!Sha256().IsMatch(hash))
@@ -120,6 +140,10 @@ internal static partial class CandidateFreezer
             }
         }
     }
+    internal static bool IsSafeEnvironmentVariableName(string name)
+        => name.Length is > 0 and <= 128
+           && name.All(static c => char.IsAsciiLetterOrDigit(c) || c == '_');
+
 
     private static VersionedIdentity Release(string release, string family, string hash)
         => new() { Id = release, Version = family + "/v1", Hash = hash };

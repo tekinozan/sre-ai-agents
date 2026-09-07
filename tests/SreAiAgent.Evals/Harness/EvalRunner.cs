@@ -110,9 +110,7 @@ internal sealed class EvalRunner
         EvalBaseline effectiveBaseline = writeBaseline
             ? SynthesizeBaseline(candidate, aggregate, baselineIdSuffix: candidate.Dataset.Hash[..8])
             : _baseline;
-        GateResult gate = writeBaseline
-            ? new GateResult(true, [])
-            : BaselineGate.Evaluate(aggregate, effectiveBaseline, _config);
+        GateResult gate = BaselineGate.Evaluate(aggregate, effectiveBaseline, _config);
 
         // The immutable artifact directory is `runId`; two runs of the same
         // candidate on the same case set must not collide, so the run's start
@@ -137,15 +135,16 @@ internal sealed class EvalRunner
         IReadOnlyList<string> canaries = orderedCases.SelectMany(static item => item.Security.SecretCanaries).Distinct(StringComparer.Ordinal).ToList();
         string directory = ArtifactWriter.Write(artifactRoot, bundle, canaries);
 
-        if (writeBaseline)
+        string? writtenBaselinePath = null;
+        if (writeBaseline && gate.PromotionEligible)
         {
-            WriteBaselineFile(effectiveBaseline);
+            writtenBaselinePath = WriteBaselineFile(effectiveBaseline, candidate);
         }
 
-        return new EvalRunResult(candidate, attempts, aggregate, gate, runId, directory);
+        return new EvalRunResult(candidate, attempts, aggregate, gate, runId, directory, writtenBaselinePath);
     }
 
-    private static async Task<(EvalOutput Output, IReadOnlyList<ToolInvocation> Tools)> RunSingleAttemptAsync(
+    private async Task<(EvalOutput Output, IReadOnlyList<ToolInvocation> Tools)> RunSingleAttemptAsync(
         CandidateSnapshot candidate,
         EvalCase evalCase,
         TimeSpan perCaseTimeout,
@@ -158,30 +157,96 @@ internal sealed class EvalRunner
             ? caseCts
             : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, caseCts.Token);
 
-        await using ProductionEvalRuntime runtime = ProductionEvalRuntime.Create(candidate, evalCase.FixedUtc);
+        await using ProductionEvalRuntime runtime = ProductionEvalRuntime.Create(candidate, evalCase.FixedUtc, _definition.CredentialEnvironmentVariable);
         return await runtime.RunAsync(evalCase, linked.Token).ConfigureAwait(false);
     }
 
-    private static EvalBaseline SynthesizeBaseline(CandidateSnapshot candidate, EvalAggregate aggregate, string baselineIdSuffix)
-        => new()
+    internal static EvalBaseline SynthesizeBaseline(CandidateSnapshot candidate, EvalAggregate aggregate, string baselineIdSuffix)
+    {
+        string safeCandidateSlug = SanitizeSlug(candidate.CandidateId);
+        string baselineId = string.Equals(candidate.ModelDeployment.Provider, "scripted", StringComparison.Ordinal)
+            ? "scripted-smoke-" + DateTimeOffset.UtcNow.ToString("yyyy.MM.dd", CultureInfo.InvariantCulture) + "-" + baselineIdSuffix
+            : "baseline-" + safeCandidateSlug + "-" + candidate.CandidateHash[..8];
+
+        return new EvalBaseline
         {
             SchemaVersion = "sre-eval-baseline/v1",
-            BaselineId = "scripted-smoke-" + DateTimeOffset.UtcNow.ToString("yyyy.MM.dd", CultureInfo.InvariantCulture) + "-" + baselineIdSuffix,
+            BaselineId = baselineId,
             CandidateHash = candidate.CandidateHash,
             DatasetHash = candidate.Dataset.Hash,
             ScorerHash = candidate.Scorer.Hash,
             Repeats = candidate.RunSettings.Repeats,
             Aggregate = aggregate,
         };
+    }
 
-    private static void WriteBaselineFile(EvalBaseline baseline)
+    internal static string WriteBaselineFile(EvalBaseline baseline, CandidateSnapshot candidate, string? directory = null)
     {
-        string baselinesDir = Path.Combine(RepositoryPaths.EvalProject, "Baselines");
+        string baselinesDir = Path.GetFullPath(directory ?? Path.Combine(RepositoryPaths.EvalProject, "Baselines"));
         Directory.CreateDirectory(baselinesDir);
-        string date = DateTimeOffset.UtcNow.ToString("yyyy.MM.dd", CultureInfo.InvariantCulture);
-        string path = Path.Combine(baselinesDir, "scripted-smoke-" + date + ".json");
+        string fileName = ComputeBaselineFileName(candidate, baseline.BaselineId);
+        string fullPath = Path.GetFullPath(Path.Combine(baselinesDir, fileName));
+
+        string baselinesDirWithSep = baselinesDir.EndsWith(Path.DirectorySeparatorChar)
+            ? baselinesDir
+            : baselinesDir + Path.DirectorySeparatorChar;
+
+        if (!fullPath.StartsWith(baselinesDirWithSep, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"Resolved baseline path '{fullPath}' traverses outside the baselines directory '{baselinesDir}'.");
+        }
+
+        if (File.Exists(fullPath))
+        {
+            throw new InvalidOperationException($"The baseline file '{fullPath}' already exists. Baselines are immutable and cannot be overwritten.");
+        }
+
         string json = JsonSerializer.Serialize(baseline, EvalJsonContext.Default.EvalBaseline);
-        File.WriteAllText(path, json);
+        using FileStream stream = new(fullPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        using StreamWriter writer = new(stream, System.Text.Encoding.UTF8);
+        writer.Write(json);
+        return fullPath;
+    }
+
+    internal static string ComputeBaselineFileName(CandidateSnapshot candidate, string baselineId)
+    {
+        if (string.Equals(candidate.ModelDeployment.Provider, "scripted", StringComparison.Ordinal))
+        {
+            string date = DateTimeOffset.UtcNow.ToString("yyyy.MM.dd", CultureInfo.InvariantCulture);
+            return $"scripted-smoke-{date}.json";
+        }
+
+        string safeId = SanitizeSlug(baselineId);
+        return $"{safeId}.json";
+    }
+
+    internal static string SanitizeSlug(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return "candidate";
+        }
+
+        System.Text.StringBuilder builder = new(input.Length);
+        foreach (char c in input)
+        {
+            if (char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.')
+            {
+                builder.Append(c);
+            }
+            else
+            {
+                builder.Append('-');
+            }
+        }
+
+        string result = builder.ToString().Trim('-', '.');
+        while (result.Contains("..", StringComparison.Ordinal))
+        {
+            result = result.Replace("..", ".", StringComparison.Ordinal);
+        }
+
+        return string.IsNullOrWhiteSpace(result) ? "candidate" : result;
     }
 
     private static EvalBaseline LoadOrSynthesizeScriptedBaseline(LoadedDataset dataset, CandidateDefinition candidate, EvalConfig config)
@@ -199,15 +264,18 @@ internal sealed class EvalRunner
             }
         }
 
-        // No baseline on disk: the only supported flow is a baseline-writing
-        // invocation. Synthesise a placeholder so the writer path can compute
-        // the observed aggregate; it is never persisted unless the write switch
-        // is set.
+        return SynthesizePlaceholderBaseline(candidate, dataset, config);
+    }
+
+    public static EvalBaseline SynthesizePlaceholderBaseline(CandidateDefinition candidate, LoadedDataset dataset, EvalConfig config)
+    {
         CandidateSnapshot snapshot = CandidateFreezer.Freeze(candidate, dataset, config);
         return new EvalBaseline
         {
             SchemaVersion = "sre-eval-baseline/v1",
-            BaselineId = "scripted-smoke-uninitialised",
+            BaselineId = string.Equals(candidate.ModelDeployment.Provider, "scripted", StringComparison.Ordinal)
+                ? "scripted-smoke-uninitialised"
+                : $"baseline-{candidate.CandidateId}-uninitialised",
             CandidateHash = snapshot.CandidateHash,
             DatasetHash = snapshot.Dataset.Hash,
             ScorerHash = snapshot.Scorer.Hash,

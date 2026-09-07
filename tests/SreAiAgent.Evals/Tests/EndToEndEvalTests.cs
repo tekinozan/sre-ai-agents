@@ -2,6 +2,7 @@ using System.Text.Json;
 
 namespace SreAiAgent.Evals.Harness;
 
+[Collection(EvalEnvironmentCollection.Name)]
 public sealed class EndToEndEvalTests
 {
     [Fact]
@@ -26,19 +27,44 @@ public sealed class EndToEndEvalTests
     {
         string candidatePath = Environment.GetEnvironmentVariable("SRE_EVAL_CANDIDATE")
             ?? throw new InvalidOperationException("Requested live eval is missing SRE_EVAL_CANDIDATE; live runs fail rather than skip.");
-        string baselinePath = Environment.GetEnvironmentVariable("SRE_EVAL_BASELINE")
-            ?? throw new InvalidOperationException("Requested live eval is missing SRE_EVAL_BASELINE; live runs fail rather than skip.");
+        bool writeBaseline = string.Equals(Environment.GetEnvironmentVariable(EvalRunner.WriteBaselineEnvironmentVariable), "1", StringComparison.Ordinal);
+        string? baselinePath = Environment.GetEnvironmentVariable("SRE_EVAL_BASELINE");
+        if (!writeBaseline && string.IsNullOrWhiteSpace(baselinePath))
+        {
+            throw new InvalidOperationException("Requested live eval is missing SRE_EVAL_BASELINE; live runs fail rather than skip. To bootstrap a baseline for a new live candidate, set SRE_EVAL_WRITE_BASELINE=1.");
+        }
+
         LoadedDataset dataset = EvalTestData.Dataset();
         CandidateDefinition candidate = CandidateFreezer.LoadDefinition(candidatePath);
         CandidateFreezer.RequireLivePrerequisites(candidate, Environment.GetEnvironmentVariable);
         EvalConfig config = EvalTestData.Config();
-        EvalBaseline baseline = JsonSerializer.Deserialize(File.ReadAllText(baselinePath), EvalJsonContext.Default.EvalBaseline)
-            ?? throw new InvalidDataException("Live baseline deserialized to null.");
+
+        EvalBaseline baseline;
+        if (writeBaseline && string.IsNullOrWhiteSpace(baselinePath))
+        {
+            baseline = EvalRunner.SynthesizePlaceholderBaseline(candidate, dataset, config);
+        }
+        else
+        {
+            if (!File.Exists(baselinePath))
+            {
+                throw new InvalidOperationException($"Live baseline file '{baselinePath}' does not exist.");
+            }
+
+            baseline = JsonSerializer.Deserialize(File.ReadAllText(baselinePath), EvalJsonContext.Default.EvalBaseline)
+                ?? throw new InvalidDataException("Live baseline deserialized to null.");
+        }
+
         EvalRunner runner = new(dataset, candidate, config, baseline);
 
         EvalRunResult result = await runner.RunLiveMatrixAsync(
             Path.Combine(RepositoryPaths.Root, "artifacts", "evals"),
             TestContext.Current.CancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(result.WrittenBaselinePath))
+        {
+            Console.WriteLine($"[LiveEval] Generated baseline written to: {result.WrittenBaselinePath}");
+        }
 
         result.Gate.PromotionEligible.ShouldBeTrue();
     }

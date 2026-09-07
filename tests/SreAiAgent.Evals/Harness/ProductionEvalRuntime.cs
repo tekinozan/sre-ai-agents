@@ -28,16 +28,18 @@ internal sealed class ProductionEvalRuntime : IAsyncDisposable
 {
     private readonly ServiceProvider _provider;
     private readonly CandidateSnapshot _candidate;
+    private readonly string? _credentialEnvironmentVariable;
     private readonly EvalAuditSink _audit;
 
-    private ProductionEvalRuntime(ServiceProvider provider, CandidateSnapshot candidate, EvalAuditSink audit)
+    private ProductionEvalRuntime(ServiceProvider provider, CandidateSnapshot candidate, string? credentialEnvironmentVariable, EvalAuditSink audit)
     {
         _provider = provider;
         _candidate = candidate;
+        _credentialEnvironmentVariable = credentialEnvironmentVariable;
         _audit = audit;
     }
 
-    public static ProductionEvalRuntime Create(CandidateSnapshot candidate, DateTimeOffset fixedUtc)
+    public static ProductionEvalRuntime Create(CandidateSnapshot candidate, DateTimeOffset fixedUtc, string? credentialEnvironmentVariable = null)
     {
         EvalAuditSink audit = new();
         ServiceCollection services = new();
@@ -86,7 +88,7 @@ internal sealed class ProductionEvalRuntime : IAsyncDisposable
             ValidateScopes = true,
             ValidateOnBuild = true,
         });
-        return new ProductionEvalRuntime(provider, candidate, audit);
+        return new ProductionEvalRuntime(provider, candidate, credentialEnvironmentVariable, audit);
     }
 
     public async Task<(EvalOutput Output, IReadOnlyList<ToolInvocation> Tools)> RunAsync(EvalCase evalCase, CancellationToken cancellationToken)
@@ -142,6 +144,7 @@ internal sealed class ProductionEvalRuntime : IAsyncDisposable
 
         (PinnedModelAssignment assignment, ProviderConnectionRevision pinnedRevision) = await PinnedCandidateFactory.AssignmentAsync(
             _candidate,
+            _credentialEnvironmentVariable,
             [evalCase.Agent],
             models,
             agents,
