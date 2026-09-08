@@ -1,3 +1,7 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using SreAiAgent.Infrastructure.Configuration;
 using SreAiAgent.Infrastructure.Observability.Providers.Kubernetes;
 using SreAiAgent.Infrastructure.Observability.Providers.Shared;
 
@@ -91,5 +95,39 @@ public sealed class KubernetesSelectorTests
         Dictionary<string, string> byCluster = new(StringComparer.Ordinal) { ["prod-eu"] = "checkout" };
 
         KubernetesSelector.ResolveNamespace(byCluster, "prod-eu", string.Empty).ShouldBe("checkout");
+    }
+
+    [Fact]
+    public void ARenderedSingleNamespaceEnvironmentVariableBindsToAScalarAndResolves()
+    {
+        // Mirrors exactly what deploy/helm/sre-ai-agent/templates/config.yaml emits for
+        // Observability__KubernetesNamespaceByCluster__{cluster}: one namespace string per
+        // cluster. The .NET configuration binder maps a double-underscore-segmented
+        // environment variable onto the same dictionary key path a colon-delimited
+        // in-memory source would, so this is the real binder, not a source-text assertion.
+        ServiceCollection services = new();
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>(StringComparer.Ordinal)
+            {
+                ["Observability:KubernetesNamespaceByCluster:production"] = "default",
+            })
+            .Build());
+        services.AddOptions<ObservabilityOptions>()
+            .BindConfiguration(ObservabilityOptions.SectionName);
+
+        using ServiceProvider provider = services.BuildServiceProvider();
+        ObservabilityOptions options = provider.GetRequiredService<IOptions<ObservabilityOptions>>().Value;
+
+        options.KubernetesNamespaceByCluster.ShouldContainKeyAndValue("production", "default");
+
+        KubernetesSelector.ResolveNamespace(options.KubernetesNamespaceByCluster, "production", "default")
+            .ShouldBe("default");
+
+        // A different namespace than the one exact value configured for the cluster is
+        // refused — the contract stays "one exact allowed namespace per cluster" even
+        // though the values came from real bound configuration rather than a literal
+        // dictionary.
+        Should.Throw<ObservabilityQueryException>(() =>
+            KubernetesSelector.ResolveNamespace(options.KubernetesNamespaceByCluster, "production", "checkout"));
     }
 }

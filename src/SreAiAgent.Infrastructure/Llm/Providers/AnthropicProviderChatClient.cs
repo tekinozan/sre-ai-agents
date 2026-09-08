@@ -1,4 +1,6 @@
 using System.Net.Http.Json;
+using Polly.CircuitBreaker;
+using Polly.Timeout;
 using SreAiAgent.Application.Abstractions.Llm;
 using SreAiAgent.Application.Errors;
 using SreAiAgent.Domain.ModelProviders;
@@ -91,6 +93,21 @@ internal sealed class AnthropicProviderChatClient : IProviderChatClient
             return Result<ProviderChatResponse>.Failure(Error.Transient(
                 ApplicationErrorCodes.LlmUnavailable,
                 "The model provider is unavailable."));
+        }
+        catch (BrokenCircuitException)
+        {
+            return Result<ProviderChatResponse>.Failure(Error.Transient(
+                ApplicationErrorCodes.LlmUnavailable,
+                "The model provider is unavailable."));
+        }
+        catch (TimeoutRejectedException)
+        {
+            // The resilience pipeline's own attempt/total timeout gave up on the
+            // provider, distinct from the caller's own timeout (which surfaces as
+            // OperationCanceledException and is handled by LlmGateway).
+            return Result<ProviderChatResponse>.Failure(Error.Transient(
+                ApplicationErrorCodes.LlmTimeout,
+                "The model provider request timed out."));
         }
         catch (System.Text.Json.JsonException)
         {

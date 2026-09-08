@@ -50,6 +50,42 @@ observability:
   prometheusBaseAddress: ""
   logBackendBaseAddress: ""
 
+llm:
+  # Refused at startup in Production together with the fake observability
+  # providers above; a production values file names a real one.
+  provider: scripted
+
+  # Seeds the initial ProviderConnectionRevision at first boot
+  # (ModelAssignmentBootstrapper) when no active assignment exists yet for the
+  # tenant; a no-op otherwise. Left empty here: a non-production install
+  # provisions connections through the model control-plane API instead, and an
+  # empty map renders no Llm__Bootstrap__* configuration at all.
+  bootstrap: {}
+
+kafka:
+  # Plaintext is for the local compose stack this chart does not target; a
+  # production values file sets SaslSsl with a mechanism.
+  securityProtocol: Plaintext
+  saslMechanism: ""
+
+  # Kafka__SaslUsername / Kafka__SaslPassword secretKeyRefs: named keys read
+  # individually from an externally managed Secret (existingSecret unless
+  # secretName overrides it), never a literal credential.
+  secretName: ""
+  saslUsernameKey: Kafka__SaslUsername
+  saslPasswordKey: Kafka__SaslPassword
+
+  # Name of an existing Secret carrying a private CA bundle, mounted
+  # read-only into every container that talks to Kafka. Empty means no volume
+  # is mounted and the platform CA store is trusted instead. Only the
+  # Secret's name and the key inside it are ever named here — never PEM
+  # content.
+  caSecret: ""
+  caSecretKey: ca.crt
+
+retention:
+  enabled: true
+
 api:
   replicas: 2
   resources:

@@ -139,6 +139,10 @@ public sealed class LlmOptions
     [Range(0, 5)]
     public int MaxRetries { get; init; } = 2;
 
+    /// <summary>Ceiling for one provider HTTP attempt, below the caller's own timeout.</summary>
+    [Range(5, 300)]
+    public int RequestTimeoutSeconds { get; init; } = 60;
+
     /// <summary>
     /// Whether a rendered prompt may be logged. Defaults to false and should stay
     /// false outside a local investigation of the platform itself: a rendered

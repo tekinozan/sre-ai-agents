@@ -1,6 +1,9 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Http.Resilience;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using SreAiAgent.Application.Abstractions.Llm;
 using SreAiAgent.Application.Abstractions.Security;
 using SreAiAgent.Application.Abstractions.Tools;
@@ -124,7 +127,53 @@ public static class DependencyInjection
         services.TryAddSingleton<ProviderRevisionVerifier>();
 
         services.AddHttpClient(ProviderHttpClients.Chat)
-            .ConfigureHttpClient(static client => client.Timeout = Timeout.InfiniteTimeSpan);
+            // Infinite on the client, deliberately: with a resilience handler the
+            // pipeline's total timeout governs, and a shorter client timeout would
+            // cut the pipeline off mid-retry.
+            .ConfigureHttpClient(static client => client.Timeout = Timeout.InfiniteTimeSpan)
+            // Outer to the resilience handler added below (handlers registered earlier
+            // wrap those registered later): it calls the pipeline exactly once per
+            // logical request and so only ever observes the terminal outcome after every
+            // retry the pipeline was going to make has already happened.
+            .AddHttpMessageHandler(static provider => new RetryExhaustionHandler(
+                provider.GetRequiredService<ILoggerFactory>().CreateLogger("SreAiAgent.Infrastructure.Llm.ProviderResilience")))
+            .AddStandardResilienceHandler()
+            .Configure((resilience, provider) =>
+            {
+                LlmOptions options = provider.GetRequiredService<IOptions<LlmOptions>>().Value;
+                ILogger logger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("SreAiAgent.Infrastructure.Llm.ProviderResilience");
+                TimeSpan perAttempt = TimeSpan.FromSeconds(options.RequestTimeoutSeconds);
+
+                resilience.AttemptTimeout.Timeout = perAttempt;
+
+                // Total timeout allows for the retry attempts underneath it.
+                // Standard resilience pipeline allows 3 retries (4 attempts total).
+                // Setting perAttempt * 5 ensures the total timeout does not starve the retries.
+                resilience.TotalRequestTimeout.Timeout = perAttempt * 5;
+
+                // Circuit breaker sampling duration must be at least twice the attempt timeout.
+                resilience.CircuitBreaker.SamplingDuration = perAttempt * 2;
+
+                // Respect Retry-After header from 429
+                resilience.Retry.ShouldRetryAfterHeader = true;
+
+                resilience.Retry.OnRetry = args =>
+                {
+                    ProviderResilienceLogging.LogModelHttpRetry(logger, args.AttemptNumber + 1, args.RetryDelay.TotalMilliseconds);
+
+                    // Records the attempt count for RetryExhaustionHandler to read once the
+                    // pipeline finishes; whether this retry (or a later one) succeeds is not
+                    // known yet, so nothing is logged as "exhausted" from here.
+                    RetryExhaustionHandler.RecordRetry(args.Context, args.AttemptNumber + 1);
+                    return ValueTask.CompletedTask;
+                };
+
+                resilience.CircuitBreaker.OnOpened = args =>
+                {
+                    ProviderResilienceLogging.LogModelCircuitBreakerOpened(logger, args.BreakDuration.TotalSeconds);
+                    return ValueTask.CompletedTask;
+                };
+            });
 
         services.TryAddScoped<IChatClientResolver, ChatClientResolver>();
         services.TryAddScoped<IModelProviderControlPlane, ModelProviderControlPlane>();

@@ -9,6 +9,12 @@ data:
   Kafka__ConsumerGroup: sre-ai-agent
   Kafka__MaxInFlightMessages: "100"
   Kafka__MaxDeliveryAttempts: "5"
+  # Plaintext is refused implicitly by never using it here: SaslUsername and
+  # SaslPassword below only take effect once the protocol actually asks for
+  # SASL. Set to a private CA's mounted path if the broker's certificate does
+  # not chain to a public root; never PEM content in this ConfigMap.
+  Kafka__SecurityProtocol: SaslSsl
+  Kafka__SaslMechanism: ScramSha512
 
   Registries__ConfigurationRoot: /app/config
   Registries__PromptRoot: /app/prompts
@@ -34,7 +40,8 @@ data:
 
   # Fakes, and therefore not a Production configuration — the host refuses to
   # start with any fake provider when ASPNETCORE_ENVIRONMENT is Production.
-  # Kubernetes has no real adapter yet, so that refusal is currently correct.
+  # A real in-cluster Kubernetes adapter exists (Observability/Providers/Kubernetes/KubernetesObservability.cs)
+  # and is selected by 'incluster'; these fakes are for non-production installs of these manifests.
   Observability__MetricsProvider: "fake"
   Observability__LogProvider: "fake"
   Observability__KubernetesProvider: "fake"
@@ -69,6 +76,8 @@ data:
 #     --namespace sre-ai-agent \
 #     --from-literal=Database__ConnectionString='...' \
 #     --from-literal=Kafka__BootstrapServers='...' \
+#     --from-literal=Kafka__SaslUsername='...' \
+#     --from-literal=Kafka__SaslPassword='...' \
 #     --from-literal=Security__Authority='https://...' \
 #     --from-literal=Security__Audience='sre-ai-agent'
 apiVersion: v1
@@ -82,5 +91,7 @@ type: Opaque
 stringData:
   Database__ConnectionString: "REPLACE_ME"
   Kafka__BootstrapServers: "REPLACE_ME"
+  Kafka__SaslUsername: "REPLACE_ME"
+  Kafka__SaslPassword: "REPLACE_ME"
   Security__Authority: "REPLACE_ME"
   Security__Audience: "REPLACE_ME"

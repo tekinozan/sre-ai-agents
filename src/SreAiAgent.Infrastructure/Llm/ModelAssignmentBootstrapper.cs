@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -9,6 +12,7 @@ using SreAiAgent.Domain.ModelProviders;
 using SreAiAgent.Domain.Shared;
 using SreAiAgent.Infrastructure.Configuration;
 using SreAiAgent.Infrastructure.Llm.Providers;
+using SreAiAgent.Infrastructure.Persistence;
 using SreAiAgent.Infrastructure.Persistence.Repositories;
 
 namespace SreAiAgent.Infrastructure.Llm;
@@ -32,10 +36,14 @@ internal sealed partial class ModelAssignmentBootstrapper(
         }
 
         using IServiceScope scope = scopeFactory.CreateScope();
+        SreDbContext context = scope.ServiceProvider.GetRequiredService<SreDbContext>();
         ModelProviderRepository repository = scope.ServiceProvider.GetRequiredService<ModelProviderRepository>();
         IUnitOfWork unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
         ProviderRevisionVerifier verifier = scope.ServiceProvider.GetRequiredService<ProviderRevisionVerifier>();
 
+        // Fast path outside any transaction: the overwhelmingly common case is
+        // that some earlier replica already bootstrapped, and this skips opening
+        // one — and taking the advisory lock below — for that case entirely.
         PinnedModelAssignment? active = await repository
             .GetActiveSnapshotAsync(bootstrap.Tenant, cancellationToken)
             .ConfigureAwait(false);
@@ -48,6 +56,32 @@ internal sealed partial class ModelAssignmentBootstrapper(
 
         await unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
+            // API and both workers all register this hosted service, each may run
+            // several replicas, and none of them saw an active assignment above —
+            // they can all reach this point at once. A PostgreSQL transaction-scoped
+            // advisory lock serializes them: the first to acquire it proceeds; every
+            // other contender blocks here at the database, then — once it acquires
+            // the lock after the winner commits — rechecks immediately below and
+            // finds the assignment already active. Scoped to the transaction
+            // (`_xact_`) means it releases automatically on commit or rollback, so
+            // there is never an explicit unlock or an abandoned lock to sweep.
+            long lockKey = ComputeBootstrapLockKey(bootstrap.Tenant);
+            await context.Database
+                .ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({lockKey})", ct)
+                .ConfigureAwait(false);
+
+            PinnedModelAssignment? activeAfterLock = await repository
+                .GetActiveSnapshotAsync(bootstrap.Tenant, ct)
+                .ConfigureAwait(false);
+            if (activeAfterLock is not null)
+            {
+                // Lost the race: another replica created and activated the
+                // assignment while this one waited for the lock. Nothing to do —
+                // creating rows or running the verification probe here would
+                // duplicate work the winner already committed.
+                return false;
+            }
+
             ProviderCapabilityDescriptor descriptor = ProviderClientCatalog.Descriptor(bootstrap.AdapterKind);
 
             ProviderConnection connection = ProviderConnection.Create(bootstrap.Tenant, bootstrap.ConnectionDisplayName, now);
@@ -196,6 +230,24 @@ internal sealed partial class ModelAssignmentBootstrapper(
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    /// <summary>
+    /// Derives a stable 64-bit <c>pg_advisory_xact_lock</c> key from the bootstrap
+    /// tenant, so every replica bootstrapping the same tenant contends for the
+    /// same lock.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not <see cref="string.GetHashCode()"/>: .NET randomizes string
+    /// hash codes per process by default, so two pods would compute two different
+    /// keys for the same tenant and never actually contend for one lock. SHA-256
+    /// is a fixed, versionless algorithm — the same tenant always yields the same
+    /// key, in this process, in any other process, and in any future one.
+    /// </remarks>
+    private static long ComputeBootstrapLockKey(string tenant)
+    {
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes($"sre-ai-agent:model-assignment-bootstrap:{tenant}"));
+        return BitConverter.ToInt64(hash, 0);
+    }
 
     [LoggerMessage(
         EventId = 1,

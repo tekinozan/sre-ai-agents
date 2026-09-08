@@ -33,6 +33,8 @@ spec:
           env:
             - name: Telemetry__ServiceName
               value: sre-ai-api
+            {{- include "sre.kafkaSecretEnv" . | nindent 12 }}
+            {{- include "sre.llmCredentialEnv" . | nindent 12 }}
           securityContext: {{- include "sre.containerSecurityContext" . | nindent 12 }}
           resources: {{- toYaml .Values.api.resources | nindent 12 }}
 
@@ -56,9 +58,11 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- include "sre.kafkaCaVolumeMount" . | nindent 12 }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "sre.kafkaCaVolume" . | nindent 8 }}
       terminationGracePeriodSeconds: 60
 ---
 apiVersion: v1

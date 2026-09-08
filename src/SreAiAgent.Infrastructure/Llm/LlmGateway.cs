@@ -112,14 +112,21 @@ internal sealed partial class LlmGateway : ILlmGateway
                         "failed")
                     : Interpret(request, response.Value, Elapsed(startTimestamp), activity);
 
+                // One retry budget: transport/HTTP status retries are handled by the
+                // HTTP resilience pipeline. The gateway loop retries only semantic response
+                // failures that are invisible to HTTP middleware (schema-invalid, truncated, empty output).
                 if (outcome.IsSuccess
                     || attempt == _options.MaxRetries
-                    || !ErrorCatalog.IsRetryable(outcome.Error.Code))
+                    || !IsSemanticRetryable(outcome.Error.Code))
                 {
                     return outcome;
                 }
 
-                await Task.Delay(TimeSpan.FromMilliseconds(100 * (attempt + 1)), _timeProvider, linked.Token)
+                // Exponential backoff with jitter: starts at 100ms on first retry (attempt = 0), then 200ms, 400ms...
+                TimeSpan backoff = TimeSpan.FromMilliseconds(
+                    (100 * (1 << attempt)) + Random.Shared.Next(0, 100));
+
+                await Task.Delay(backoff, _timeProvider, linked.Token)
                     .ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (timeoutSource.IsCancellationRequested)
@@ -358,4 +365,7 @@ internal sealed partial class LlmGateway : ILlmGateway
         string schemaName,
         string agentName,
         string detail);
+
+    private static bool IsSemanticRetryable(ErrorCode code)
+        => code == ApplicationErrorCodes.LlmStructuredOutputInvalid;
 }

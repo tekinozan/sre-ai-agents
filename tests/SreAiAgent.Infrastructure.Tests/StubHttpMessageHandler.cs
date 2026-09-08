@@ -69,7 +69,12 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
             : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         RequestBodies.Add(body);
 
-        return _respond(request);
+        // A real transport handler stamps this before returning; several tests
+        // (retry/circuit-breaker telemetry) correlate a failed attempt back to
+        // the request that produced it and would otherwise always see null.
+        HttpResponseMessage response = _respond(request);
+        response.RequestMessage ??= request;
+        return response;
     }
 }
 

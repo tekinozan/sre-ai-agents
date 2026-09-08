@@ -413,6 +413,90 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ConcurrentBootstrapAttemptsForTheSameTenantPersistExactlyOneAssignment()
+    {
+        string tenant = "boot-race-" + Guid.NewGuid().ToString("N");
+        CancellationToken ct = TestContext.Current.CancellationToken;
+
+        TaskCompletionSource winnerHoldsLock = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource releaseWinner = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        AdvisoryLockRaceInterceptor interceptor = new(
+            static command => command.CommandText.Contains("pg_advisory_xact_lock", StringComparison.Ordinal),
+            async order =>
+            {
+                if (order == 1)
+                {
+                    // The command already executed against PostgreSQL by this point,
+                    // so the winner genuinely holds the transaction-scoped advisory
+                    // lock — pausing here, not before the command is sent, is what
+                    // makes the second bootstrapper's own lock attempt a real,
+                    // server-side block rather than a race the test wins by luck.
+                    winnerHoldsLock.TrySetResult();
+                    await releaseWinner.Task.ConfigureAwait(false);
+                }
+            });
+
+        await using ServiceProvider customProvider = CreateServiceProvider(tenant, interceptor);
+
+        ModelAssignmentBootstrapper CreateBootstrapper() => new(
+            customProvider.GetRequiredService<IServiceScopeFactory>(),
+            customProvider.GetRequiredService<IOptions<LlmOptions>>(),
+            customProvider.GetRequiredService<IOptions<RegistryOptions>>(),
+            customProvider.GetRequiredService<IModelProfileRegistry>(),
+            customProvider.GetRequiredService<IAgentRegistry>(),
+            customProvider.GetRequiredService<IHostEnvironment>(),
+            customProvider.GetRequiredService<TimeProvider>(),
+            customProvider.GetRequiredService<ILogger<ModelAssignmentBootstrapper>>());
+
+        // Two independently scoped bootstrapper instances: each StartAsync call
+        // opens its own IServiceScope (and therefore its own SreDbContext and
+        // transaction) internally, exactly as two separate replicas would.
+        ModelAssignmentBootstrapper bootstrapperA = CreateBootstrapper();
+        ModelAssignmentBootstrapper bootstrapperB = CreateBootstrapper();
+
+        Task startA = bootstrapperA.StartAsync(ct);
+        await winnerHoldsLock.Task.WaitAsync(TimeSpan.FromSeconds(10), ct);
+
+        // A holds the lock and is paused; B's own fast-path check (outside any
+        // transaction) still sees no active assignment, so it proceeds into its
+        // own transaction and attempts the same advisory lock.
+        Task startB = bootstrapperB.StartAsync(ct);
+
+        // Prove B is genuinely blocked at PostgreSQL, not merely running after A
+        // by chance: it must still be incomplete after a real wait while A
+        // continues to hold the lock.
+        await Task.Delay(TimeSpan.FromMilliseconds(300), ct);
+        startB.IsCompleted.ShouldBeFalse(
+            "The second bootstrapper must be genuinely blocked on the PostgreSQL advisory lock while the "
+                + "winner still holds it, not merely running after it by chance.");
+
+        releaseWinner.TrySetResult();
+
+        await Task.WhenAll(startA, startB).WaitAsync(TimeSpan.FromSeconds(30), ct);
+
+        await using SreDbContext db = _postgres.CreateContext();
+        int connections = await db.ProviderConnections.CountAsync(entity => entity.Tenant == tenant, ct);
+        int revisions = await db.ProviderConnectionRevisions.CountAsync(entity => entity.Tenant == tenant, ct);
+        int deployments = await db.ModelDeploymentVersions.CountAsync(entity => entity.Tenant == tenant, ct);
+        int assignments = await db.ModelAssignmentReleases.CountAsync(entity => entity.Tenant == tenant, ct);
+        int verifications = await db.ProviderRevisionVerifications.CountAsync(entity => entity.Tenant == tenant, ct);
+
+        connections.ShouldBe(1, "Only the lock winner may create a provider connection; the lock-waiter's "
+            + "in-lock recheck must exit before creating anything.");
+        revisions.ShouldBe(1);
+        deployments.ShouldBe(2, "One deployment per distinct model profile (fast, analytical), created once.");
+        assignments.ShouldBe(1);
+        verifications.ShouldBe(1, "Only the lock winner may run the verification/probe path; a lock-waiter "
+            + "that exits after its in-lock recheck must never repeat it.");
+
+        await using AsyncServiceScope verifyScope = customProvider.CreateAsyncScope();
+        ModelProviderRepository repository = verifyScope.ServiceProvider.GetRequiredService<ModelProviderRepository>();
+        PinnedModelAssignment? snapshot = await repository.GetActiveSnapshotAsync(tenant, ct);
+        snapshot.ShouldNotBeNull();
+    }
+
+    [Fact]
     public async Task BootstrapWithProfileAliasesDeduplicatesDeploymentsAndMapsCorrelatorAndAgentSlotsToSameDeployment()
     {
         string tenant = "boot-alias-" + Guid.NewGuid().ToString("N");
@@ -503,6 +587,33 @@ internal sealed class RaceSyncInterceptor(Func<DbCommand, Task> onCommand) : DbC
     {
         await onCommand(command).ConfigureAwait(false);
         return await base.ReaderExecutingAsync(command, eventData, result, cancellationToken).ConfigureAwait(false);
+    }
+}
+
+/// <summary>
+/// Signals when a matching command has actually executed against PostgreSQL —
+/// after acquisition for <c>pg_advisory_xact_lock</c>, not before the command is
+/// sent — so a test can pause the winner while it genuinely holds the lock.
+/// </summary>
+internal sealed class AdvisoryLockRaceInterceptor(
+    Predicate<DbCommand> isMatch,
+    Func<int, Task> onMatchExecuted) : DbCommandInterceptor
+{
+    private int _order;
+
+    public override async ValueTask<int> NonQueryExecutedAsync(
+        DbCommand command,
+        CommandExecutedEventData eventData,
+        int result,
+        CancellationToken cancellationToken = default)
+    {
+        if (isMatch(command))
+        {
+            int order = Interlocked.Increment(ref _order);
+            await onMatchExecuted(order).ConfigureAwait(false);
+        }
+
+        return await base.NonQueryExecutedAsync(command, eventData, result, cancellationToken).ConfigureAwait(false);
     }
 }
 

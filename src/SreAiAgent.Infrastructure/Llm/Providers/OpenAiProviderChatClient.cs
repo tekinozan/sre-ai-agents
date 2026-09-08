@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using Polly.CircuitBreaker;
+using Polly.Timeout;
 using SreAiAgent.Application.Abstractions.Llm;
 using SreAiAgent.Application.Errors;
 using SreAiAgent.Domain.ModelProviders;
@@ -128,6 +130,21 @@ internal class OpenAiCompatibleProviderChatClient : IProviderChatClient
                 ApplicationErrorCodes.LlmUnavailable,
                 "The model provider is unavailable."));
         }
+        catch (BrokenCircuitException)
+        {
+            return Result<ProviderChatResponse>.Failure(Error.Transient(
+                ApplicationErrorCodes.LlmUnavailable,
+                "The model provider is unavailable."));
+        }
+        catch (TimeoutRejectedException)
+        {
+            // The resilience pipeline's own attempt/total timeout gave up on the
+            // provider, distinct from the caller's own timeout (which surfaces as
+            // OperationCanceledException and is handled by LlmGateway).
+            return Result<ProviderChatResponse>.Failure(Error.Transient(
+                ApplicationErrorCodes.LlmTimeout,
+                "The model provider request timed out."));
+        }
         catch (System.Text.Json.JsonException)
         {
             return Result<ProviderChatResponse>.Failure(Error.Transient(
@@ -169,4 +186,16 @@ internal class OpenAiCompatibleProviderChatClient : IProviderChatClient
 internal static class ProviderHttpClients
 {
     public const string Chat = "sre-llm-provider";
+
+    /// <summary>
+    /// Pipeline name Microsoft.Extensions.Http.Resilience 10.9.0 assigns the pipeline
+    /// created by the parameterless <c>AddStandardResilienceHandler()</c> overload used
+    /// in <see cref="SreAiAgent.Infrastructure.DependencyInjection.AddSreLlm"/>: the http
+    /// client name suffixed with "-standard" (verified against the installed package).
+    /// Tests layer extra <c>HttpStandardResilienceOptions</c> configuration onto this name
+    /// instead of calling <c>AddStandardResilienceHandler()</c> a second time, which would
+    /// stack a second resilience handler on the client rather than tuning the one production
+    /// pipeline.
+    /// </summary>
+    public const string ChatResiliencePipelineName = Chat + "-standard";
 }

@@ -38,6 +38,8 @@ spec:
                    misread of the shared ConfigMap making it reach for Temporal. */}}
             - name: Workflow__Engine
               value: inline
+            {{- include "sre.kafkaSecretEnv" . | nindent 12 }}
+            {{- include "sre.llmCredentialEnv" . | nindent 12 }}
           securityContext: {{- include "sre.containerSecurityContext" . | nindent 12 }}
           resources: {{- toYaml .Values.alertWorker.resources | nindent 12 }}
           ports:
@@ -58,9 +60,11 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- include "sre.kafkaCaVolumeMount" . | nindent 12 }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "sre.kafkaCaVolume" . | nindent 8 }}
       {{- /* Long enough for an in-flight message to reach a safe point and commit
              its offset; anything shorter means redelivery on every rollout. */}}
       terminationGracePeriodSeconds: 60
@@ -96,6 +100,8 @@ spec:
               value: sre-ai-investigation-worker
             - name: Kafka__ConsumerGroup
               value: {{ .Release.Name }}-investigation-worker
+            {{- include "sre.kafkaSecretEnv" . | nindent 12 }}
+            {{- include "sre.llmCredentialEnv" . | nindent 12 }}
           securityContext: {{- include "sre.containerSecurityContext" . | nindent 12 }}
           resources: {{- toYaml .Values.investigationWorker.resources | nindent 12 }}
           ports:
@@ -116,9 +122,11 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- include "sre.kafkaCaVolumeMount" . | nindent 12 }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "sre.kafkaCaVolume" . | nindent 8 }}
       {{- /* Longer than the alert worker's: an activity can be mid-model call,
              and cutting it off loses tokens already paid for. Temporal resumes
              the workflow, but the work is repeated rather than continued. */}}

@@ -20,8 +20,43 @@ data:
   Registries__PolicyRelease: {{ .Values.releases.policy | quote }}
   Registries__FlagRelease: {{ .Values.releases.flag | quote }}
 
-  Llm__Provider: scripted
+  Llm__Provider: {{ .Values.llm.provider | quote }}
   Llm__LogRenderedPrompts: "false"
+
+  {{- with .Values.llm.bootstrap }}
+  {{- /* Seeds the initial ProviderConnectionRevision at first boot
+         (ModelAssignmentBootstrapper), a no-op once one already exists for the
+         tenant. The credential itself never appears here — only the env://
+         pointer the deployment resolves via a secretKeyRef (sre.llmCredentialEnv
+         in _helpers.tpl). */}}
+  Llm__Bootstrap__Tenant: {{ .tenant | default "default" | quote }}
+  Llm__Bootstrap__ConnectionDisplayName: {{ .connectionDisplayName | default "production" | quote }}
+  Llm__Bootstrap__AdapterKind: {{ .adapterKind | quote }}
+  Llm__Bootstrap__Endpoint: {{ .endpoint | quote }}
+  Llm__Bootstrap__CredentialRef: "env://SRE_LLM_CREDENTIAL"
+  {{- with .organization }}
+  Llm__Bootstrap__Organization: {{ . | quote }}
+  {{- end }}
+  {{- with .assignmentName }}
+  Llm__Bootstrap__AssignmentName: {{ . | quote }}
+  {{- end }}
+  {{- with .classifierProfile }}
+  Llm__Bootstrap__ClassifierProfile: {{ . | quote }}
+  {{- end }}
+  {{- with .correlatorProfile }}
+  Llm__Bootstrap__CorrelatorProfile: {{ . | quote }}
+  {{- end }}
+  {{- end }}
+
+  Kafka__SecurityProtocol: {{ .Values.kafka.securityProtocol | quote }}
+  {{- with .Values.kafka.saslMechanism }}
+  Kafka__SaslMechanism: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.kafka.caSecret }}
+  Kafka__SslCaLocation: "/etc/sre-ai-agent/kafka-ca/{{ $.Values.kafka.caSecretKey }}"
+  {{- end }}
+
+  Retention__Enabled: {{ .Values.retention.enabled | quote }}
 
   Observability__MetricsProvider: {{ .Values.observability.metricsProvider | quote }}
   Observability__LogProvider: {{ .Values.observability.logProvider | quote }}
@@ -33,6 +68,9 @@ data:
   Observability__LogBackendBaseAddress: {{ . | quote }}
   {{- end }}
   {{- range $cluster, $namespace := .Values.observability.namespaceByCluster }}
+  {{- if not (kindIs "string" $namespace) }}
+  {{- fail (printf "observability.namespaceByCluster.%s must be one namespace string per cluster, not a list or mapping." $cluster) }}
+  {{- end }}
   Observability__KubernetesNamespaceByCluster__{{ $cluster }}: {{ $namespace | quote }}
   {{- end }}
 

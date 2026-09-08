@@ -1,9 +1,9 @@
 # Production readiness execution plan
 
-> **Status:** Phases 1–3 complete; Phases 4–5 pending.
+> **Status:** Phases 1–4 complete; Phase 5 pending.
 > **Source of truth:** `PRODUCTION_READINESS_PLAN.md` (root) holds the detailed per-step specifications, code templates, and context.
 > **Scope:** This document governs execution phasing, ordering dependencies, affected files, acceptance criteria, open questions, and completion tracking.
-> **Last updated:** 2026-09-07.
+> **Last updated:** 2026-09-08.
 
 ## Status
 
@@ -12,7 +12,7 @@
 | [Phase 1 — Tenant isolation on write paths](#phase-1--tenant-isolation-on-write-paths) | Steps 1, 2, 3, 4 | Complete |
 | [Phase 2 — Messaging: transport security and bounded poison messages](#phase-2--messaging-transport-security-and-bounded-poison-messages) | Steps 5, 6 | Complete |
 | [Phase 3 — Operational surface: retention, health, probes](#phase-3--operational-surface-retention-health-probes) | Steps 7, 8, 9 | Complete |
-| [Phase 4 — Outbound resilience and a production configuration that boots](#phase-4--outbound-resilience-and-a-production-configuration-that-boots) | Steps 10, 11 | Not started |
+| [Phase 4 — Outbound resilience and a production configuration that boots](#phase-4--outbound-resilience-and-a-production-configuration-that-boots) | Steps 10, 11 | Complete |
 | [Phase 5 — Proof and operations](#phase-5--proof-and-operations) | Steps 12, 13, 14 | Not started |
 
 ---
@@ -224,6 +224,7 @@ They turn the platform into a production-deployable artifact. Step 10 prevents e
 
 ### Open questions and notes
 - **Resilience API property naming:** Verify `Microsoft.Extensions.Http.Resilience` 10.9.0 property names (`ShouldRetryAfterHeader`, `AttemptTimeout.Timeout`, `TotalRequestTimeout.Timeout`, `CircuitBreaker.SamplingDuration`) during implementation.
+- **Live credential checks outstanding:** A successful minimal call through the real OpenAI provider using its configured `secretKeyRef`-sourced credential, and a connection to a real SASL/TLS Kafka broker using the configured SASL mechanism, were not exercised — no real OpenAI API key or SASL/TLS broker credentials are available in this environment. Code path, options validation, and Helm secret wiring are implemented and unit/render-tested; the authenticated live calls themselves remain production-environment acceptance checks to run once real credentials exist.
 
 ---
 
@@ -266,3 +267,4 @@ They provide operational validation, durability guarantees, and runbooks for hum
 ### Open questions and notes
 - **`WorkflowHistory.FromJson` factory:** In `Temporalio` 1.18.0, check `Temporalio.Common.WorkflowHistory` for the exact JSON deserialization method. If `WorkflowHistory.FromJson` is unavailable, use `Temporalio.Api.History.V1.History.Parser.ParseJson(json)` to instantiate `WorkflowHistory`.
 - **History capture format:** Ensure the recorded JSON history fixture is the normalized history proto representation rather than a Temporal CLI envelope wrapper.
+- **Cross-service trace continuity (outstanding, blocks final sign-off):** Verifying Phase 4 against the Compose stack (`docs/agents/recipes/verify-end-to-end.md`) found that one alert-to-report run produces spans (`classify`, `route`, `agent.execute`, `llm.call`, `tool.execute`, `correlate`) scattered across several different Jaeger trace ids rather than the single trace spanning API, alert-worker, and investigation-worker that this document's own Phase 5 verification step 2 requires ("Single Jaeger trace spans API, worker, and tools"); some of those spans carry no parent reference at all. This predates Phase 4's own changes — nothing in steps 10–11 touches tracing, the sampler, or context propagation — so it was not diagnosed or fixed as part of Phase 4. It must be investigated and resolved, with root cause identified (likely context propagation across the Kafka message envelope and/or the Temporal activity boundary) and a regression test added, before production readiness as a whole can be signed off; Phase 5's own step 2 verification cannot pass while this stands.

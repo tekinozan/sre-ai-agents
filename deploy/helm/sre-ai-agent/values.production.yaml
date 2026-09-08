@@ -1,0 +1,48 @@
+# Production overlay: `helm install ... -f values.yaml -f values.production.yaml`.
+#
+# Only what must differ from the dev-safe base is named here. Anything not
+# listed keeps the base default, which is why `existingSecret`, `image.tag`
+# and every resource/replica setting still come from values.yaml or an
+# `--set` on the release itself.
+
+observability:
+  metricsProvider: prometheus
+  logProvider: loki
+  kubernetesProvider: incluster
+  # One exact namespace per logical cluster, never a list: KubernetesSelector
+  # (ARCHITECTURE.md) deliberately permits a single allowed namespace per
+  # cluster, matching a namespace-scoped service account. Choose the one
+  # namespace this deployment's service account is actually authorized to
+  # inspect; "default" is a placeholder, not a recommendation.
+  namespaceByCluster:
+    production: "default"
+  prometheusBaseAddress: "http://prometheus.monitoring:9090/"
+  logBackendBaseAddress: "http://loki.monitoring:3100/"
+
+llm:
+  provider: openai
+
+  # Seeds the production ProviderConnectionRevision at first boot, once, for a
+  # tenant with no active assignment yet. credentialSecretKey names the key an
+  # operator populates in `existingSecret` with the real OpenAI API key — the
+  # key itself, never the value, is the only thing named here.
+  bootstrap:
+    tenant: production
+    connectionDisplayName: openai-production
+    adapterKind: OpenAi
+    endpoint: "https://api.openai.com/v1"
+    credentialSecretKey: OpenAiApiKey
+    assignmentName: production
+    classifierProfile: fast
+    correlatorProfile: analytical
+
+kafka:
+  securityProtocol: SaslSsl
+  saslMechanism: ScramSha512
+  # A private CA is opt-in: uncomment when the target broker's certificate
+  # does not chain to a public root, naming a Secret an operator manages out
+  # of band with the CA bundle at caSecretKey. Never PEM content here.
+  # caSecret: sre-ai-agent-kafka-ca
+
+retention:
+  enabled: true

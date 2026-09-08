@@ -23,6 +23,14 @@ public sealed class TenantIsolationTests(PostgresFixture postgres)
 {
     private static readonly DateTimeOffset Now = new(2026, 9, 7, 12, 0, 0, TimeSpan.Zero);
 
+    // Deterministic clock: the approval fixture's one-hour validity window is
+    // measured from Now, so a handler checking it against the real wall clock
+    // (TimeProvider.System) fails once real time drifts past Now + 1h — which it
+    // eventually always does. Every handler in this class uses the same fixed
+    // instant Now was built from, so no assertion here depends on which day the
+    // suite happens to run.
+    private static readonly TimeProvider Clock = new TestTimeProvider(Now);
+
     private static Incident NewIncidentFor(string fingerprint, DateTimeOffset now, string tenant = "acme")
         => new(
             IncidentId.New(),
@@ -140,7 +148,7 @@ public sealed class TenantIsolationTests(PostgresFixture postgres)
             publisher,
             unitOfWork,
             workflow,
-            TimeProvider.System);
+            Clock);
 
         // Foreign tenant receives 404 IncidentNotFound
         Result foreignResult = await handler.HandleAsync("globex", incident.Id, ct);
@@ -180,7 +188,7 @@ public sealed class TenantIsolationTests(PostgresFixture postgres)
             publisher,
             unitOfWork,
             workflow,
-            TimeProvider.System);
+            Clock);
 
         // Foreign tenant receives 404 IncidentNotFound
         Result foreignResult = await handler.HandleAsync("globex", incident.Id, "investigation stalled", ct);
@@ -213,7 +221,7 @@ public sealed class TenantIsolationTests(PostgresFixture postgres)
             publisher,
             unitOfWork,
             workflow,
-            TimeProvider.System);
+            Clock);
 
         // Foreign tenant receives 404 IncidentNotFound
         Result foreignResult = await handler.HandleAsync("globex", incident.Id, "operator", "cancelled by operator", ct);
@@ -255,7 +263,7 @@ public sealed class TenantIsolationTests(PostgresFixture postgres)
             approvalStore,
             unitOfWork,
             workflow,
-            TimeProvider.System);
+            Clock);
 
         Result foreignDecision = await decisionHandler.DecideAsync("globex", approval.Id, isApproved: true, "operator", null, ct);
         foreignDecision.IsFailure.ShouldBeTrue();
@@ -264,5 +272,10 @@ public sealed class TenantIsolationTests(PostgresFixture postgres)
 
         Result owningDecision = await decisionHandler.DecideAsync("acme", approval.Id, isApproved: true, "operator", null, ct);
         owningDecision.IsSuccess.ShouldBeTrue();
+    }
+
+    private sealed class TestTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
     }
 }
