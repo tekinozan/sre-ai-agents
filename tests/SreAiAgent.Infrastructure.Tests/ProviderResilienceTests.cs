@@ -572,6 +572,107 @@ public sealed class ProviderResilienceTests
     }
 
     [Fact]
+    public async Task AdapterToGatewayPathForPollyTimeoutSurfacesLlmTimeoutAndTimeoutTelemetry()
+    {
+        SlowHttpMessageHandler stub = new(
+            TimeSpan.FromMilliseconds(500),
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(SuccessChatJson, System.Text.Encoding.UTF8, "application/json"),
+            });
+
+        await using ServiceProvider provider = BuildServiceProvider(stub, configureResilience: options =>
+        {
+            options.Retry.ShouldHandle = static _ => ValueTask.FromResult(false);
+            options.AttemptTimeout.Timeout = TimeSpan.FromMilliseconds(100);
+            options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(5);
+            options.CircuitBreaker.SamplingDuration = TimeSpan.FromMilliseconds(500);
+        });
+        IHttpClientFactory clients = provider.GetRequiredService<IHttpClientFactory>();
+        ICredentialResolver credentials = new StubCredentialResolver();
+
+        OpenAiProviderChatClient client = new(clients, credentials, CreateRevision());
+
+        IChatClientResolver resolver = Substitute.For<IChatClientResolver>();
+        resolver.ResolveAsync(Arg.Any<PinnedModelCandidate>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(Result<IProviderChatClient>.Success(client)));
+
+        StructuredOutputValidator validator = new();
+        IMeterFactory meterFactory = Substitute.For<IMeterFactory>();
+        Meter meter = new(SreMetrics.MeterName);
+        meterFactory.Create(Arg.Any<MeterOptions>()).Returns(meter);
+        SreMetrics metrics = new(meterFactory);
+        IAuditSink audit = Substitute.For<IAuditSink>();
+
+        using MeterListener meterListener = new();
+        string? recordedMetricStatus = null;
+        meterListener.InstrumentPublished = (instrument, listener) =>
+        {
+            if (instrument.Meter.Name == SreMetrics.MeterName && instrument.Name == "sre_llm_requests_total")
+            {
+                listener.EnableMeasurementEvents(instrument);
+            }
+        };
+        meterListener.SetMeasurementEventCallback<long>((instrument, measurement, tags, state) =>
+        {
+            foreach (KeyValuePair<string, object?> tag in tags)
+            {
+                if (tag.Key == TraceAttributes.ResultStatus)
+                {
+                    recordedMetricStatus = tag.Value as string;
+                }
+            }
+        });
+        meterListener.Start();
+
+        string? recordedActivityResultStatus = null;
+        string? recordedActivityErrorCode = null;
+        using ActivityListener activityListener = new()
+        {
+            ShouldListenTo = source => source.Name == SreActivitySources.Llm.Name,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            ActivityStopped = activity =>
+            {
+                recordedActivityResultStatus = activity.GetTagItem(TraceAttributes.ResultStatus) as string;
+                recordedActivityErrorCode = activity.GetTagItem(TraceAttributes.ErrorCode) as string;
+            },
+        };
+        ActivitySource.AddActivityListener(activityListener);
+
+        LlmGateway gateway = new(
+            resolver,
+            validator,
+            metrics,
+            Microsoft.Extensions.Options.Options.Create(new LlmOptions { MaxRetries = 2, RequestTimeoutSeconds = 5 }),
+            audit,
+            TimeProvider.System,
+            NullLogger<LlmGateway>.Instance);
+
+        PinnedModelCandidate candidate = CreateCandidate("test-tenant", "classifier");
+        LlmRequest<ClassificationPayload> request = new()
+        {
+            Candidate = candidate,
+            ResponseSchemaName = StructuredOutputValidator.ClassificationSchemaName,
+            SystemPrompt = "system prompt",
+            UserPrompt = "user prompt",
+            Timeout = TimeSpan.FromSeconds(5),
+            Metadata = CreateMetadata(),
+        };
+
+        Result<LlmResult<ClassificationPayload>> result = await gateway.GenerateStructuredAsync(
+            request, TestContext.Current.CancellationToken);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ToString().ShouldBe(ApplicationErrorCodes.LlmTimeout.ToString());
+        recordedMetricStatus.ShouldBe("timeout");
+        recordedActivityResultStatus.ShouldBe("timeout");
+        recordedActivityErrorCode.ShouldBe(ApplicationErrorCodes.LlmTimeout.Value);
+        audit.Received(1).RecordLlmCall(Arg.Is<LlmCallAudit>(a =>
+            a.Outcome == "timeout"
+            && a.ErrorCode == ApplicationErrorCodes.LlmTimeout));
+    }
+
+    [Fact]
     public async Task RetryThatSucceedsOnFinalAttemptDoesNotLogRetryExhaustion()
     {
         int callCount = 0;

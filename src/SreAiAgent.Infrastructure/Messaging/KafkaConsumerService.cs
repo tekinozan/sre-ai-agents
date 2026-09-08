@@ -153,7 +153,7 @@ internal abstract partial class KafkaConsumerService<TPayload> : BackgroundServi
         }
     }
 
-    private async Task ProcessAsync(
+    internal async Task ProcessAsync(
         IConsumer<string, byte[]> consumer,
         ConsumeResult<string, byte[]> result,
         CancellationToken cancellationToken)
@@ -203,6 +203,9 @@ internal abstract partial class KafkaConsumerService<TPayload> : BackgroundServi
         {
             // Already handled. Delivery is at-least-once, so this is an expected
             // outcome rather than an error worth logging at every occurrence.
+            // If an earlier delivery wrote the effect and opened an attempt row but
+            // failed to commit its offset, this duplicate delivery settles it before acknowledging.
+            await SettleSucceededAsync(scope.ServiceProvider, result, cancellationToken).ConfigureAwait(false);
             consumer.Commit(result);
             return;
         }
@@ -216,21 +219,10 @@ internal abstract partial class KafkaConsumerService<TPayload> : BackgroundServi
             // crash in between a redelivery rather than a lost message.
             await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-            // Settle any prior failure attempts for this message before committing the offset.
-            // If the process crashes between settlement and commit, the message is redelivered;
-            // if it crashes between commit and settlement, the attempt row remains open until its
-            // retention horizon, which is harmless.
-            IDeliveryAttemptStore attempts = scope.ServiceProvider.GetRequiredService<IDeliveryAttemptStore>();
-            await attempts
-                .SettleAsync(
-                    result.Topic,
-                    result.Partition.Value,
-                    result.Offset.Value,
-                    ConsumerName,
-                    SettlementKind.Succeeded,
-                    cancellationToken)
-                .ConfigureAwait(false);
-
+            // Settle any prior failure attempts before committing the offset.
+            // If committing the offset fails, the broker redelivers the message;
+            // redelivery is recognized as an inbox duplicate and settles the attempt before acknowledging.
+            await SettleSucceededAsync(scope.ServiceProvider, result, cancellationToken).ConfigureAwait(false);
             consumer.Commit(result);
         }
         catch (DbUpdateException exception) when (IsDuplicateDelivery(exception))
@@ -239,12 +231,30 @@ internal abstract partial class KafkaConsumerService<TPayload> : BackgroundServi
             // working. The primary key, not the earlier read, is what decides;
             // the effect rolled back with the failed transaction, so acknowledging
             // here discards a duplicate rather than losing work.
+            // Settle from a fresh scope because the handler's DbContext has a failed save.
+            using IServiceScope settlementScope = _scopeFactory.CreateScope();
+            await SettleSucceededAsync(settlementScope.ServiceProvider, result, cancellationToken).ConfigureAwait(false);
             consumer.Commit(result);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             await HandleFailureAsync(consumer, result, envelope, exception, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private Task SettleSucceededAsync(
+        IServiceProvider services,
+        ConsumeResult<string, byte[]> result,
+        CancellationToken cancellationToken)
+    {
+        IDeliveryAttemptStore attempts = services.GetRequiredService<IDeliveryAttemptStore>();
+        return attempts.SettleAsync(
+            result.Topic,
+            result.Partition.Value,
+            result.Offset.Value,
+            ConsumerName,
+            SettlementKind.Succeeded,
+            cancellationToken);
     }
 
     /// <summary>

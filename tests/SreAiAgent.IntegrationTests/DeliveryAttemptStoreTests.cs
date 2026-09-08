@@ -97,4 +97,94 @@ public sealed class DeliveryAttemptStoreTests(PostgresFixture postgres)
             entity.SettlementKind.ShouldBe("dead_letter");
         }
     }
+
+    [Fact]
+    public async Task RecordFailureAsyncWithMalformedLongEventTypePersistsSafelyThroughCeiling()
+    {
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        long offset = Random.Shared.NextInt64(1, 1_000_000_000);
+        Guid eventId = Guid.CreateVersion7();
+
+        // An untrusted eventType with >128 characters (200 characters)
+        string longMalformedEventType = "custom.monitoring.system.alert.eventType." + new string('z', 160);
+        const int retryCeiling = 5;
+
+        for (int attempt = 1; attempt <= retryCeiling; attempt++)
+        {
+            await using SreDbContext context = postgres.CreateContext();
+            DeliveryAttemptStore store = new(context, TimeProvider.System);
+
+            int count = await store.RecordFailureAsync(
+                Topic,
+                Partition,
+                offset,
+                ConsumerName,
+                eventId,
+                longMalformedEventType,
+                $"Failure detail for attempt {attempt}",
+                ct);
+
+            count.ShouldBe(attempt);
+        }
+
+        await using (SreDbContext verifyContext = postgres.CreateContext())
+        {
+            ConsumerDeliveryAttemptEntity? entity = await verifyContext.ConsumerDeliveryAttempts
+                .FirstOrDefaultAsync(a => a.SourceTopic == Topic
+                    && a.SourcePartition == Partition
+                    && a.SourceOffset == offset
+                    && a.ConsumerName == ConsumerName, ct);
+
+            entity.ShouldNotBeNull();
+            entity.AttemptCount.ShouldBe(retryCeiling);
+            entity.EventType.ShouldNotBeNull();
+            entity.EventType.Length.ShouldBe(128);
+            entity.EventType.ShouldBe(longMalformedEventType[..128]);
+            entity.SettledAt.ShouldBeNull();
+            entity.SettlementKind.ShouldBeNull();
+        }
+    }
+
+    [Fact]
+    public async Task RecordFailureAsyncWithUnicodeSurrogatesExceedingLimitDoesNotThrowAndBoundsCorrectly()
+    {
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        long offset = Random.Shared.NextInt64(1, 1_000_000_000);
+        Guid eventId = Guid.CreateVersion7();
+
+        // 140 emoji characters (each is a surrogate pair of 2 chars, so 280 C# chars, 140 runes)
+        string unicodeLongEventType = string.Concat(Enumerable.Repeat("🔥", 140));
+
+        await using (SreDbContext context = postgres.CreateContext())
+        {
+            DeliveryAttemptStore store = new(context, TimeProvider.System);
+
+            int count = await store.RecordFailureAsync(
+                Topic,
+                Partition,
+                offset,
+                ConsumerName,
+                eventId,
+                unicodeLongEventType,
+                "Unicode failure message",
+                ct);
+
+            count.ShouldBe(1);
+        }
+
+        await using (SreDbContext verifyContext = postgres.CreateContext())
+        {
+            ConsumerDeliveryAttemptEntity? entity = await verifyContext.ConsumerDeliveryAttempts
+                .FirstOrDefaultAsync(a => a.SourceTopic == Topic
+                    && a.SourcePartition == Partition
+                    && a.SourceOffset == offset
+                    && a.ConsumerName == ConsumerName, ct);
+
+            entity.ShouldNotBeNull();
+            entity.AttemptCount.ShouldBe(1);
+            entity.EventType.ShouldNotBeNull();
+            // 128 runes of 2 chars each = 256 C# chars, but exactly 128 Unicode code points
+            entity.EventType.EnumerateRunes().Count().ShouldBe(128);
+        }
+    }
 }

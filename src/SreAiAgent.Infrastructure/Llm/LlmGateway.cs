@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Polly.Timeout;
 using SreAiAgent.Application.Abstractions.Llm;
 using SreAiAgent.Application.Diagnostics;
 using SreAiAgent.Application.Errors;
@@ -63,7 +64,7 @@ internal sealed partial class LlmGateway : ILlmGateway
         Result<JsonElement> schema = _validator.ResolveSchema(request.ResponseSchemaName);
         if (schema.IsFailure)
         {
-            return Fail(request, activity, Elapsed(startTimestamp), schema.Error, Accounting.Empty, "failed");
+            return Fail(request, activity, Elapsed(startTimestamp), schema.Error, Accounting.Empty);
         }
 
         Result<IProviderChatClient> resolved = await _resolver
@@ -71,7 +72,7 @@ internal sealed partial class LlmGateway : ILlmGateway
             .ConfigureAwait(false);
         if (resolved.IsFailure)
         {
-            return Fail(request, activity, Elapsed(startTimestamp), resolved.Error, Accounting.Empty, "failed");
+            return Fail(request, activity, Elapsed(startTimestamp), resolved.Error, Accounting.Empty);
         }
 
         int? seed = null;
@@ -108,8 +109,7 @@ internal sealed partial class LlmGateway : ILlmGateway
                         activity,
                         Elapsed(startTimestamp),
                         response.Error,
-                        Accounting.Empty,
-                        "failed")
+                        Accounting.Empty)
                     : Interpret(request, response.Value, Elapsed(startTimestamp), activity);
 
                 // One retry budget: transport/HTTP status retries are handled by the
@@ -138,8 +138,17 @@ internal sealed partial class LlmGateway : ILlmGateway
                     Error.Transient(
                         ApplicationErrorCodes.LlmTimeout,
                         $"Model call exceeded its {request.Timeout.TotalSeconds.ToString("0.#", CultureInfo.InvariantCulture)}s timeout."),
-                    Accounting.Empty,
-                    "timeout");
+                    Accounting.Empty);
+            }
+            catch (TimeoutRejectedException exception)
+            {
+                LogProviderFailure(_logger, request.Candidate.AdapterKind.ToString(), request.Metadata.AgentName, exception);
+                return Fail(
+                    request,
+                    activity,
+                    Elapsed(startTimestamp),
+                    Error.Transient(ApplicationErrorCodes.LlmTimeout, "The model provider request timed out."),
+                    Accounting.Empty);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
@@ -149,8 +158,7 @@ internal sealed partial class LlmGateway : ILlmGateway
                     activity,
                     Elapsed(startTimestamp),
                     Error.Transient(ApplicationErrorCodes.LlmProviderError, "The model provider returned an error."),
-                    Accounting.Empty,
-                    "failed");
+                    Accounting.Empty);
             }
         }
 
@@ -160,8 +168,7 @@ internal sealed partial class LlmGateway : ILlmGateway
             activity,
             Elapsed(startTimestamp),
             Error.Transient(ApplicationErrorCodes.LlmProviderError, "The model provider returned an error."),
-            Accounting.Empty,
-            "failed");
+            Accounting.Empty);
     }
 
     private Result<LlmResult<T>> Interpret<T>(
@@ -185,14 +192,14 @@ internal sealed partial class LlmGateway : ILlmGateway
         {
             return Fail(request, activity, latency, Error.Transient(
                 ApplicationErrorCodes.LlmStructuredOutputInvalid,
-                "The model response was truncated by the output token limit."), accounting, "truncated");
+                "The model response was truncated by the output token limit."), accounting);
         }
 
         if (string.IsNullOrWhiteSpace(response.Text))
         {
             return Fail(request, activity, latency, Error.Transient(
                 ApplicationErrorCodes.LlmStructuredOutputInvalid,
-                "The model returned no content."), accounting, "empty");
+                "The model returned no content."), accounting);
         }
 
         JsonDocument document;
@@ -204,7 +211,7 @@ internal sealed partial class LlmGateway : ILlmGateway
         {
             return Fail(request, activity, latency, Error.Transient(
                 ApplicationErrorCodes.LlmStructuredOutputInvalid,
-                "The model response was not valid JSON."), accounting, "invalid_json");
+                "The model response was not valid JSON."), accounting);
         }
 
         using (document)
@@ -213,7 +220,7 @@ internal sealed partial class LlmGateway : ILlmGateway
             if (validation.IsFailure)
             {
                 LogSchemaRejected(_logger, request.ResponseSchemaName, request.Metadata.AgentName, validation.Error.Message);
-                return Fail(request, activity, latency, validation.Error, accounting, "schema_invalid");
+                return Fail(request, activity, latency, validation.Error, accounting);
             }
 
             if (LlmJsonContext.Default.GetTypeInfo(typeof(T)) is not JsonTypeInfo<T> typeInfo)
@@ -221,8 +228,7 @@ internal sealed partial class LlmGateway : ILlmGateway
                 return Fail(request, activity, latency, Error.Permanent(
                     ApplicationErrorCodes.ConfigInvalid,
                     $"No serialization metadata is generated for '{typeof(T).Name}'. Add it to LlmJsonContext."),
-                    accounting,
-                    "failed");
+                    accounting);
             }
 
             T? value;
@@ -234,14 +240,14 @@ internal sealed partial class LlmGateway : ILlmGateway
             {
                 return Fail(request, activity, latency, Error.Transient(
                     ApplicationErrorCodes.LlmStructuredOutputInvalid,
-                    "The model response could not be bound to its contract."), accounting, "schema_invalid");
+                    "The model response could not be bound to its contract."), accounting);
             }
 
             if (value is null)
             {
                 return Fail(request, activity, latency, Error.Transient(
                     ApplicationErrorCodes.LlmStructuredOutputInvalid,
-                    "The model response bound to null."), accounting, "schema_invalid");
+                    "The model response bound to null."), accounting);
             }
 
             _metrics.LlmCall(
@@ -272,12 +278,12 @@ internal sealed partial class LlmGateway : ILlmGateway
         Activity? activity,
         TimeSpan latency,
         Error error,
-        Accounting accounting,
-        string outcome)
+        Accounting accounting)
         where T : class
     {
+        string outcome = ClassifyOutcome(error.Code);
         activity
-            .SetSafeTag(TraceAttributes.ResultStatus, "failed")
+            .SetSafeTag(TraceAttributes.ResultStatus, outcome)
             .SetSafeTag(TraceAttributes.ErrorCode, error.Code.Value);
         activity?.SetStatus(ActivityStatusCode.Error);
         _metrics.LlmCall(
@@ -288,7 +294,7 @@ internal sealed partial class LlmGateway : ILlmGateway
             accounting.InputTokens,
             accounting.OutputTokens,
             accounting.EstimatedCost);
-        Audit(request, "failed", error, accounting, latency);
+        Audit(request, outcome, error, accounting, latency);
         return Result<LlmResult<T>>.Failure(error);
     }
 
@@ -368,4 +374,7 @@ internal sealed partial class LlmGateway : ILlmGateway
 
     private static bool IsSemanticRetryable(ErrorCode code)
         => code == ApplicationErrorCodes.LlmStructuredOutputInvalid;
+
+    private static string ClassifyOutcome(ErrorCode code)
+        => code == ApplicationErrorCodes.LlmTimeout ? "timeout" : "failed";
 }
