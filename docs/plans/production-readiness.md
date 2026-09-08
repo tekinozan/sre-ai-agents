@@ -180,7 +180,7 @@ They establish host observability and operational lifecycle boundaries. Health c
 ### Open questions and notes
 - **EventId 7401 collision:** Resolved. `AlertReceivedConsumer.LogRejected` already owns EventId 7401; `RetentionService` uses EventId 7501 for its sweep summary logger and 7502 for sweep failures.
 - **Temporal `RpcException` namespace:** Confirmed on disk in Temporalio 1.18.0 assembly as `Temporalio.Exceptions.RpcException`. Caught specifically by `TemporalHealthCheck`.
-- **CNI probe traffic:** Live CNI validation remains outstanding on a real cluster. The probe source has been made configurable in Helm values via `probeSourceCidrs` (empty by default, preserving default-deny, but allowing node CIDRs to be added as additional `from` entries for CNIs that enforce node source addresses).
+- **CNI probe traffic:** Live CNI validation remains outstanding on a real cluster. Worker NetworkPolicy ingress currently permits the `monitoring` namespace only. Target-CNI kubelet source behavior remains an environment acceptance check; if the target CNI enforces node source addresses, a future explicit CIDR rule and configuration value must be added and validated without weakening default-deny.
 ---
 
 ## Phase 4 — Outbound resilience and a production configuration that boots

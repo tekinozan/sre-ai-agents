@@ -1,5 +1,7 @@
 using System.Net.Http.Headers;
 using Microsoft.Extensions.Hosting;
+using Polly.CircuitBreaker;
+using Polly.Timeout;
 using SreAiAgent.Application.Abstractions.Llm;
 using SreAiAgent.Application.Errors;
 using SreAiAgent.Domain.ModelProviders;
@@ -102,6 +104,18 @@ internal sealed class ProviderRevisionVerifier(
             return Result<ProviderVerificationProbe>.Failure(Error.Transient(
                 ApplicationErrorCodes.LlmUnavailable,
                 "The model provider is unavailable."));
+        }
+        catch (BrokenCircuitException)
+        {
+            return Result<ProviderVerificationProbe>.Failure(Error.Transient(
+                ApplicationErrorCodes.LlmUnavailable,
+                "The model provider is unavailable."));
+        }
+        catch (TimeoutRejectedException)
+        {
+            return Result<ProviderVerificationProbe>.Failure(Error.Transient(
+                ApplicationErrorCodes.LlmTimeout,
+                "The model provider request timed out."));
         }
     }
 }

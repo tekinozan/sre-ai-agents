@@ -3,6 +3,7 @@ using System.Diagnostics.Metrics;
 using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -175,6 +176,10 @@ public sealed class ProviderResilienceTests
             RequestTimeoutSeconds = requestTimeoutSeconds,
             MaxRetries = 2,
         }));
+        IHostEnvironment environment = Substitute.For<IHostEnvironment>();
+        environment.EnvironmentName.Returns(Environments.Development);
+        services.AddSingleton(environment);
+        services.AddSingleton<ICredentialResolver>(new StubCredentialResolver());
 
         services.AddSreLlm();
 
@@ -670,6 +675,98 @@ public sealed class ProviderResilienceTests
         audit.Received(1).RecordLlmCall(Arg.Is<LlmCallAudit>(a =>
             a.Outcome == "timeout"
             && a.ErrorCode == ApplicationErrorCodes.LlmTimeout));
+    }
+
+    [Fact]
+    public async Task ProviderRevisionVerifierTimeoutSurfacesLlmTimeout()
+    {
+        SlowHttpMessageHandler stub = new(
+            TimeSpan.FromMilliseconds(500),
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"data\":[]}", System.Text.Encoding.UTF8, "application/json"),
+            });
+
+        await using ServiceProvider provider = BuildServiceProvider(stub, configureResilience: options =>
+        {
+            options.Retry.ShouldHandle = static _ => ValueTask.FromResult(false);
+            options.AttemptTimeout.Timeout = TimeSpan.FromMilliseconds(100);
+            options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(5);
+            options.CircuitBreaker.SamplingDuration = TimeSpan.FromMilliseconds(500);
+        });
+
+        ProviderRevisionVerifier verifier = provider.GetRequiredService<ProviderRevisionVerifier>();
+
+        Result<ProviderVerificationProbe> result = await verifier.VerifyAsync(
+            CreateRevision(), TestContext.Current.CancellationToken);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ToString().ShouldBe(ApplicationErrorCodes.LlmTimeout.ToString());
+        result.Error.Message.ShouldBe("The model provider request timed out.");
+    }
+
+    [Fact]
+    public async Task ProviderRevisionVerifierOpenCircuitSurfacesLlmUnavailable()
+    {
+        int callCount = 0;
+        StubHttpMessageHandler stub = new(request =>
+        {
+            callCount++;
+            return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+        });
+
+        await using ServiceProvider provider = BuildServiceProvider(stub, configureResilience: options =>
+        {
+            options.Retry.ShouldHandle = static _ => ValueTask.FromResult(false);
+            options.AttemptTimeout.Timeout = TimeSpan.FromMilliseconds(200);
+            options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(5);
+            options.CircuitBreaker.SamplingDuration = TimeSpan.FromMilliseconds(500);
+            options.CircuitBreaker.MinimumThroughput = 2;
+            options.CircuitBreaker.FailureRatio = 0.5;
+            options.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(10);
+        });
+
+        ProviderRevisionVerifier verifier = provider.GetRequiredService<ProviderRevisionVerifier>();
+
+        Result<ProviderVerificationProbe> probe1 = await verifier.VerifyAsync(CreateRevision(), TestContext.Current.CancellationToken);
+        probe1.IsFailure.ShouldBeTrue();
+        callCount.ShouldBe(1);
+
+        Result<ProviderVerificationProbe> probe2 = await verifier.VerifyAsync(CreateRevision(), TestContext.Current.CancellationToken);
+        probe2.IsFailure.ShouldBeTrue();
+        callCount.ShouldBe(2);
+
+        Result<ProviderVerificationProbe> probe3 = await verifier.VerifyAsync(CreateRevision(), TestContext.Current.CancellationToken);
+        probe3.IsFailure.ShouldBeTrue();
+        probe3.Error.Code.ToString().ShouldBe(ApplicationErrorCodes.LlmUnavailable.ToString());
+        probe3.Error.Message.ShouldBe("The model provider is unavailable.");
+        callCount.ShouldBe(2, "Open circuit must reject the probe without sending an HTTP request.");
+    }
+
+    [Fact]
+    public async Task ProviderRevisionVerifierPreservesCallerCancellation()
+    {
+        SlowHttpMessageHandler stub = new(
+            TimeSpan.FromSeconds(2),
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"data\":[]}", System.Text.Encoding.UTF8, "application/json"),
+            });
+
+        await using ServiceProvider provider = BuildServiceProvider(stub, configureResilience: options =>
+        {
+            options.Retry.ShouldHandle = static _ => ValueTask.FromResult(false);
+            options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(10);
+            options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(10);
+            options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(20);
+        });
+
+        ProviderRevisionVerifier verifier = provider.GetRequiredService<ProviderRevisionVerifier>();
+
+        using CancellationTokenSource cts = new(TimeSpan.FromMilliseconds(100));
+
+        Func<Task> act = async () => await verifier.VerifyAsync(CreateRevision(), cts.Token);
+        await act.ShouldThrowAsync<OperationCanceledException>();
     }
 
     [Fact]
