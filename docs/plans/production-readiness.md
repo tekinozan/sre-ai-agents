@@ -1,9 +1,9 @@
 # Production readiness execution plan
 
-> **Status:** Phases 1–4 complete; Phase 5 pending.
+> **Status:** Phases 1–4 complete; Phase 5 and the local deployment follow-up are in progress.
 > **Source of truth:** `PRODUCTION_READINESS_PLAN.md` (root) holds the detailed per-step specifications, code templates, and context.
 > **Scope:** This document governs execution phasing, ordering dependencies, affected files, acceptance criteria, open questions, and completion tracking.
-> **Last updated:** 2026-09-08.
+> **Last updated:** 2026-09-09.
 
 ## Status
 
@@ -14,6 +14,7 @@
 | [Phase 3 — Operational surface: retention, health, probes](#phase-3--operational-surface-retention-health-probes) | Steps 7, 8, 9 | Complete |
 | [Phase 4 — Outbound resilience and a production configuration that boots](#phase-4--outbound-resilience-and-a-production-configuration-that-boots) | Steps 10, 11 | Complete |
 | [Phase 5 — Proof and operations](#phase-5--proof-and-operations) | Steps 12, 13, 14 | Not started |
+| [Deployment follow-up — local Compose PostgreSQL consolidation](#deployment-follow-up--local-compose-postgresql-consolidation) | Local stack reliability follow-up | In progress |
 
 ---
 
@@ -24,6 +25,20 @@
 3. **Health checks before manifests:** The shared health checks and worker HTTP listeners in step 8 (Phase 3) must compile and register before the Kubernetes, Helm, and Compose probe additions in step 9 are applied.
 4. **Replay fixture requires a running stack:** The Phase 5 (step 12) workflow history fixture (`investigation-history.json`) cannot be hand-authored; it must be recorded from a running Compose stack driving an alert to completion.
 5. **Independent build gates:** Every phase must independently leave `bash eng/ci.sh` green with zero warnings and zero regressions on the 371 baseline tests.
+
+---
+
+## Deployment follow-up — local Compose PostgreSQL consolidation
+
+> **Status (2026-09-09):** In progress. Before Compose edits, preserve existing work and replace the local multi-PostgreSQL topology with one PostgreSQL 17 service and the retained `postgres-data` volume. Docker Desktop was unavailable at resume; recheck resources before validation.
+
+### Checklist
+
+1. Add safe fresh-volume bootstrap and idempotent additive legacy-volume provisioning for `sre`, `temporal`, and `temporal_visibility`; never drop databases/volumes or reset, demote, or reassign existing roles.
+2. Configure loopback-only local port publishing with documented overrides, TCP PostgreSQL health checks, Temporal `SKIP_DB_CREATE=true` after provisioning, and separate local business/Temporal owners.
+3. Update Compose documentation, README, and plans index, including production external credential separation and fake/scripted local defaults.
+4. Verify Compose configuration; fresh and repeated provisioning; an isolated additive legacy fixture; and an isolated alert-to-report stack run after the shared DatabaseMigrator image is stable. Preserve its volume and stop only its resources.
+
 
 ---
 
