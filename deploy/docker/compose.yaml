@@ -17,7 +17,7 @@ x-platform-image: &platform-image
 x-platform-env: &platform-env
   DOTNET_ENVIRONMENT: Development
   ASPNETCORE_ENVIRONMENT: Development
-  Database__ConnectionString: Host=postgres;Database=sre;Username=sre;Password=sre
+  Database__ConnectionString: Host=postgres;Database=sre;Username=${POSTGRES_BUSINESS_USER:-businessowner};Password=${POSTGRES_BUSINESS_PASSWORD:-businessowner}
   Kafka__BootstrapServers: redpanda:9092
   Registries__ConfigurationRoot: /app/config
   Registries__PromptRoot: /app/prompts
@@ -43,17 +43,39 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: sre
-      POSTGRES_PASSWORD: sre
-      POSTGRES_DB: sre
-    ports: ["55432:5432"]
+      # This administrator only bootstraps a fresh volume. Runtime owners are
+      # created by postgres-provision and existing roles are never modified.
+      POSTGRES_USER: ${POSTGRES_BOOTSTRAP_USER:-sre_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_BOOTSTRAP_PASSWORD:-sre_admin}
+      POSTGRES_DB: postgres
+    ports: ["${SRE_BIND_ADDRESS:-127.0.0.1}:${SRE_POSTGRES_PORT:-55432}:5432"]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sre -d sre"]
+      # TCP avoids a false healthy signal while local-socket init still runs.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -d postgres"]
       interval: 5s
       timeout: 3s
       retries: 20
     volumes:
       - postgres-data:/var/lib/postgresql/data
+
+  # The image only runs init hooks for a new volume. This explicit job also
+  # provisions retained legacy volumes additively, without resetting roles.
+  postgres-provision:
+    image: postgres:17-alpine
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      POSTGRES_BOOTSTRAP_USER: ${POSTGRES_BOOTSTRAP_USER:-sre_admin}
+      POSTGRES_BOOTSTRAP_PASSWORD: ${POSTGRES_BOOTSTRAP_PASSWORD:-sre_admin}
+      POSTGRES_LEGACY_ADMIN_USER: ${POSTGRES_LEGACY_ADMIN_USER:-sre}
+      POSTGRES_LEGACY_ADMIN_PASSWORD: ${POSTGRES_LEGACY_ADMIN_PASSWORD:-sre}
+      POSTGRES_BUSINESS_USER: ${POSTGRES_BUSINESS_USER:-businessowner}
+      POSTGRES_BUSINESS_PASSWORD: ${POSTGRES_BUSINESS_PASSWORD:-businessowner}
+      POSTGRES_TEMPORAL_USER: ${POSTGRES_TEMPORAL_USER:-temporal}
+      POSTGRES_TEMPORAL_PASSWORD: ${POSTGRES_TEMPORAL_PASSWORD:-temporal}
+    entrypoint: ["/bin/sh", "/usr/local/bin/provision-postgres.sh"]
+    volumes:
+      - ./provision-postgres.sh:/usr/local/bin/provision-postgres.sh:ro
 
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v24.2.7
@@ -65,8 +87,8 @@ services:
       - --node-id=0
       - --check=false
       - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
-      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
-    ports: ["19092:19092"]
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:${SRE_KAFKA_PORT:-19092}
+    ports: ["${SRE_BIND_ADDRESS:-127.0.0.1}:${SRE_KAFKA_PORT:-19092}:19092"]
     healthcheck:
       test: ["CMD-SHELL", "rpk cluster info -X brokers=localhost:9092 >/dev/null 2>&1"]
       interval: 5s
@@ -91,20 +113,8 @@ services:
         sre.incident.completed.v1
         sre.remediation.requested.v1
         sre.remediation.completed.v1
-        sre.deadletter.v1
-    restart: on-failure
-
-  temporal-postgres:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_USER: temporal
-      POSTGRES_PASSWORD: temporal
-      POSTGRES_DB: temporal
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U temporal"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
+        sre.deadletter.v1 || true
+    restart: "no"
 
   # The workflow engine keeps its own store, separate from the business one
   # (ARCHITECTURE.md 9.2). Business state has to be readable without replaying a
@@ -112,14 +122,19 @@ services:
   temporal:
     image: temporalio/auto-setup:1.25.2
     depends_on:
-      temporal-postgres: {condition: service_healthy}
+      postgres-provision: {condition: service_completed_successfully}
     environment:
       DB: postgres12
       DB_PORT: 5432
-      POSTGRES_USER: temporal
-      POSTGRES_PWD: temporal
-      POSTGRES_SEEDS: temporal-postgres
-    ports: ["7233:7233"]
+      POSTGRES_USER: ${POSTGRES_TEMPORAL_USER:-temporal}
+      POSTGRES_PWD: ${POSTGRES_TEMPORAL_PASSWORD:-temporal}
+      POSTGRES_SEEDS: postgres
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+      # Database creation is safe and idempotent in postgres-provision; the
+      # official auto-setup image still applies Temporal's schema migrations.
+      SKIP_DB_CREATE: "true"
+    ports: ["${SRE_BIND_ADDRESS:-127.0.0.1}:${SRE_TEMPORAL_PORT:-7233}:7233"]
     healthcheck:
       test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "temporal:7233"]
       interval: 10s
@@ -131,15 +146,15 @@ services:
     depends_on: [temporal]
     environment:
       TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_CORS_ORIGINS: http://localhost:8088
-    ports: ["8088:8080"]
+      TEMPORAL_CORS_ORIGINS: http://localhost:${SRE_TEMPORAL_UI_PORT:-8088}
+    ports: ["${SRE_BIND_ADDRESS:-127.0.0.1}:${SRE_TEMPORAL_UI_PORT:-8088}:8080"]
 
   jaeger:
     image: jaegertracing/all-in-one:1.62.0
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
-      - "16686:16686"
+      - "${SRE_BIND_ADDRESS:-127.0.0.1}:${SRE_JAEGER_PORT:-16686}:16686"
 
   # The collector sits between the services and the backends so a host has one
   # export target rather than one per signal. Swapping Jaeger for something else
@@ -151,7 +166,22 @@ services:
     volumes:
       - ./otel-collector.yaml:/etc/otel/config.yaml:ro
     ports:
-      - "4317:4317"
+      - "${SRE_BIND_ADDRESS:-127.0.0.1}:${SRE_OTEL_PORT:-4317}:4317"
+
+  migrate:
+    <<: *platform-image
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        PROJECT: SreAiAgent.Api
+    depends_on:
+      postgres-provision: {condition: service_completed_successfully}
+    environment:
+      <<: *platform-env
+      Database__MigrateOnStartup: "false"
+    entrypoint: ["dotnet", "/app/migrator/SreAiAgent.DatabaseMigrator.dll"]
+    restart: on-failure
 
   api:
     <<: *platform-image
@@ -161,17 +191,17 @@ services:
       args:
         PROJECT: SreAiAgent.Api
     depends_on:
-      postgres: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
       redpanda: {condition: service_healthy}
       temporal: {condition: service_healthy}
     environment:
       <<: *platform-env
       Telemetry__ServiceName: sre-ai-api
       Security__AllowDevelopmentAuthentication: "true"
-      # One host owns the schema. Three racing for the migration lock during a
-      # rolling start is a deployment failure that looks like a flake.
-      Database__MigrateOnStartup: "true"
-    ports: ["8080:8080"]
+      # The one-shot migration job owns the schema. Runtime hosts must never
+      # race it during startup.
+      Database__MigrateOnStartup: "false"
+    ports: ["${SRE_BIND_ADDRESS:-127.0.0.1}:${SRE_API_PORT:-8080}:8080"]
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health/live >/dev/null"]
       interval: 10s

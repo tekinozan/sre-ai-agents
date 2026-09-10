@@ -1,0 +1,659 @@
+---
+# Source: sre-ai-agent/templates/namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sre-ai-agent
+  labels:
+    app.kubernetes.io/name: sre-ai-agent
+    app.kubernetes.io/part-of: sre-ai-agent
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+---
+# Source: sre-ai-agent/templates/networkpolicy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sre-ai-agent-default-deny
+  labels:
+    app.kubernetes.io/name: sre-ai-agent
+    app.kubernetes.io/part-of: sre-ai-agent
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# Source: sre-ai-agent/templates/networkpolicy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sre-ai-agent-api
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sre-ai-api
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: ingress-nginx}
+      ports: [{protocol: TCP, port: 8080}]
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: monitoring}
+      ports: [{protocol: TCP, port: 8080}]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock: {cidr: "10.0.0.0/8"}
+      ports:
+        - {protocol: TCP, port: 5432}
+        - {protocol: TCP, port: 9092}
+        - {protocol: TCP, port: 7233}
+        - {protocol: TCP, port: 4317}
+---
+# Source: sre-ai-agent/templates/networkpolicy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sre-ai-agent-alert-worker
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sre-ai-alert-worker
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: monitoring}
+      ports: [{protocol: TCP, port: 8081}]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock: {cidr: "10.0.0.0/8"}
+      ports:
+        - {protocol: TCP, port: 5432}
+        - {protocol: TCP, port: 9092}
+        - {protocol: TCP, port: 4317}
+---
+# Source: sre-ai-agent/templates/networkpolicy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sre-ai-agent-investigation-worker
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sre-ai-investigation-worker
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: monitoring}
+      ports: [{protocol: TCP, port: 8081}]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock: {cidr: "10.0.0.0/8"}
+      ports:
+        - {protocol: TCP, port: 5432}
+        - {protocol: TCP, port: 9092}
+        - {protocol: TCP, port: 7233}
+        - {protocol: TCP, port: 4317}
+        - {protocol: TCP, port: 9090}
+        - {protocol: TCP, port: 3100}
+    
+    - to:
+        - ipBlock: {cidr: "10.96.0.1/32"}
+      ports: [{protocol: TCP, port: 443}]
+---
+# Source: sre-ai-agent/templates/networkpolicy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sre-ai-agent-migrator
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sre-ai-migrator
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock: {cidr: "10.0.0.0/8"}
+      ports: [{protocol: TCP, port: 5432}]
+---
+# Source: sre-ai-agent/templates/api.yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: sre-ai-agent-api
+  labels:
+    app.kubernetes.io/name: sre-ai-api
+    app.kubernetes.io/part-of: sre-ai-agent
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sre-ai-api
+---
+# Source: sre-ai-agent/templates/workers.yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: sre-ai-agent-investigation-worker
+  labels:
+    app.kubernetes.io/name: sre-ai-investigation-worker
+    app.kubernetes.io/part-of: sre-ai-agent
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sre-ai-investigation-worker
+---
+# Source: sre-ai-agent/templates/serviceaccounts.yaml
+# The worker that queries the Kubernetes API is the only workload with a token.
+# Keeping each workload identity separate makes later permission changes narrow.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sre-ai-agent-api
+  labels:
+    app.kubernetes.io/name: sre-ai-api
+    app.kubernetes.io/part-of: sre-ai-agent
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: false
+---
+# Source: sre-ai-agent/templates/serviceaccounts.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sre-ai-agent-alert-worker
+  labels:
+    app.kubernetes.io/name: sre-ai-alert-worker
+    app.kubernetes.io/part-of: sre-ai-agent
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: false
+---
+# Source: sre-ai-agent/templates/serviceaccounts.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sre-ai-agent-investigation-worker
+  labels:
+    app.kubernetes.io/name: sre-ai-investigation-worker
+    app.kubernetes.io/part-of: sre-ai-agent
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+---
+# Source: sre-ai-agent/templates/config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sre-ai-agent
+  labels:
+    app.kubernetes.io/name: sre-ai-agent
+    app.kubernetes.io/part-of: sre-ai-agent
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+data:
+  Registries__ConfigurationRoot: /app/config
+  Registries__PromptRoot: /app/prompts
+  Registries__AgentRelease: "agents-2026.08.25.1"
+  Registries__PromptRelease: "sre-prompts-2026.08.25.1"
+  Registries__ModelRelease: "models-2026.08.25.1"
+  Registries__ToolRelease: "tools-2026.08.25.1"
+  Registries__PolicyRelease: "policies-2026.08.25.1"
+  Registries__FlagRelease: "flags-2026.08.25.1"
+
+  Llm__Provider: "scripted"
+  Llm__LogRenderedPrompts: "false"
+
+  Kafka__SecurityProtocol: "Plaintext"
+
+  Retention__Enabled: "true"
+
+  Observability__MetricsProvider: "fake"
+  Observability__LogProvider: "fake"
+  Observability__KubernetesProvider: "fake"
+
+  Telemetry__OtlpEndpoint: "http://otel-collector.observability:4317"
+  Telemetry__HttpSamplingRatio: "0.1"
+  Telemetry__EnablePrometheusEndpoint: "true"
+
+  Workflow__Engine: "temporal"
+  Workflow__TemporalHostPort: "temporal-frontend.temporal:7233"
+  Workflow__TemporalNamespace: "sre-ai-agent"
+  Workflow__TaskQueue: "sre-investigation"
+  Workflow__DeadlineSeconds: "600"
+  Database__MigrateOnStartup: "false"
+
+  Security__AllowDevelopmentAuthentication: "false"
+---
+# Source: sre-ai-agent/templates/serviceaccounts.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sre-ai-agent-observer
+  namespace: sre-ai-agent
+  labels:
+    app.kubernetes.io/name: sre-ai-observer
+    app.kubernetes.io/part-of: sre-ai-agent
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events", "services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+---
+# Source: sre-ai-agent/templates/serviceaccounts.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sre-ai-agent-observer
+  namespace: sre-ai-agent
+  labels:
+    app.kubernetes.io/name: sre-ai-observer
+    app.kubernetes.io/part-of: sre-ai-agent
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: sre-ai-agent-observer
+subjects:
+  - kind: ServiceAccount
+    name: sre-ai-agent-investigation-worker
+    namespace: sre-ai-agent
+---
+# Source: sre-ai-agent/templates/api.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: sre-ai-agent-api
+  labels:
+    app.kubernetes.io/name: sre-ai-api
+    app.kubernetes.io/part-of: sre-ai-agent
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    app.kubernetes.io/name: sre-ai-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# Source: sre-ai-agent/templates/api.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sre-ai-agent-api
+  labels:
+    app.kubernetes.io/name: sre-ai-api
+    app.kubernetes.io/part-of: sre-ai-agent
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sre-ai-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sre-ai-api
+        app.kubernetes.io/part-of: sre-ai-agent
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: Helm
+      annotations:
+        checksum/config: c624b9cf51eb31e512f9e14052835d7fe5e0771b9a9f658d94c9a1b9892f92bf
+    spec:
+      serviceAccountName: sre-ai-agent-api
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: "sre-ai-agent/api:1.0.0"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: sre-ai-agent
+            - secretRef:
+                name: sre-ai-agent-development
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Development"
+            - name: Telemetry__ServiceName
+              value: sre-ai-api
+            - name: Kafka__SaslUsername
+              valueFrom:
+                secretKeyRef:
+                  name: sre-ai-agent-development
+                  key: Kafka__SaslUsername
+                  optional: true
+            - name: Kafka__SaslPassword
+              valueFrom:
+                secretKeyRef:
+                  name: sre-ai-agent-development
+                  key: Kafka__SaslPassword
+                  optional: true
+            
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              memory: 512Mi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+          livenessProbe:
+            httpGet: {path: /health/live, port: http}
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: {path: /health/ready, port: http}
+            periodSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet: {path: /health/live, port: http}
+            periodSeconds: 5
+            failureThreshold: 30
+
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        
+      terminationGracePeriodSeconds: 60
+---
+# Source: sre-ai-agent/templates/workers.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sre-ai-agent-alert-worker
+  labels:
+    app.kubernetes.io/name: sre-ai-alert-worker
+    app.kubernetes.io/part-of: sre-ai-agent
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sre-ai-alert-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sre-ai-alert-worker
+        app.kubernetes.io/part-of: sre-ai-agent
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: Helm
+      annotations:
+        checksum/config: c624b9cf51eb31e512f9e14052835d7fe5e0771b9a9f658d94c9a1b9892f92bf
+    spec:
+      serviceAccountName: sre-ai-agent-alert-worker
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: alert-worker
+          image: "sre-ai-agent/alert-worker:1.0.0"
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: sre-ai-agent
+            - secretRef:
+                name: sre-ai-agent-development
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Development"
+            - name: Telemetry__ServiceName
+              value: sre-ai-alert-worker
+            - name: Kafka__ConsumerGroup
+              value: sre-ai-agent-alert-worker
+            - name: Workflow__Engine
+              value: inline
+            - name: Kafka__SaslUsername
+              valueFrom:
+                secretKeyRef:
+                  name: sre-ai-agent-development
+                  key: Kafka__SaslUsername
+                  optional: true
+            - name: Kafka__SaslPassword
+              valueFrom:
+                secretKeyRef:
+                  name: sre-ai-agent-development
+                  key: Kafka__SaslPassword
+                  optional: true
+            
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              memory: 512Mi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+          ports:
+            - name: health
+              containerPort: 8081
+          livenessProbe:
+            httpGet: {path: /health/live, port: health}
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: {path: /health/ready, port: health}
+            periodSeconds: 10
+            failureThreshold: 3
+          startupProbe:
+            httpGet: {path: /health/live, port: health}
+            periodSeconds: 5
+            failureThreshold: 30
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        
+      terminationGracePeriodSeconds: 60
+---
+# Source: sre-ai-agent/templates/workers.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sre-ai-agent-investigation-worker
+  labels:
+    app.kubernetes.io/name: sre-ai-investigation-worker
+    app.kubernetes.io/part-of: sre-ai-agent
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sre-ai-investigation-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sre-ai-investigation-worker
+        app.kubernetes.io/part-of: sre-ai-agent
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: Helm
+      annotations:
+        checksum/config: c624b9cf51eb31e512f9e14052835d7fe5e0771b9a9f658d94c9a1b9892f92bf
+    spec:
+      serviceAccountName: sre-ai-agent-investigation-worker
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: investigation-worker
+          image: "sre-ai-agent/investigation-worker:1.0.0"
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: sre-ai-agent
+            - secretRef:
+                name: sre-ai-agent-development
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Development"
+            - name: Telemetry__ServiceName
+              value: sre-ai-investigation-worker
+            - name: Kafka__ConsumerGroup
+              value: sre-ai-agent-investigation-worker
+            - name: Kafka__SaslUsername
+              valueFrom:
+                secretKeyRef:
+                  name: sre-ai-agent-development
+                  key: Kafka__SaslUsername
+                  optional: true
+            - name: Kafka__SaslPassword
+              valueFrom:
+                secretKeyRef:
+                  name: sre-ai-agent-development
+                  key: Kafka__SaslPassword
+                  optional: true
+            
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              cpu: 500m
+              memory: 512Mi
+          ports:
+            - name: health
+              containerPort: 8081
+          livenessProbe:
+            httpGet: {path: /health/live, port: health}
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: {path: /health/ready, port: health}
+            periodSeconds: 10
+            failureThreshold: 3
+          startupProbe:
+            httpGet: {path: /health/live, port: health}
+            periodSeconds: 5
+            failureThreshold: 30
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        
+      terminationGracePeriodSeconds: 120
+---
+# Source: sre-ai-agent/templates/api.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: sre-ai-agent-api
+  labels:
+    app.kubernetes.io/name: sre-ai-api
+    app.kubernetes.io/part-of: sre-ai-agent
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: sre-ai-agent-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+# Source: sre-ai-agent/templates/workers.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: sre-ai-agent-investigation-worker
+  labels:
+    app.kubernetes.io/name: sre-ai-investigation-worker
+    app.kubernetes.io/part-of: sre-ai-agent
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    sre-ai-agent.io/scaling-note: >-
+      CPU is a floor, not the right signal. An agent waiting on a model call is
+      idle by every CPU measure while the backlog grows; replace this with
+      sre_kafka_consumer_lag once a metrics adapter is installed.
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: sre-ai-agent-investigation-worker
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300

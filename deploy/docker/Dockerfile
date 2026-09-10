@@ -35,11 +35,17 @@ COPY src/ src/
 # Locked mode, exactly as CI runs it. An image built from a different dependency
 # graph than the one that was tested is not the artefact that was tested.
 RUN dotnet restore "src/${PROJECT}/${PROJECT}.csproj" --locked-mode
+RUN dotnet restore "src/SreAiAgent.DatabaseMigrator/SreAiAgent.DatabaseMigrator.csproj" --locked-mode
 
 RUN dotnet publish "src/${PROJECT}/${PROJECT}.csproj" \
         --no-restore \
         --configuration Release \
         --output /app
+
+RUN dotnet publish "src/SreAiAgent.DatabaseMigrator/SreAiAgent.DatabaseMigrator.csproj" \
+        --no-restore \
+        --configuration Release \
+        --output /migrator
 
 FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION} AS runtime
 ARG PROJECT
@@ -66,6 +72,7 @@ COPY prompts/ ./prompts/
 RUN apt-get update     && apt-get install --yes --no-install-recommends curl libgssapi-krb5-2     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app ./
+COPY --from=build /migrator ./migrator
 
 # The host is fixed at build time by a symlink rather than by an environment
 # variable, so a running container cannot be pointed at a different host by

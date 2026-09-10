@@ -13,19 +13,21 @@ configuration.
 ## Bring the stack up
 
 ```bash
-docker compose -f deploy/docker/compose.yaml up -d --build
+docker compose --project-name sre-e2e -f deploy/docker/compose.yaml up -d --build
 ```
 
-PostgreSQL 17, Redpanda, Temporal with its own store, the OpenTelemetry collector,
-Jaeger, the API and both workers. `Workflow__Engine` is `temporal`, so this
-exercises the durable path rather than the inline development executor.
+PostgreSQL 17, Redpanda, Temporal with its own logical store, the OpenTelemetry
+collector, Jaeger, a dedicated migration job, the API and both workers.
+`Workflow__Engine` is `temporal`, so this exercises the durable path rather
+than the inline development executor. The isolated project name keeps this
+verification's resources separate from any other local Compose work.
 
 The observability providers stay on the fakes here, deliberately: they produce
 one coherent incident, and the assertions below are stable because of it. To
 exercise the real Prometheus and Loki adapters instead, add the overlay:
 
 ```bash
-docker compose -f deploy/docker/compose.yaml \
+docker compose --project-name sre-e2e -f deploy/docker/compose.yaml \
                -f deploy/docker/compose.observability.yaml up -d --build
 ```
 
@@ -53,7 +55,58 @@ asks for it when an agent has no metrics tool and both shipped experts have one.
 | Metrics | http://localhost:8080/metrics |
 | Jaeger | http://localhost:16686 |
 | Temporal UI | http://localhost:8088 |
-| PostgreSQL | `localhost:55432`, `sre` / `sre` |
+| PostgreSQL | `127.0.0.1:55432`, `businessowner` / `businessowner` |
+
+## Verify PostgreSQL provisioning
+
+On a fresh volume, the provisioner creates all three databases. The business and
+Temporal owners are non-superusers; `sre_admin` is only the fresh-volume
+bootstrap administrator.
+
+```bash
+docker compose --project-name sre-e2e -f deploy/docker/compose.yaml exec postgres \
+  psql -U sre_admin -d postgres -c \
+  "SELECT datname, pg_get_userbyid(datdba) AS owner FROM pg_database WHERE datname IN ('sre', 'temporal', 'temporal_visibility') ORDER BY datname;"
+
+docker compose --project-name sre-e2e -f deploy/docker/compose.yaml exec postgres \
+  psql -U sre_admin -d postgres -c \
+  "SELECT rolname, rolsuper FROM pg_roles WHERE rolname IN ('businessowner', 'temporal') ORDER BY rolname;"
+
+docker compose --project-name sre-e2e -f deploy/docker/compose.yaml run --rm postgres-provision
+```
+
+The second provision run must report that the roles and databases already exist
+and leave credentials, attributes, and ownership unchanged.
+
+For a retained legacy volume, validate against a cloned volume first before
+touching primary volumes. Compose attaches `${project}_postgres-data`, so clone
+the source volume directly into `sre-legacy_postgres-data`. The command mounts
+the source read-only and refuses to overwrite an existing target:
+
+```bash
+docker volume create sre-legacy_postgres-data
+docker run --rm \
+  -v sre_agents_sre-postgres-data:/from:ro \
+  -v sre-legacy_postgres-data:/to \
+  alpine sh -c '
+    if [ -n "$(ls -A /to 2>/dev/null)" ]; then
+      echo "Target volume sre-legacy_postgres-data is already populated; aborting." >&2
+      exit 1
+    fi
+    cp -a /from/. /to/
+  '
+```
+
+Then set `POSTGRES_LEGACY_ADMIN_USER` and `POSTGRES_LEGACY_ADMIN_PASSWORD` to its
+current `sre` administrator before starting the stack. If its `sre` database remains
+owned by that role, also set `POSTGRES_BUSINESS_USER` and `POSTGRES_BUSINESS_PASSWORD`
+to the existing owner for that run. This is intentional: the provisioner is additive
+and will not transfer schema or database ownership.
+
+When running alongside another local Compose stack, override host ports to avoid
+port collisions: `SRE_API_PORT`, `SRE_POSTGRES_PORT`, `SRE_KAFKA_PORT`,
+`SRE_TEMPORAL_PORT`, `SRE_TEMPORAL_UI_PORT`, `SRE_JAEGER_PORT`, `SRE_OTEL_PORT`.
+Use `SRE_BIND_ADDRESS=0.0.0.0` only when an explicit non-loopback local binding is needed.
 
 ## Drive it
 
@@ -71,7 +124,7 @@ topic; the worker opens the incident, so there is no id to return yet. Find it i
 the database:
 
 ```bash
-docker compose -f deploy/docker/compose.yaml exec postgres   psql -U sre -d sre -c "SELECT id, status FROM incidents ORDER BY created_at DESC LIMIT 1;"
+docker compose --project-name sre-e2e -f deploy/docker/compose.yaml exec postgres   psql -U businessowner -d sre -c "SELECT id, status FROM incidents ORDER BY created_at DESC LIMIT 1;"
 ```
 
 The tenant must be `local`: development authentication issues that tenant and
@@ -114,9 +167,9 @@ added to the existing one. The deduplication window is measured from
 alert is still accepted, the work resumes, and exactly one report is produced.
 
 ```bash
-docker compose -f deploy/docker/compose.yaml stop investigation-worker
+docker compose --project-name sre-e2e -f deploy/docker/compose.yaml stop investigation-worker
 # send an alert
-docker compose -f deploy/docker/compose.yaml start investigation-worker
+docker compose --project-name sre-e2e -f deploy/docker/compose.yaml start investigation-worker
 ```
 
 **Outbox drains.** `SELECT count(*) FROM outbox_messages WHERE dispatched_at IS
@@ -134,14 +187,16 @@ workflow started, what the investigation did — and names the table or topic th
 proves each step ran. It also covers the specific failures this platform has
 actually produced.
 
-## Tear down
+## Stop the isolated stack
 
 ```bash
-docker compose -f deploy/docker/compose.yaml down -v
+docker compose --project-name sre-e2e -f deploy/docker/compose.yaml down
 ```
 
-`-v` drops the volumes. Leaving them keeps incidents from the last run, which
-makes the next deduplication check lie to you.
+This stops only the verification project and retains its named volume. The
+provisioner is deliberately safe to repeat against that volume. Do not use
+`down -v` for a retained or legacy database; remove a volume only through a
+separate, deliberate local-data disposal procedure.
 
 ## What this does not cover
 

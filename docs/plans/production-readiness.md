@@ -1,6 +1,6 @@
 # Production readiness execution plan
 
-> **Status:** Phases 1–4 complete; Phase 5 and the local deployment follow-up are in progress.
+> **Status:** Phases 1–4 and local deployment follow-up complete; Phase 5 not started.
 > **Source of truth:** `PRODUCTION_READINESS_PLAN.md` (root) holds the detailed per-step specifications, code templates, and context.
 > **Scope:** This document governs execution phasing, ordering dependencies, affected files, acceptance criteria, open questions, and completion tracking.
 > **Last updated:** 2026-09-09.
@@ -14,7 +14,7 @@
 | [Phase 3 — Operational surface: retention, health, probes](#phase-3--operational-surface-retention-health-probes) | Steps 7, 8, 9 | Complete |
 | [Phase 4 — Outbound resilience and a production configuration that boots](#phase-4--outbound-resilience-and-a-production-configuration-that-boots) | Steps 10, 11 | Complete |
 | [Phase 5 — Proof and operations](#phase-5--proof-and-operations) | Steps 12, 13, 14 | Not started |
-| [Deployment follow-up — local Compose PostgreSQL consolidation](#deployment-follow-up--local-compose-postgresql-consolidation) | Local stack reliability follow-up | In progress |
+| [Deployment follow-up — local Compose PostgreSQL consolidation](#deployment-follow-up--local-compose-postgresql-consolidation) | Local stack reliability follow-up | Complete |
 
 ---
 
@@ -30,16 +30,44 @@
 
 ## Deployment follow-up — local Compose PostgreSQL consolidation
 
-> **Status (2026-09-09):** In progress. Before Compose edits, preserve existing work and replace the local multi-PostgreSQL topology with one PostgreSQL 17 service and the retained `postgres-data` volume. Docker Desktop was unavailable at resume; recheck resources before validation.
+> **Status (2026-09-09):** Complete. Local multi-PostgreSQL topology replaced with a single PostgreSQL 17 service, dedicated DatabaseMigrator, idempotent POSIX /bin/sh provisioning, parameterized host ports, and non-destructive volume migration. All scenarios verified in isolated Docker Compose projects with volumes preserved.
 
-### Checklist
+### Observed Verification Evidence
 
-1. Add safe fresh-volume bootstrap and idempotent additive legacy-volume provisioning for `sre`, `temporal`, and `temporal_visibility`; never drop databases/volumes or reset, demote, or reassign existing roles.
-2. Configure loopback-only local port publishing with documented overrides, TCP PostgreSQL health checks, Temporal `SKIP_DB_CREATE=true` after provisioning, and separate local business/Temporal owners.
-3. Update Compose documentation, README, and plans index, including production external credential separation and fake/scripted local defaults.
-4. Verify Compose configuration; fresh and repeated provisioning; an isolated additive legacy fixture; and an isolated alert-to-report stack run after the shared DatabaseMigrator image is stable. Preserve its volume and stop only its resources.
+1. **Fresh-install scenario (`sre-fresh`, ports 28080/25432/...):**
+   - Single PostgreSQL 17 instance hosts `sre` (owner `businessowner`), `temporal` (owner `temporal`), and `temporal_visibility` (owner `temporal`).
+   - `sre_admin` is bootstrap administrator (`rolsuper: true`); `businessowner` and `temporal` are non-superusers (`rolsuper: false`, `rolinherit: false`, `rolcreaterole: false`, `rolcreatedb: false`, `rolcanlogin: true`).
+   - `migrate` service applied all 4 migrations (`__migrations_history` verified) and exited with code 0 before `api` and workers started.
+   - Runtime hosts run with `Database__MigrateOnStartup=false`.
+   - Provisioning rerun idempotency proved zero drift across `pg_authid` password hashes, `pg_roles` flags, `pg_database` owners, migration count, and a data sentinel row.
+   - End-to-end alert `fresh-alert-1` accepted with `202 Accepted`, incident transitioned to `Resolved`, root cause report completed ("Latency rose alongside connection pool contention; the database layer is the leading candidate."), Temporal workflow `incident-01a086ba-201f-7c60-8955-a9982edc8e4e` reached `Completed`, outbox pending count was 0, worker restarts were 0, and `sre_trace_attribute_rejected_total` was 0.
 
+2. **Migration failure gate scenario (`sre-gate`, ports 38080/35432/...):**
+   - Temporary invalid migration credential override caused `migrate` service to fail immediately (`password authentication failed for user "invalid_user"`, exit code 1).
+   - `api` remained in `Created` state and never started, proving the deployment gate invariant in Compose.
+   - The Helm two-phase promotion gate is verified through fail-fast command chaining (`set -euo pipefail` with explicit `&&`) and static manifest rendering; no live Kubernetes release was executed.
+   - Stack cleanly stopped without `-v`; volume `sre-gate_postgres-data` retained.
 
+3. **Legacy transition scenario (`sre-clone`, ports 48080/45432/...):**
+   - Cloned source volume `sre_agents_sre-postgres-data` read-only into `sre-clone_postgres-data` with empty-target assertion.
+   - Target stack booted with legacy `sre` administrator; provisioning additively created `temporal` role and `temporal`/`temporal_visibility` databases while preserving existing `sre` database and ownership.
+   - Migration succeeded on the clone (exit 0).
+   - Source volume SHA256 checksums (1,337 files) verified byte-for-byte identical before and after.
+   - Stack cleanly stopped without `-v`; volumes `sre-clone_postgres-data` and `sre_agents_sre-postgres-data` retained.
+
+4. **Helm, raw manifests, and database bootstrap:**
+   - Zero `Secret` objects or `REPLACE_ME` tokens in chart or rendered output; external secrets contract enforced.
+   - `migration-job.yaml` runs under pre-existing default ServiceAccount (`automountServiceAccountToken: false`) with no dependency on chart-created SAs or ConfigMaps.
+   - NetworkPolicy egress verified: in production, `api`, `alert-worker`, and `investigation-worker` possess `0.0.0.0/0` TCP 443 provider egress, while `migrator` is strictly restricted to DNS and PostgreSQL. Base/development leaves provider egress empty for scripted isolation.
+   - Two-phase split-role bootstrap verified on PostgreSQL 17.10 (x86_64-pc-linux-musl) across two explicit connections with zero role-membership mutation:
+     * Existing table SELECT, INSERT, UPDATE, DELETE: PASS
+     * Existing identity/sequence-backed insert and sequence access: PASS
+     * Future table INSERT/SELECT and future sequence/identity after default privileges: PASS
+     * Rerun idempotency of both scripts without altering membership state or standing ADMIN OPTION: PASS
+     * Runtime denial of CREATE TABLE, CREATE SCHEMA, and SET ROLE migrator: PASS
+     * In-transaction failure rollback preserving state without membership leakage: PASS
+   - `eng/render-k8s.sh` and `eng/check-k8s-render.sh` completed with Docker container fallback (`alpine/helm:3.17.1`) and pass drift checks with exit 0.
+   - Live CNI, in-cluster Kubernetes, and FQDN egress gateway validation were NOT performed (no live cluster available in environment; documented as environment acceptance checks).
 ---
 
 ## Phase 1 — Tenant isolation on write paths

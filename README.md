@@ -40,6 +40,59 @@ assemblies.
 - .NET SDK 10.0.302 or a later 10.0.3xx feature band (pinned in `global.json`)
 - Docker with Linux containers, for the compose stack and the integration suite
 
+## Local Compose stack
+
+The local stack uses one PostgreSQL 17 service and its retained named
+`postgres-data` volume. Its `postgres-provision` job creates the logical
+`sre`, `temporal`, and `temporal_visibility` databases on a fresh volume.
+`businessowner` owns the business database and `temporal` owns both Temporal
+databases; `sre_admin` exists only to bootstrap a new local volume. The stack
+keeps its scripted model provider and fake observability adapters by default.
+
+All published ports bind to `127.0.0.1` by default. Set `SRE_BIND_ADDRESS=0.0.0.0`
+only when another machine must reach the stack. When running alongside another
+local stack, every published host port is overrideable to prevent collisions:
+`SRE_API_PORT` (8080), `SRE_POSTGRES_PORT` (55432), `SRE_KAFKA_PORT` (19092),
+`SRE_TEMPORAL_PORT` (7233), `SRE_TEMPORAL_UI_PORT` (8088), `SRE_JAEGER_PORT` (16686),
+`SRE_OTEL_PORT` (4317), and under the observability overlay `SRE_PUSHGATEWAY_PORT` (9091),
+`SRE_PROMETHEUS_PORT` (9090), and `SRE_LOKI_PORT` (3100).
+
+A retained volume from the older two-PostgreSQL layout is provisioned additively.
+To safely validate an existing legacy volume without risking local data, clone the
+source volume into the isolated project's exact named volume (`sre-legacy_postgres-data`).
+The command mounts the source read-only and refuses to overwrite an existing target:
+
+```bash
+docker volume create sre-legacy_postgres-data
+docker run --rm \
+  -v sre_agents_sre-postgres-data:/from:ro \
+  -v sre-legacy_postgres-data:/to \
+  alpine sh -c '
+    if [ -n "$(ls -A /to 2>/dev/null)" ]; then
+      echo "Target volume sre-legacy_postgres-data is already populated; aborting." >&2
+      exit 1
+    fi
+    cp -a /from/. /to/
+  '
+```
+
+Supply the legacy administrator explicitly, and keep the application on the
+existing business owner while it holds the legacy schema ownership:
+
+```powershell
+$env:POSTGRES_LEGACY_ADMIN_USER = "sre"
+$env:POSTGRES_LEGACY_ADMIN_PASSWORD = "<existing password>"
+$env:POSTGRES_BUSINESS_USER = "sre"
+$env:POSTGRES_BUSINESS_PASSWORD = "<existing password>"
+docker compose -p sre-legacy -f deploy/docker/compose.yaml up -d --build
+```
+The provisioner never drops a database or volume, resets a password, changes an
+existing role's attributes, or transfers database ownership. It creates only
+missing roles and databases. New local credentials are convenience defaults, not
+a production credential design: production uses externally managed, distinct
+migration and runtime credentials with reviewed ownership and grants, and runs
+Temporal without the local auto-setup bootstrap.
+
 ## Everyday commands
 
 ```bash

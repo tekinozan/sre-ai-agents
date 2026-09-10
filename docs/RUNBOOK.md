@@ -14,17 +14,19 @@ working down it narrows the problem.
 docker compose -f deploy/docker/compose.yaml up -d --build
 ```
 
-Brings up PostgreSQL, Redpanda, Temporal with its own store, the OpenTelemetry
-collector, Jaeger and all three hosts.
+Brings up PostgreSQL 17 (hosting `sre`, `temporal`, `temporal_visibility`), Redpanda,
+Temporal, the OpenTelemetry collector, Jaeger, DatabaseMigrator and all three application hosts.
 
 | What | Where |
 |---|---|
-| API | http://localhost:8080 |
+| API | http://localhost:8080 (override with `SRE_API_PORT`) |
 | Metrics | http://localhost:8080/metrics |
-| Jaeger | http://localhost:16686 |
-| Temporal UI | http://localhost:8088 |
-| PostgreSQL | `localhost:55432`, `sre` / `sre` |
+| Jaeger | http://localhost:16686 (override with `SRE_JAEGER_PORT`) |
+| Temporal UI | http://localhost:8088 (override with `SRE_TEMPORAL_UI_PORT`) |
+| PostgreSQL | `127.0.0.1:55432`, `businessowner` / `businessowner` (override with `SRE_POSTGRES_PORT`) |
 
+All published ports bind to `127.0.0.1` by default. Never tear down with `down -v` unless
+permanently discarding local data; `docker compose down` retains the database volume safely.
 Send an alert:
 
 ```bash
@@ -210,6 +212,13 @@ migration lock during a rolling update is a deployment failure that looks like a
 flake, so the migration is a separate step in the pipeline where the SQL can be
 reviewed before it runs.
 
+Before deploying migrations against a new production database, configure split
+runtime permissions using two explicit, single-authority bootstrap scripts:
+
+1. **Database owner / admin** (`deploy/helm/sre-ai-agent/database-role-bootstrap-admin.sql`) grants CONNECT on the database to `sre_runtime`.
+2. **Migration role** (`deploy/helm/sre-ai-agent/database-role-bootstrap.sql`) grants schema USAGE, table DML, and sequence access on existing objects, and sets ALTER DEFAULT PRIVILEGES for future migrations.
+
+Neither script mutates role memberships, preserving existing administrator privileges and ADMIN OPTION grants. Both run with `ON_ERROR_STOP` inside transactions for atomic rollback on failure.
 ### Draining a worker
 
 `SIGTERM`. The consumer stops taking new messages, finishes what it holds,

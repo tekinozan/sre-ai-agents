@@ -196,7 +196,7 @@ public static class DependencyInjection
         return services;
     }
 
-    private static void AddOptionsWithValidation<TOptions>(this IServiceCollection services, string sectionName)
+    internal static void AddOptionsWithValidation<TOptions>(this IServiceCollection services, string sectionName)
         where TOptions : class
         => services
             .AddOptions<TOptions>()

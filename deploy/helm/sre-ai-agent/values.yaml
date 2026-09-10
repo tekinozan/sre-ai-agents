@@ -9,9 +9,33 @@ image:
   tag: "1.0.0"
   pullPolicy: IfNotPresent
 
+# Chart defaults target a shared development namespace. Production overrides
+# this to Production while keeping development authentication disabled: shared
+# environments always exercise the real issuer rather than a local bypass.
+environment: Development
+
+namespace:
+  # Production namespaces are normally provisioned separately. The generated
+  # shared-development manifest opts in so it remains self-contained.
+  create: false
+
+app:
+  # The migration pipeline first renders only the ConfigMap, identities and Job
+  # with this false. It promotes the workloads only after that Job succeeds.
+  enabled: true
+
 # Referenced, never created by the chart. Section 13 keeps production secrets in
 # a managed store; the chart only names the Secret it reads.
 existingSecret: sre-ai-agent
+
+migration:
+  # An explicit, separately authorized Job. Application pods never migrate on
+  # startup, and this Job is not a Helm hook so it can rely on ordinary release
+  # resources being present.
+  enabled: false
+  secretName: ""
+  databaseConnectionStringKey: Database__ConnectionString
+  backoffLimit: 0
 
 releases:
   agent: agents-2026.08.25.1
@@ -83,6 +107,20 @@ kafka:
   caSecret: ""
   caSecretKey: ca.crt
 
+rbac:
+  # The namespace whose read-only Kubernetes resources the investigation worker
+  # may inspect. Empty means the Helm release namespace.
+  observedNamespace: ""
+
+networkPolicy:
+  enabled: true
+  # Replace with the CIDRs hosting this cluster's external PostgreSQL, Kafka,
+  # Temporal, telemetry and observability endpoints. Never widen to 0.0.0.0/0.
+  backendCidrs: ["10.0.0.0/8"]
+  kubernetesApiCidr: "10.96.0.1/32"
+  # Outbound CIDRs permitted for model provider HTTPS calls (port 443).
+  # Base/development defaults to empty since the scripted provider makes no network calls.
+  providerCidrs: []
 retention:
   enabled: true
 

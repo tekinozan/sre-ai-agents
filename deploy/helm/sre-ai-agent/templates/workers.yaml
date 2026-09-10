@@ -1,3 +1,4 @@
+{{- if .Values.app.enabled }}
 {{/*
 The two workers. Separate deployments because they fail differently: a webhook
 storm should not compete with an LLM fan-out for the same process
@@ -19,6 +20,7 @@ spec:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
     spec:
+      serviceAccountName: {{ include "sre.serviceAccountName" (dict "component" "alert-worker" "Release" .Release) }}
       securityContext: {{- include "sre.podSecurityContext" . | nindent 8 }}
       containers:
         - name: alert-worker
@@ -30,6 +32,8 @@ spec:
             - secretRef:
                 name: {{ .Values.existingSecret }}
           env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: {{ .Values.environment | quote }}
             - name: Telemetry__ServiceName
               value: sre-ai-alert-worker
             - name: Kafka__ConsumerGroup
@@ -85,6 +89,7 @@ spec:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
     spec:
+      serviceAccountName: {{ include "sre.serviceAccountName" (dict "component" "investigation-worker" "Release" .Release) }}
       securityContext: {{- include "sre.podSecurityContext" . | nindent 8 }}
       containers:
         - name: investigation-worker
@@ -96,6 +101,8 @@ spec:
             - secretRef:
                 name: {{ .Values.existingSecret }}
           env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: {{ .Values.environment | quote }}
             - name: Telemetry__ServiceName
               value: sre-ai-investigation-worker
             - name: Kafka__ConsumerGroup
@@ -173,4 +180,5 @@ spec:
       {{- /* Slow, because a pod removed mid-investigation forces Temporal to
              replay it elsewhere and pay for the model calls again. */}}
       stabilizationWindowSeconds: 300
+{{- end }}
 {{- end }}

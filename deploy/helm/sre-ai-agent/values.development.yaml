@@ -1,0 +1,22 @@
+# Shared development overlay. It intentionally keeps Development diagnostics but
+# never enables the local authentication handler: callers authenticate against
+# the issuer and audience supplied by the external development Secret.
+environment: Development
+existingSecret: sre-ai-agent-development
+
+observability:
+  metricsProvider: fake
+  logProvider: fake
+  kubernetesProvider: fake
+
+llm:
+  provider: scripted
+
+kafka:
+  securityProtocol: Plaintext
+  saslMechanism: ""
+
+migration:
+  secretName: sre-ai-agent-development-migration
+namespace:
+  create: true

@@ -97,3 +97,98 @@ neither this nor any Llm__Bootstrap__* ConfigMap key (see config.yaml).
 {{- end }}
 {{- end }}
 {{- end -}}
+
+{{- define "sre.serviceAccountName" -}}
+{{ .Release.Name }}-{{ .component }}
+{{- end -}}
+
+{{/* The migration job receives one explicitly named external Secret, rather
+than the application-wide secret bundle. */}}
+{{- define "sre.migrationSecretName" -}}
+{{ required "migration.secretName is required when migration.enabled=true" .Values.migration.secretName }}
+{{- end -}}
+
+{{- define "sre.dnsEgress" -}}
+- to:
+    - namespaceSelector:
+        matchLabels: {kubernetes.io/metadata.name: kube-system}
+  ports:
+    - {protocol: UDP, port: 53}
+    - {protocol: TCP, port: 53}
+{{- end -}}
+
+{{- define "sre.providerEgress" -}}
+{{- range .Values.networkPolicy.providerCidrs }}
+- to:
+    - ipBlock: {cidr: {{ . | quote }}}
+  ports:
+    - {protocol: TCP, port: 443}
+{{- end }}
+{{- end -}}
+
+{{- define "sre.apiEgress" -}}
+{{ include "sre.dnsEgress" . }}
+{{- range .Values.networkPolicy.backendCidrs }}
+- to:
+    - ipBlock: {cidr: {{ . | quote }}}
+  ports:
+    - {protocol: TCP, port: 5432}
+    - {protocol: TCP, port: 9092}
+    - {protocol: TCP, port: 7233}
+    - {protocol: TCP, port: 4317}
+{{- end }}
+{{ include "sre.providerEgress" . }}
+{{- end -}}
+
+{{- define "sre.alertWorkerEgress" -}}
+{{ include "sre.dnsEgress" . }}
+{{- range .Values.networkPolicy.backendCidrs }}
+- to:
+    - ipBlock: {cidr: {{ . | quote }}}
+  ports:
+    - {protocol: TCP, port: 5432}
+    - {protocol: TCP, port: 9092}
+    - {protocol: TCP, port: 4317}
+{{- end }}
+{{ include "sre.providerEgress" . }}
+{{- end -}}
+
+{{- define "sre.investigationWorkerEgress" -}}
+{{ include "sre.dnsEgress" . }}
+{{- range .Values.networkPolicy.backendCidrs }}
+- to:
+    - ipBlock: {cidr: {{ . | quote }}}
+  ports:
+    - {protocol: TCP, port: 5432}
+    - {protocol: TCP, port: 9092}
+    - {protocol: TCP, port: 7233}
+    - {protocol: TCP, port: 4317}
+    - {protocol: TCP, port: 9090}
+    - {protocol: TCP, port: 3100}
+{{- end }}
+{{ include "sre.providerEgress" . }}
+- to:
+    - ipBlock: {cidr: {{ .Values.networkPolicy.kubernetesApiCidr | quote }}}
+  ports: [{protocol: TCP, port: 443}]
+{{- end -}}
+
+{{- define "sre.migratorEgress" -}}
+{{ include "sre.dnsEgress" . }}
+{{- range .Values.networkPolicy.backendCidrs }}
+- to:
+    - ipBlock: {cidr: {{ . | quote }}}
+  ports: [{protocol: TCP, port: 5432}]
+{{- end }}
+{{- end -}}
+{{- define "sre.observedNamespace" -}}
+{{- if .Values.rbac.observedNamespace -}}
+{{- .Values.rbac.observedNamespace -}}
+{{- else if .Values.observability.namespaceByCluster -}}
+{{- range $cluster, $ns := .Values.observability.namespaceByCluster -}}
+{{- $ns -}}
+{{- break -}}
+{{- end -}}
+{{- else -}}
+{{- .Release.Namespace -}}
+{{- end -}}
+{{- end -}}

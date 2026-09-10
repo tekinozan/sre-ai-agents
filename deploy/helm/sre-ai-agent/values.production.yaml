@@ -5,6 +5,18 @@
 # and every resource/replica setting still come from values.yaml or an
 # `--set` on the release itself.
 
+environment: Production
+
+migration:
+  # Separate from existingSecret so the Job receives only its database
+  # credential. Supply this externally managed Secret at release time.
+  secretName: sre-ai-agent-production-migration
+
+rbac:
+  # Must equal observability.namespaceByCluster.production. The Role and
+  # RoleBinding are emitted in this target namespace for the worker identity.
+  observedNamespace: default
+
 observability:
   metricsProvider: prometheus
   logProvider: loki
@@ -46,3 +58,12 @@ kafka:
 
 retention:
   enabled: true
+
+networkPolicy:
+  # Outbound HTTPS for model providers (e.g. api.openai.com).
+  # Standard Kubernetes NetworkPolicy cannot match FQDNs. Production defines
+  # 0.0.0.0/0 on port 443 as a pragmatic protocol/port compromise; operators
+  # SHOULD narrow this to an egress gateway CIDR or provider-specific IP blocks
+  # when their CNI supports stable egress IPs or FQDN policies.
+  providerCidrs:
+    - "0.0.0.0/0"

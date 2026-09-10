@@ -4,6 +4,7 @@
     <Project Path="src/SreAiAgent.Api/SreAiAgent.Api.csproj" />
     <Project Path="src/SreAiAgent.Application/SreAiAgent.Application.csproj" />
     <Project Path="src/SreAiAgent.Contracts/SreAiAgent.Contracts.csproj" />
+    <Project Path="src/SreAiAgent.DatabaseMigrator/SreAiAgent.DatabaseMigrator.csproj" />
     <Project Path="src/SreAiAgent.Domain/SreAiAgent.Domain.csproj" />
     <Project Path="src/SreAiAgent.Infrastructure/SreAiAgent.Infrastructure.csproj" />
     <Project Path="src/SreAiAgent.InvestigationWorker/SreAiAgent.InvestigationWorker.csproj" />

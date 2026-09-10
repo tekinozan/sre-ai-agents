@@ -18,12 +18,32 @@ namespace SreAiAgent.Infrastructure;
 public static class PersistenceDependencyInjection
 {
     /// <summary>
-    /// Adds the pooled DbContext, repositories, read-side queries and the
-    /// outbox/inbox stores.
+    /// Applies the database migrations using the same pooled context options as
+    /// the running hosts.
     /// </summary>
-    public static IServiceCollection AddSrePersistence(this IServiceCollection services)
+    /// <remarks>
+    /// The migration executable calls this rather than constructing a context of
+    /// its own. Keeping the context internal prevents infrastructure details
+    /// leaking into a host while one registration remains responsible for the
+    /// Npgsql retry, timeout and migrations-history settings.
+    /// </remarks>
+    public static async Task MigrateSreDatabaseAsync(this IServiceProvider services, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(services);
+
+        await using AsyncServiceScope scope = services.CreateAsyncScope();
+        SreDbContext database = scope.ServiceProvider.GetRequiredService<SreDbContext>();
+        await database.Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Adds only the pooled DbContext required for migration execution.
+    /// </summary>
+    public static IServiceCollection AddSreDatabasePool(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.AddOptionsWithValidation<DatabaseOptions>(DatabaseOptions.SectionName);
 
         // Pooled: constructing a DbContext allocates a model reference, a change
         // tracker and a state manager, and the alert path builds one per message.
@@ -67,6 +87,19 @@ public static class PersistenceDependencyInjection
             options.EnableDetailedErrors(false);
             options.EnableSensitiveDataLogging(false);
         });
+
+        return services;
+    }
+
+    /// <summary>
+    /// Adds the pooled DbContext, repositories, read-side queries and the
+    /// outbox/inbox stores.
+    /// </summary>
+    public static IServiceCollection AddSrePersistence(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.AddSreDatabasePool();
 
         // Registered before everything else so the schema exists before any
         // other hosted service touches it.

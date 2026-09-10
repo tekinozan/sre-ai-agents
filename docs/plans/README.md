@@ -6,4 +6,4 @@
 |---|---|---|
 | [`llm-providers.md`](llm-providers.md) | Tenant model providers and evaluation harness | Phases 1–3 complete; Phase 5 partially landed; Phase 4 and remaining Phase 5 planned |
 | [`llm-providers-resume.md`](llm-providers-resume.md) | Verified resume plan for the interrupted implementation | Complete |
-| [`production-readiness.md`](production-readiness.md) | Production readiness remediation across tenant isolation, messaging, operational surface, resilience, and proof | Phases 1–4 complete; Phase 5 pending |
+| [`production-readiness.md`](production-readiness.md) | Production readiness remediation, including completed local Compose PostgreSQL consolidation | Phases 1–4 and deployment follow-up complete; Phase 5 pending |
