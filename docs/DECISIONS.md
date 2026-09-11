@@ -375,3 +375,60 @@ timeout, and the audit row would say the same.
 token closes. If `LlmGateway` ever stops threading that token into
 `GetResponseAsync`, an unresponsive provider hangs a request forever; the
 regression test that pins the timeout path is what prevents it.
+
+### D37 — The HTTP boundary is proven by two suites, not one
+
+The HTTP boundary is proven across two test projects rather than a single suite.
+`tests/SreAiAgent.ApiTests` runs on the default gate with no Docker dependencies,
+hosting the API in-process via `WebApplicationFactory<Program>` and substituting
+`IEventPublisher`, `IUnitOfWork`, `IModelProviderControlPlane` and
+`IMessageProducer` with deterministic in-memory doubles.
+`tests/SreAiAgent.IntegrationTests` proves the persisted side effect against real
+PostgreSQL (backed by Testcontainers), substituting only `IMessageProducer` and
+leaving `IEventPublisher`, `IUnitOfWork` and `IModelProviderControlPlane` in their
+production registrations.
+
+Keeping the security, authentication, role authorization and tenant-isolation
+boundary assertions in an untraited suite ensures that every default CI run
+proves these invariants without requiring a Docker daemon. Tests requiring
+database verification (such as confirming that accepted alerts write exactly one
+`outbox_messages` row or cross-tenant attempts write none) run under the
+`Category=Integration` filter.
+
+**Cost:** two `WebApplicationFactory` fixtures (`SreApiFactory` and
+`SreApiPostgresFactory`) and duplicated `TestTokens` and `RepositoryPaths`
+helpers across the two test assemblies. This duplication is accepted
+deliberately: `TestTokens` depends on `SreAiAgent.Api` (`SreClaims`, `SreRoles`)
+and `Microsoft.IdentityModel.JsonWebTokens`, while `RepositoryPaths` makes
+assumptions about the repo's filesystem layout. Hoisting them into
+`tests/SreAiAgent.TestKit` would add an Api host dependency to a pure kit that
+sits strictly at the Domain/Application layer and is consumed by
+`SreAiAgent.Application.Tests` and `SreAiAgent.Workflow.Tests`.
+
+### D38 — Adapter vs configuration triage rule (ADP-005)
+
+When integrating a new provider, model, data source or environment, the change
+is triaged across four orthogonal architectural axes rather than defaulting to
+writing a new adapter:
+
+1. **Configuration or revision:** endpoint URLs, deployment revisions,
+   credential references, rate limits and retry budgets belong in configuration
+   or an immutable model-provider revision record.
+2. **Adapter:** wire protocol, payload format translation, authentication
+   handshake mechanics and semantic capability mappings require a new or updated
+   adapter implementation.
+3. **Scoped product-environment configuration:** label mappings, namespaces, and
+   query allowlists are configured per product/environment scope, not hard-coded
+   in adapter logic.
+4. **Policy and operations decision:** introducing new tool authority, elevated
+   permissions, or new data classifications requires an explicit security policy
+   and governance decision.
+
+This rule prevents proliferating unnecessary adapter abstractions when existing
+adapters can handle variations via immutable configuration revisions, and ensures
+that a request for "a new adapter" is answered by which architectural axis
+actually changed rather than by the caller.
+
+**Cost:** integration work requires an upfront classification step before code is
+written, and requests for bespoke adapters that merely vary endpoints or
+credentials are systematically rejected in favor of configuration updates.

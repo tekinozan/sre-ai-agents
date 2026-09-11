@@ -334,7 +334,8 @@ Durum yalnız şu değerleri alır: `planlandı`, `uygulandı`, `doğrulandı`, 
 
 | Adım | Durum | Kanıt |
 |---|---|---|
-| F0-1 … F0-8 | planlandı | — |
+| F0-1 … F0-7 | doğrulandı | SreAiAgent.ApiTests (11 test), IntegrationTests (30 test); adp-003-evidence-closure.md |
+| F0-8 | planlandı | İki hedef dosya çalışma ağacında yok (commit 79e96e8); DECISIONS.md ve adp-003-evidence-closure.md tamamlandı |
 | F0-9 | planlandı | — |
 | F0-10 | bloklu | Gerçek target yok |
 | F1-1 … F1-8 | planlandı | — |

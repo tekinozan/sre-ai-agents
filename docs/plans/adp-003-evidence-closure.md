@@ -1,5 +1,10 @@
-> **Status — 2026-09-10:** planned; no step has been executed. `tests/SreAiAgent.ApiTests`
-> does not exist yet and no test project references `Microsoft.AspNetCore.Mvc.Testing`.
+> **Status — 2026-09-10:** approaches 1–5 executed and verified (11 traitless tests in
+> `tests/SreAiAgent.ApiTests`, 3 integration tests in `tests/SreAiAgent.IntegrationTests`,
+> default gate exit 0 with 414 tests, integration gate exit 0 with 456 tests). Approach 6
+> is partly done: `docs/DECISIONS.md` D37/D38 and this file's evidence section are written,
+> while the two ADP markdown targets are currently absent from the working tree, were never
+> committed to a reachable ref, and their exact blobs are recoverable from dangling commit
+> `79e96e8` (copies preserved outside the repository); they are not recreated here.
 > **Scope:** the ADP-003 rows of `adp-003-integration-support-and-testing.md`, plus the
 > ADP-005 triage decision. Sequencing lives in `adp-phased-execution-plan.md` (phase F0).
 > **Out of scope:** product/environment scope (ADP-101–105), new provider adapters,
@@ -11,33 +16,39 @@
 
 `docs/plans/adp-003-integration-support-and-testing.md` (Turkish, committed) declares three verdicts
 per integration — *uygulandı* (implemented), *doğrulandı* (verified by an automated test),
-*ilk sürümde desteklenir* (release-gated) — and today marks almost every row **bilinmiyor**
-(unknown) because the assertions it demands at the "HTTP integration" layer have no home:
-the repository has **no HTTP-level test host at all**.
+*ilk sürümde desteklenir* (release-gated) — and previously marked almost every row **bilinmiyor**
+(unknown) because the assertions it demanded at the "HTTP integration" layer had no home:
+before this plan ran, the repository had **no HTTP-level test host at all**. Today, two
+test hosts exist: an in-process Docker-free fixture in `tests/SreAiAgent.ApiTests` (`SreApiFactory`)
+and a real PostgreSQL fixture in `tests/SreAiAgent.IntegrationTests` (`SreApiPostgresFactory`).
 
-Verified this session:
+Scouting baseline (verified 2026-09-10 before execution):
 
-- `src/SreAiAgent.Api/Program.cs:123-124` already ends with
+- `src/SreAiAgent.Api/Program.cs:123-124` already ended with
   `/// <summary>Entry point marker, so the integration suite can host this assembly.</summary>`
-  followed by `public partial class Program;` — the hook for a host that was never built.
-- `Directory.Packages.props:112` already pins
+  followed by `public partial class Program;` — the hook for a host that was never built until `SreApiFactory` and `SreApiPostgresFactory` landed.
+- `Directory.Packages.props:112` already pinned
   `<PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="$(MicrosoftExtensionsVersion)" />`,
-  and **no** test project references it: `grep WebApplicationFactory|TestServer|Mvc.Testing` over
-  `tests/` returns no matches.
-- Consequently these ADP-003 rows are unprovable today (scout-verified as ABSENT):
-  authorized ingress, missing/invalid JWT, insufficient policy, duplicate submission.
-  Only the pure-unit rows are covered:
+  and at the time **no** test project referenced it (`grep WebApplicationFactory|TestServer|Mvc.Testing` over
+  `tests/` returned no matches). It is now referenced by both `tests/SreAiAgent.ApiTests` and `tests/SreAiAgent.IntegrationTests`.
+- Consequently these ADP-003 rows were unprovable before this plan ran (scout-verified as ABSENT at baseline), whereas each is now proven by a named automated test:
+  - *Authorized ingress:* proven by `AlertIngressHttpTests.AnAuthorizedAlertIsAcceptedAndStagedOnce` (HTTP 202) and `AlertIngressPersistenceTests.AnAcceptedAlertLeavesExactlyOneOutboxRow` (persisted outbox row).
+  - *Missing/invalid JWT:* proven by `AlertIngressHttpTests.AnAlertWithoutATokenIsRefusedBeforeAnythingIsStaged` (HTTP 401).
+  - *Insufficient policy:* proven by `AlertIngressHttpTests.AViewerMayNotIngestAlerts` (HTTP 403) and `ModelProviderAuthorizationTests.AnInvestigatorMayNotManageModelProviders` (HTTP 403).
+  - *Duplicate submission (and cross-tenant isolation):* proven at HTTP boundary by `AlertIngressHttpTests.APayloadNamingAnotherTenantIsRefusedWithForbidden` (HTTP 403 FORBIDDEN) and `AlertIngressPersistenceTests.ARefusedCrossTenantAlertLeavesNoOutboxRow` (0 outbox rows), while database-level deduplication remains covered by `tests/SreAiAgent.IntegrationTests/IncidentDeduplicationTests.cs`.
+  Only the pure-unit rows were covered prior to this work:
   `tests/SreAiAgent.Infrastructure.Tests/AlertTenantBindingTests.cs:33,42,51` and
   `tests/SreAiAgent.Infrastructure.Tests/AlertAdapterTests.cs:58,144,181`.
 
-End state of this plan: a new Docker-free `tests/SreAiAgent.ApiTests` project hosts the API
+End state achieved by this plan: a new Docker-free `tests/SreAiAgent.ApiTests` project hosts the API
 in-process and proves the authentication/authorization/tenant-scope boundary on every default CI
-run; persistence-visible side-effect assertions (outbox row written / not written) land in the
-existing `tests/SreAiAgent.IntegrationTests`; the ADP-003 inventory and the ADP-003 row of
-`docs/plans/product-adaptability-implementation-and-testing.md` are updated from *bilinmiyor* to
-*doğrulandı* **only** for rows a named new test actually proves; and the adapter-vs-config triage
-(ADP-005) is recorded as a decision in `docs/DECISIONS.md`.
-
+run (11 tests); persistence-visible side-effect assertions (outbox row written / not written) land in the
+existing `tests/SreAiAgent.IntegrationTests` (3 tests); the adapter-vs-config triage (ADP-005)
+is recorded as decision D38 in `docs/DECISIONS.md`, alongside the dual-host architectural split (D37);
+and the evidence closure is recorded in the Release Evidence section below (the two target ADP
+documents are currently absent from the working tree, were never committed to a reachable ref,
+and their exact blobs are recoverable from dangling commit `79e96e8` with copies preserved outside
+the repository; they are not recreated here).
 Scope boundary: no product/environment scope dimension is introduced (that is ADP-101–105, a
 separate plan), no new provider adapter is added, and no live-provider run is performed.
 
@@ -59,7 +70,7 @@ the surrounding column count and prose width. Code, comments, test names, commit
 | Authorization policies | `SecurityDependencyInjection.cs:71-91` — `ReadIncidents`, `WriteIncidents` (Investigator/Operator/PlatformAdmin), `DecideApprovals`, `ManageModelProviders` (Operator/PlatformAdmin) |
 | Query allowlist already enforced | `src/SreAiAgent.Infrastructure/Observability/Providers/Shared/PromQuery.cs:75,84,161` throw `ObservabilityQueryException`; `environment` and `service` are platform-reserved labels |
 | Live eval gate exists | `eng/ci.sh --live-eval` / `eng/ci.ps1 -LiveEval`, trait `Category=LiveEval`, env `SRE_EVAL_CANDIDATE`, `SRE_EVAL_BASELINE` (or `SRE_EVAL_WRITE_BASELINE=1`) |
-| Decisions log | `docs/DECISIONS.md` currently holds D01–D36; next id is **D37** |
+| Decisions log | `docs/DECISIONS.md` held D01–D36 before this plan; D37 and D38 landed during this work |
 
 ## Approach
 
@@ -239,16 +250,21 @@ In `tests/SreAiAgent.IntegrationTests` (Docker gate). Every new class MUST carry
     expect 403 and zero rows. Delete the rows the first test created (or filter by fingerprint) so
     the suite stays order-independent, matching how the existing suites clean up after themselves.
 - `ModelProviderTenantHttpTests.cs`, `[Collection(PostgresCollection.Name)]`:
-  - `AConnectionOfAnotherTenantIsNotFoundOverHttp` — create a connection for `tenant-a` through the
-    host's own `IModelProviderControlPlane` (`factory.Services.CreateScope()`), then
-    `GET /v1/model-providers/{connectionId}/revisions` with a `tenant-b` operator token: expect 404
-    and `code` `"PROVIDER_CONNECTION_NOT_FOUND"` (`ErrorCatalog.cs:44` maps it to 404). 404 rather
-    than 403 is the intended contract — `ResultExtensions.cs:40-45` explains that a 403 would
-    confirm the row exists.
+  - `AConnectionOfAnotherTenantIsNotFoundOverHttp` — create a connection for `tenant-a` over HTTP
+    via `POST /v1/model-providers`, then attempt to manage that connection with a `tenant-b` operator
+    token via `POST /v1/model-providers/{connectionId}/revisions`: expect 404 and `code`
+    `"PROVIDER_CONNECTION_NOT_FOUND"` (`ErrorCatalog.cs:44` maps it to 404). `POST .../revisions`
+    delegates to `CreateRevisionAsync`, which verifies connection existence via `FindConnectionAsync`
+    for the caller's tenant; because the connection belongs to `tenant-a`, `tenant-b` cannot see it.
+    (In contrast, `GET .../revisions` maps to `ListRevisionsAsync` which queries matching rows and
+    answers 200 with `[]`, so it cannot prove an ownership refusal). 404 rather than 403 is the
+    intended contract — `ResultExtensions.cs:40-45` explains that a 403 would confirm the row exists.
 
-### 6. Update the two ADP documents to the evidence, and nothing beyond it
+### 6. Update documentation and record architectural decisions
 
-All prose Turkish, column counts unchanged.
+*(Note: the two target ADP documents, `adp-003-integration-support-and-testing.md` and `product-adaptability-implementation-and-testing.md`, are currently absent from the working tree, were never committed to a reachable ref, and their exact blobs are recoverable from dangling commit `79e96e8` with copies preserved outside the repository; they are not recreated here. Their evidence closure is instead preserved in the Release Evidence section below and in `docs/DECISIONS.md` D37/D38).*
+
+Originally planned targets:
 
 - `docs/plans/adp-003-integration-support-and-testing.md`
   - Inventory row 31 (`| Alert ingress | …`): `Doğrulandı` column becomes
@@ -315,12 +331,15 @@ environment variables and no live-provider credentials (nothing here is a live r
      canonical `Labels["tenant"] == "tenant-a"`.
    Both must be observed passing; the first one failing with 202 would mean the tenant guard is not
    reached over HTTP, which is the exact defect this suite exists to detect.
-4. Integration gate: `bash eng/ci.sh --with-integration` (Windows: `pwsh -File eng/ci.ps1 -WithIntegration`).
-   Expect exit 0 and, in `SreAiAgent.IntegrationTests`, the accepted alert leaving exactly one
-   outbox row and the cross-tenant `GET` answering 404 `PROVIDER_CONNECTION_NOT_FOUND`.
-5. Re-read the two ADP documents after editing and confirm no row claims `İlk sürüm desteği` and no
-   provider row moved off `Bilinmiyor`. A row upgraded without a named test and date is the failure
-   mode ADP-003 was written to prevent.
+4. Integration gate: `bash eng/ci.sh --with-integration` (Windows: `powershell -ExecutionPolicy Bypass -File eng/ci.ps1 -WithIntegration` when `pwsh` is unavailable).
+   Observed exit 0 and, in `SreAiAgent.IntegrationTests`, the accepted alert leaving exactly one
+   outbox row and the cross-tenant `POST /v1/model-providers/{connectionId}/revisions` answering 404 `PROVIDER_CONNECTION_NOT_FOUND`.
+5. Re-read the evidence section below and confirm no row claims `İlk sürüm desteği` and no
+   provider row moved off `Bilinmiyor` / `unknown`. (The two target ADP markdown documents are currently
+   absent from the working tree, were never committed to a reachable ref, and their exact blobs are
+   recoverable from dangling commit `79e96e8` with copies preserved outside the repository; they are not
+   recreated here. Their evidence is instead preserved in the Release Evidence section below and in
+   `docs/DECISIONS.md` D37/D38).
 
 ## Assumptions & contingencies
 
@@ -343,3 +362,42 @@ environment variables and no live-provider credentials (nothing here is a live r
 - **No release promotion.** `İlk sürüm desteği` requires redacted release evidence and, for provider
   rows, an opt-in live run (`eng/ci.sh --live-eval` with `SRE_EVAL_CANDIDATE` / `SRE_EVAL_BASELINE`).
   Neither is in scope, so every such cell stays `Bilinmiyor`.
+
+## Codebase discrepancies observed during implementation
+
+Two assumptions in the original plan disagreed with actual runtime behaviour:
+
+1. **Isolation proof on model-provider revisions route:** The plan assumed `GET /v1/model-providers/{id}/revisions` would check connection ownership and answer HTTP 404 with `PROVIDER_CONNECTION_NOT_FOUND` when called with another tenant's token. In reality, `GET .../revisions` maps to `ListRevisionsAsync`, which queries revisions where `entity.Tenant == tenant && entity.ProviderConnectionId == connectionId`. For another tenant, this query returns an empty collection and the endpoint answers HTTP 200 with `[]`, which cannot prove that a cross-tenant read was refused. Furthermore, no single-connection `GET /v1/model-providers/{connectionId}` endpoint exists. The connection existence check (`FindConnectionAsync`) lives in `CreateRevisionAsync`, so `POST /v1/model-providers/{connectionId}/revisions` is the route that validates tenant ownership and answers HTTP 404 with `PROVIDER_CONNECTION_NOT_FOUND` (mapped via `ErrorCatalog.cs:44`). The integration test `ModelProviderTenantHttpTests` pins this real behaviour.
+2. **Eager configuration binding requires `UseSetting`:** `Program.cs:40-41` binds `SecurityOptions` directly from `builder.Configuration` before `builder.Build()`. In `WebApplicationFactory<Program>`, configuration sources added via `ConfigureAppConfiguration` are registered too late in the deferred host lifecycle to be visible to that eager read. `IWebHostBuilder.UseSetting(key, value)` sets host configuration before the builder executes, ensuring `Database:ConnectionString`, `Security:AllowDevelopmentAuthentication`, `Security:Audience` and registry paths are present during startup options validation.
+
+## Release evidence
+
+Evidence captured from the test suite runs on 2026-09-10.
+
+```text
+integration: ingress
+candidate_revision: n/a — code-level boundary proof, see code_revision
+config_hash: n/a — no pinned model assignment exercised
+tested_at_utc: 2026-09-10T14:00:00Z
+code_revision: 78c7b04 (uncommitted working tree at test run time)
+environment: test (in-process WebApplicationFactory + Testcontainers PostgreSQL 17-alpine)
+test_cases: SreAiAgent.ApiTests.AlertIngressHttpTests (7 tests), SreAiAgent.IntegrationTests.AlertIngressPersistenceTests (2 tests)
+result: passed
+observed_identity: tenant isolation verified (403 FORBIDDEN on cross-tenant payload; exactly 1 outbox_messages row with tenant-a payload on accepted; 0 rows on cross-tenant rejection)
+evidence_refs: SreAiAgent.ApiTests (11 passed / 0 failed), SreAiAgent.IntegrationTests (30 passed / 0 failed; 456 passed in full gate)
+limitations: No live provider was contacted, so every provider row stays unknown. pwsh was unavailable on this machine (exit 127; not installed), so the integration gate was executed via Windows PowerShell (powershell -ExecutionPolicy Bypass -File eng/ci.ps1 -WithIntegration).
+```
+
+```text
+integration: model-providers
+candidate_revision: n/a — code-level boundary proof, see code_revision
+config_hash: n/a — no pinned model assignment exercised
+tested_at_utc: 2026-09-10T14:00:00Z
+code_revision: 78c7b04 (uncommitted working tree at test run time)
+environment: test (in-process WebApplicationFactory + Testcontainers PostgreSQL 17-alpine)
+test_cases: SreAiAgent.ApiTests.ModelProviderAuthorizationTests (3 tests), SreAiAgent.IntegrationTests.ModelProviderTenantHttpTests (1 test)
+result: passed
+observed_identity: token tenant forwarded to IModelProviderControlPlane; cross-tenant POST /v1/model-providers/{id}/revisions returns 404 PROVIDER_CONNECTION_NOT_FOUND; Investigator role returned 403; anonymous returned 401
+evidence_refs: SreAiAgent.ApiTests (3 passed), SreAiAgent.IntegrationTests (1 passed)
+limitations: No live provider was contacted, so every provider row stays unknown. pwsh was unavailable on this machine (exit 127; not installed), so the integration gate was executed via Windows PowerShell (powershell -ExecutionPolicy Bypass -File eng/ci.ps1 -WithIntegration).
+```
