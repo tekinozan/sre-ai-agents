@@ -100,16 +100,16 @@ flowchart LR
 
 ## Aşama 0 — hedef, kapsam ve destek matrisi
 
-İşler: ADP-001, ADP-002, ADP-003, ADP-004, ADP-005. Durum: planlandı. Bu aşama
-mevcut adapter veya snapshot'ı yeniden yazmayı emretmez.
+İşler: ADP-001 (uygulandı), ADP-002 (uygulandı), ADP-003 (doğrulandı), ADP-004 (bloklu), ADP-005 (karar D38).
+Durum: Aşama 0 kısmen tamamlandı, ADP-004 pilot hedefleri gelene kadar Aşama 1'e geçiş blokludur.
 
 | İş | Çıktı | Yeniden kullanım/değişiklik |
 |---|---|---|
-| ADP-001 | Product/tenant/environment sözlüğü, ownership, scope | Mevcut JWT tenant sınırı; doküman/karar |
-| ADP-002 | Hedef, kapsam dışı, başarı ölçüsü | README ve ARCHITECTURE; doküman |
-| ADP-003 | Integration/capability/support evidence matrisi | ADP003 odak eki; matris |
-| ADP-004 | İki pilot selection record | Config ve alert akışı; karar |
-| ADP-005 | Adapter-vs-config triage | Provider catalog/control plane; karar/backlog |
+| ADP-001 | Product/tenant/environment sözlüğü, ownership, scope | Uygulandı; mevcut tekil tenant gerçeği ve scope kararı (aşağıda) |
+| ADP-002 | Hedef, kapsam dışı, başarı ölçüsü | Uygulandı; README ve ARCHITECTURE ile uyumlu sınırlar (aşağıda) |
+| ADP-003 | Integration/capability/support evidence matrisi | Doğrulandı; `AlertIngressHttpTests` ve `AlertIngressPersistenceTests` (2026-09-10) |
+| ADP-004 | İki pilot selection record | Bloklu; iki gerçek product/environment hedefi ve eşikleri bekleniyor |
+| ADP-005 | Adapter-vs-config triage | Uygulandı; `docs/DECISIONS.md` D38 kararı olarak tescil edildi |
 
 Pilot isimleri ve gerçek target'lar verilmemiştir; isim uydurulmaz. Selection
 record product id, tenant, environment, alert source, güvenli datasource listesi,
@@ -131,8 +131,9 @@ kapısını kaldırmaz: iki gerçek product/target gerekir.
 | Pilot seçimi | İki target ve threshold selection record'da | Operasyonel karar |
 | Adapter talebi | Triage gerekçesi kayıtlı | Tasarım incelemesi |
 
-Giriş: yok. Çıkış/kabul: sürümlü destek matrisi, iki target için selection record,
-ADP003 evidence formatı. Bunlar yoksa Aşama 1'e geçilmez.
+Giriş: yok. Çıkış/kabul: ADP-001, ADP-002 ve ADP-005 kararları uygulandı; ADP-003 HTTP ve persistence
+kanıtlarıyla doğrulandı. Ancak ADP-004 için iki gerçek pilot hedefi verilmediğinden Aşama 0 tamamlanamaz
+ve Aşama 1'e geçilmez (F0-10 bloklu).
 
 Destek matrisi provider/protocol adapter, model ID ve endpoint/deployment'ı ayrı
 sütunlarda gösterir. Registry isteğe bağlı provider discovery kullanabilir; discovery
@@ -141,6 +142,75 @@ silinmez: enable, disable ve archive edilir; pinned snapshot referansları geçe
 kalır. Global default, product/environment ve agent assignment açık öncelik sırasıyla
 belgelenir. Draft → test/verify → activate revision akışı immutabledır; in-flight
 workflow'a hot mutation uygulanmaz.
+
+### ADP-001 — Product, tenant ve environment sözlüğü, sahiplik ve scope kararı
+
+Platformun bugünkü başlangıç noktası kaynak kodda kesin bir mimari gerçeğe dayanır:
+`IModelProviderControlPlane` arayüzünün 13 üyesinin tamamı (`ListConnectionsAsync`, `CreateConnectionAsync`,
+`ListRevisionsAsync`, `CreateRevisionAsync`, `VerifyRevisionAsync`, `ListDeploymentVersionsAsync`,
+`CreateDeploymentVersionAsync`, `CreateNextDeploymentVersionAsync`, `ListAssignmentReleasesAsync`,
+`CreateAssignmentReleaseAsync`, `RequestEvaluationAsync`, `CompleteEvaluationAsync`, `ActivateAsync`)
+yalnızca `string tenant` parametresi alır. `incidents` tablosunda `environment` kolonu
+betimleyici alert metaverisi olarak yer alsa da (`IncidentConfiguration.cs:30`), platformun
+kontrol düzleminde, veritabanı şemasında ve yetkilendirme ilkelerinde (`SrePolicies`)
+bir **izolasyon, yetkilendirme veya yapılandırma kapsamı (scope)** olarak product veya
+environment boyutu bugün **hiçbir yerde mevcut değildir** (`incidents` üzerindeki her indeks
+tenant-önceliklidir [`:51-56`], control plane'in 13 üyesi yalnızca `string tenant` ile kapsamlanır
+ve ilkeler product/environment bileşeni taşımayan saf yetenek adlarıdır).
+
+Bu nedenle sözlük ve kapsam kararı, bu boyutu varmış gibi göstermeden aşağıdaki tanımlarla sabitlenir:
+
+1. **Tenant (Kiracı / İzolasyon Sınırı):** Platformun birincil veri, yetki ve model atama sınırıdır.
+   Doğrulanmış JWT'deki `SreClaims.Tenant` (`"tenant"`) claim'inden okunur (`PrincipalExtensions.Tenant()`).
+   Veritabanı tabloları (`provider_connections`, `model_assignment_releases`, `incidents`),
+   outbox kayıtları ve control plane çağrıları yalnızca tenant düzeyinde izoledir.
+2. **Product (Ürün — Hedeflenen / Planlanan Boyut):** Aşama 1 (ADP-101–105) ile sisteme tanıtılması
+   planlanan mantıksal sistem sınırıdır. Bir tenant birden fazla product barındırabilir. Bugün kodda
+   bir entity veya parametre değildir; tenant içinde daha dar bir model profili ve yetki alanı
+   tanımlamak için eklenecektir.
+3. **Environment (Ortam):** Alert payload'ında (`CanonicalAlert.Environment`) ve gözlemlenebilirlik
+   sorgularında (`PromQuery`) etiket olarak taşınan, ancak model sağlayıcı atamasında henüz bir
+   boyut oluşturmayan çalışma ortamıdır (`production`, `staging` vb.).
+4. **Scope Kararı ve Sahiplik:**
+   - Güvenlik ve veri izolasyonunun mutlak sahibi **Tenant** kalır; product veya environment tenant
+     sınırını gevşetemez veya aşamaz.
+   - Product ve environment, yalnızca tenant sınırının *içinde* alt kümeleme (örneğin belirli bir
+     ürüne özel LLM modeli veya bütçesi) amacıyla Aşama 1'de control plane'e eklenecektir.
+   - Herhangi bir bileşen product/environment anahtarını global veya bağımsız bir kimlik olarak
+     ele alamaz.
+
+### ADP-002 — Hedef, kapsam dışı sınırlar ve başarı ölçüsü
+
+`README.md` ve `ARCHITECTURE.md` bölümleriyle birebir uyumlu ürün uyarlanabilirliği sınırları:
+
+1. **Hedef:**
+   - Farklı LLM sağlayıcılarının (OpenAI, Azure OpenAI, Anthropic, yerel/uyumlu modeller), alert
+     kaynaklarının (Alertmanager, Datadog, Grafana, webhook) ve gözlemlenebilirlik backend'lerinin
+     (Prometheus, Loki), platformun kanıt-odaklı (evidence-first) incident soruşturma omurgasını
+     bozmadan uyarlanabilmesini sağlamak.
+   - Model atamalarını tenant düzeyinde immutable snapshot'lar (`ConfigurationSnapshot`,
+     `ModelAssignmentRelease`) olarak mühürlemek; soruşturma başladığı andaki model ve konfigürasyon
+     türevini incident kapanana kadar korumak.
+   - Yeni sağlayıcı veya model değişikliklerini kod yazmadan, doğrulanabilir konfigürasyon
+     ve immutable revision yaşam döngüsüyle (D38) karşılamak.
+2. **Açık Kapsam Dışı (Non-Goals):**
+   - **Native provider tool calling:** İlk sürümde model sağlayıcıların native tool calling
+     özellikleri kullanılmaz. Tüm araç çalıştırma işlemleri salt-okunur (read-only), policy-enforced
+     platform tool gateway (`IToolRegistry`, `ToolExecutor`) üzerinden denetlenir.
+   - **Canlı model yanıtı veya halüsinasyon garantisi:** Platform her modelin aynı akıl yürütme
+     kalitesini vereceğini vaat etmez; yalnızca ilan edilen yeteneklerin (`ModelCapability`)
+     doğrulanmasını ve deterministik çalışmasını garanti eder.
+   - **Yeni orkestrasyon motoru:** Temporal ve geliştirme amaçlı inline motor dışında yeni bir
+     iş akışı motoru eklenmez.
+   - **Mikroservis bölünmesi:** Mimari modüler monolith olarak kalır (`ARCHITECTURE.md 1.1`);
+     sağlayıcı uyarlaması için süreç sınırları çoğaltılmaz.
+3. **Başarı Ölçüsü:**
+   - **Deterministik ve güvenli sınır:** Her HTTP/API çağrısının tenant doğrulaması yapması (test
+     kanıtı: `ApiTests` 11/11, `IntegrationTests` 30/30).
+   - **İzlenebilir kanıt:** Desteklenen her sağlayıcı ve yeteneğin otomatik sözleşme testleri ve
+     redakte release evidence kaydıyla belgelenmesi.
+   - **Sıfır sessiz düşme (fail-loud):** Desteklenmeyen veya izin verilmeyen model/tool çağrılarında
+     sahte sonuç üretmek yerine açık hata koduyla (`ErrorCode`) durdurulması.
 
 ## Aşama 1 — product/environment control plane ve snapshot uyumluluğu
 

@@ -193,7 +193,7 @@ Kabul: F0-1…F0-5 toplamı **11 traitsiz test**; varsayılan gate sayısı 11 a
 
 Kapanış planının kapsamadığı iki doküman işi:
 - ADP-001: product/tenant/environment sözlüğü, ownership, scope kararı. Bugünkü
-  gerçek: `IModelProviderControlPlane`'in 14 üyesi yalnız `string tenant` alır;
+  gerçek: `IModelProviderControlPlane`'in 13 üyesi yalnız `string tenant` alır;
   product/environment boyutu **hiçbir yerde yok**. Sözlük bu gerçeği başlangıç
   noktası olarak yazar, var gibi göstermez.
 - ADP-002: hedef, kapsam dışı, başarı ölçüsü; README ve ARCHITECTURE ile
@@ -220,7 +220,7 @@ Kapsam: ADP-101–ADP-105. Giriş: F0-9 sözlüğü ve scope kararı.
 | F1-2 | Product/Environment entity, EF configuration, migration (ADP-101) | Testcontainers round-trip; önceki veri korunur |
 | F1-3 | Scope policy: principal → product/env; create/read/update/activate doğrulaması (ADP-101) | Tenant A/B ve aynı tenant farklı product testleri **F0-3 host'unda** |
 | F1-4 | Credential reference yaşam döngüsü (ADP-102) | Raw secret API/DB/snapshot/log/audit'e girmez; security unit |
-| F1-5 | Scoped model assignment: `IModelProviderControlPlane` 14 üyesinin cutover'ı (ADP-103) | Tüm çağıranlar taşınır; shim veya overload bırakılmaz |
+| F1-5 | Scoped model assignment: `IModelProviderControlPlane` 13 üyesinin cutover'ı (ADP-103) | Tüm çağıranlar taşınır; shim veya overload bırakılmaz |
 | F1-6 | Versioned immutable snapshot alanları (ADP-104) | Skill `change-a-serialized-type`; beş JSON context'ten hangileri değişiyor açıkça listelenir |
 | F1-7 | Geriye uyum: eski snapshot ve `WorkflowPayloadJson` deserialize (ADP-105) | Eski payload yeni active assignment'a **kaymaz** |
 | F1-8 | Gate + evidence + doküman | `ci.ps1` ve `-WithIntegration`; Aşama 1 satırları güncellenir |
@@ -335,8 +335,8 @@ Durum yalnız şu değerleri alır: `planlandı`, `uygulandı`, `doğrulandı`, 
 | Adım | Durum | Kanıt |
 |---|---|---|
 | F0-1 … F0-7 | doğrulandı | SreAiAgent.ApiTests (11 test), IntegrationTests (30 test); adp-003-evidence-closure.md |
-| F0-8 | planlandı | İki hedef dosya çalışma ağacında yok (commit 79e96e8); DECISIONS.md ve adp-003-evidence-closure.md tamamlandı |
-| F0-9 | planlandı | — |
+| F0-8 | uygulandı | adp-003-integration-support-and-testing.md, product-adaptability-implementation-and-testing.md, DECISIONS.md D37/D38, README.md |
+| F0-9 | uygulandı | product-adaptability-implementation-and-testing.md (ADP-001 tekil tenant sözlüğü ve scope kararı, ADP-002 hedef/kapsam dışı) |
 | F0-10 | bloklu | Gerçek target yok |
 | F1-1 … F1-8 | planlandı | — |
 | F2-1 … F2-7 | planlandı | — |

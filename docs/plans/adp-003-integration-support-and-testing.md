@@ -28,7 +28,7 @@ kaydıdır. ADP-003 sonraki kod işleri için backlog üretir; gereksiz provider
 | OpenAI-compatible | Evet | Adapter unit | Bilinmiyor | `OpenAiCompatibleProviderChatClient.cs`; endpoint matrisi yok |
 | Azure OpenAI | Evet | Adapter unit | Bilinmiyor | `AzureOpenAiProviderChatClient.cs`; live release kanıtı yok |
 | Anthropic | Evet | Adapter unit | Bilinmiyor | `AnthropicProviderChatClient.cs`; live release kanıtı yok |
-| Alert ingress | Evet | Unit ve integration katmanları | Bilinmiyor | `AlertEndpoints.cs`, alert ve tenant testleri |
+| Alert ingress | Evet | Unit, HTTP ve persistence testleri | Bilinmiyor | `AlertEndpoints.cs`, `AlertIngressHttpTests` (2026-09-10), `AlertIngressPersistenceTests` (2026-09-10) |
 | Prometheus ve Loki | Evet | Unit ve contract katmanları | Bilinmiyor | provider testleri ve Testcontainers contract testleri |
 
 Gerçek HTTP adapterları `src/SreAiAgent.Infrastructure/Llm/Providers/` altındadır.
@@ -118,16 +118,17 @@ principalden gelir; payload `AlertNormalizer.BindTenant` ile bağlanır.
 
 | Girdi | Assertion | Seviye |
 |---|---|---|
-| Geçerli source payload ve yetkili JWT | canonical alert kuyruklanır, source korunur | HTTP integration |
-| JWT yok, geçersiz veya policy yetersiz | 401 veya 403; publisher çağrılmaz | HTTP integration |
-| JWT tenant A, payload tenant B | 403; kayıt ve event yok | HTTP integration ve unit |
-| Tenant etiketi yok | JWT tenantı eklenir, diğer etiketler korunur | Unit |
-| Bilinmeyen source veya malformed payload | güvenli 4xx, yan etki yok | HTTP integration |
+| Geçerli source payload ve yetkili JWT | canonical alert kuyruklanır, source korunur | HTTP integration (`AlertIngressHttpTests.AnAuthorizedAlertIsAcceptedAndStagedOnce`), persistence (`AlertIngressPersistenceTests.AnAcceptedAlertLeavesExactlyOneOutboxRow`) |
+| JWT yok, geçersiz veya policy yetersiz | 401 veya 403; publisher çağrılmaz | HTTP integration (`AlertIngressHttpTests.AnAlertWithoutATokenIsRefusedBeforeAnythingIsStaged`, `AViewerMayNotIngestAlerts`) |
+| JWT tenant A, payload tenant B | 403; kayıt ve event yok | HTTP integration (`AlertIngressHttpTests.APayloadNamingAnotherTenantIsRefusedWithForbidden`), persistence (`AlertIngressPersistenceTests.ARefusedCrossTenantAlertLeavesNoOutboxRow`), unit (`AlertTenantBindingTests`) |
+| Tenant etiketi yok | JWT tenantı eklenir, diğer etiketler korunur | Unit (`AlertTenantBindingTests`), HTTP integration (`AlertIngressHttpTests.ACallerWithNoTenantClaimIsRefused` eksik claim reddi) |
+| Bilinmeyen source veya malformed payload | güvenli 4xx, yan etki yok | HTTP integration (`AlertIngressHttpTests.AnUnconfiguredSourceIsRefused`, `AMalformedPayloadIsRefused`), unit (`AlertAdapterTests`) |
 | Aynı tenant tekrar gönderimi | mevcut idempotency veya dedup sözleşmesi korunur | Integration |
 
-HTTP integration testi gerçek provider çağırmaz. Test host, test JWT imzalama
-anahtarı ve mevcut in-memory publisher veya test double kullanılır. Tenant route
-veya request bodyden güvenilir kabul edilmez.
+HTTP integration testi gerçek provider çağırmaz. Test host (`SreApiFactory`), test JWT imzalama
+anahtarı (`TestTokens`) ve in-memory test double'ları (`RecordingEventPublisher`, `CountingUnitOfWork`)
+kullanılır; persistence kanıtı Testcontainers PostgreSQL üzerinde `SreApiPostgresFactory` ile çalışır.
+Tenant route veya request bodyden güvenilir kabul edilmez.
 
 ## Veri kaynağı, metrik ve log kanıtı
 
@@ -211,6 +212,5 @@ yükseltilmez.
 
 ## ADP-003 sonrası ayrı işler
 
-Envanter bir boşluk gösterirse ayrı iş açılır: eksik HTTP integration host veya fake,
-capability verification, live provider matrisi, datasource contract kapsamı, runbook
+Envanter bir boşluk gösterirse ayrı iş açılır: capability verification, live provider matrisi, datasource contract kapsamı, runbook
 veya CI jobu. ADP-003 bu işleri hemen uygulamayı ve yeni sağlayıcı eklemeyi emretmez.
