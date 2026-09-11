@@ -1,10 +1,9 @@
 > **Status — 2026-09-10:** approaches 1–5 executed and verified (11 traitless tests in
 > `tests/SreAiAgent.ApiTests`, 3 integration tests in `tests/SreAiAgent.IntegrationTests`,
-> default gate exit 0 with 414 tests, integration gate exit 0 with 456 tests). Approach 6
-> is partly done: `docs/DECISIONS.md` D37/D38 and this file's evidence section are written,
-> while the two ADP markdown targets are currently absent from the working tree, were never
-> committed to a reachable ref, and their exact blobs are recoverable from dangling commit
-> `79e96e8` (copies preserved outside the repository); they are not recreated here.
+> default gate exit 0 with 414 tests, integration gate exit 0 with 456 tests). Approach 6 is
+> done: `docs/DECISIONS.md` D37/D38 are written, and the two ADP markdown targets — briefly
+> lost, then restored byte-for-byte in `3a294de` from dangling commit `79e96e8` (SHA256-verified)
+> — now carry the ADP-003 rows and Aşama 0 acceptance sentence this plan produced (`326fa7b`).
 > **Scope:** the ADP-003 rows of `adp-003-integration-support-and-testing.md`, plus the
 > ADP-005 triage decision. Sequencing lives in `adp-phased-execution-plan.md` (phase F0).
 > **Out of scope:** product/environment scope (ADP-101–105), new provider adapters,
@@ -45,10 +44,9 @@ in-process and proves the authentication/authorization/tenant-scope boundary on 
 run (11 tests); persistence-visible side-effect assertions (outbox row written / not written) land in the
 existing `tests/SreAiAgent.IntegrationTests` (3 tests); the adapter-vs-config triage (ADP-005)
 is recorded as decision D38 in `docs/DECISIONS.md`, alongside the dual-host architectural split (D37);
-and the evidence closure is recorded in the Release Evidence section below (the two target ADP
-documents are currently absent from the working tree, were never committed to a reachable ref,
-and their exact blobs are recoverable from dangling commit `79e96e8` with copies preserved outside
-the repository; they are not recreated here).
+and the evidence closure is recorded in the Release Evidence section below and in the two target ADP
+documents, which were briefly lost and then restored byte-for-byte in `3a294de` from dangling commit
+`79e96e8` (SHA256-verified); their ADP-003 rows and Aşama 0 acceptance sentence were updated in `326fa7b`.
 Scope boundary: no product/environment scope dimension is introduced (that is ADP-101–105, a
 separate plan), no new provider adapter is added, and no live-provider run is performed.
 
@@ -262,7 +260,7 @@ In `tests/SreAiAgent.IntegrationTests` (Docker gate). Every new class MUST carry
 
 ### 6. Update documentation and record architectural decisions
 
-*(Note: the two target ADP documents, `adp-003-integration-support-and-testing.md` and `product-adaptability-implementation-and-testing.md`, are currently absent from the working tree, were never committed to a reachable ref, and their exact blobs are recoverable from dangling commit `79e96e8` with copies preserved outside the repository; they are not recreated here. Their evidence closure is instead preserved in the Release Evidence section below and in `docs/DECISIONS.md` D37/D38).*
+*(Note: the two target ADP documents, `adp-003-integration-support-and-testing.md` and `product-adaptability-implementation-and-testing.md`, were briefly lost and then restored byte-for-byte in `3a294de` from dangling commit `79e96e8` (SHA256-verified); their ADP-003 rows and Aşama 0 acceptance sentence were updated in `326fa7b`, per the plan below. Their evidence closure is also preserved in the Release Evidence section below and in `docs/DECISIONS.md` D37/D38).*
 
 Originally planned targets:
 
@@ -335,10 +333,10 @@ environment variables and no live-provider credentials (nothing here is a live r
    Observed exit 0 and, in `SreAiAgent.IntegrationTests`, the accepted alert leaving exactly one
    outbox row and the cross-tenant `POST /v1/model-providers/{connectionId}/revisions` answering 404 `PROVIDER_CONNECTION_NOT_FOUND`.
 5. Re-read the evidence section below and confirm no row claims `İlk sürüm desteği` and no
-   provider row moved off `Bilinmiyor` / `unknown`. (The two target ADP markdown documents are currently
-   absent from the working tree, were never committed to a reachable ref, and their exact blobs are
-   recoverable from dangling commit `79e96e8` with copies preserved outside the repository; they are not
-   recreated here. Their evidence is instead preserved in the Release Evidence section below and in
+   provider row moved off `Bilinmiyor` / `unknown`. (The two target ADP markdown documents were
+   briefly lost and then restored byte-for-byte in `3a294de` from dangling commit `79e96e8`
+   (SHA256-verified); their ADP-003 rows and Aşama 0 acceptance sentence were updated in `326fa7b`.
+   Their evidence is also preserved in the Release Evidence section below and in
    `docs/DECISIONS.md` D37/D38).
 
 ## Assumptions & contingencies
@@ -379,7 +377,7 @@ integration: ingress
 candidate_revision: n/a — code-level boundary proof, see code_revision
 config_hash: n/a — no pinned model assignment exercised
 tested_at_utc: 2026-09-10T14:00:00Z
-code_revision: 78c7b04 (uncommitted working tree at test run time)
+code_revision: cbcc611 (executed from this change set's working tree before it was committed)
 environment: test (in-process WebApplicationFactory + Testcontainers PostgreSQL 17-alpine)
 test_cases: SreAiAgent.ApiTests.AlertIngressHttpTests (7 tests), SreAiAgent.IntegrationTests.AlertIngressPersistenceTests (2 tests)
 result: passed
@@ -393,7 +391,7 @@ integration: model-providers
 candidate_revision: n/a — code-level boundary proof, see code_revision
 config_hash: n/a — no pinned model assignment exercised
 tested_at_utc: 2026-09-10T14:00:00Z
-code_revision: 78c7b04 (uncommitted working tree at test run time)
+code_revision: cbcc611 (executed from this change set's working tree before it was committed)
 environment: test (in-process WebApplicationFactory + Testcontainers PostgreSQL 17-alpine)
 test_cases: SreAiAgent.ApiTests.ModelProviderAuthorizationTests (3 tests), SreAiAgent.IntegrationTests.ModelProviderTenantHttpTests (1 test)
 result: passed
