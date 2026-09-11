@@ -337,7 +337,7 @@ Durum yalnız şu değerleri alır: `planlandı`, `uygulandı`, `doğrulandı`, 
 | F0-1 … F0-7 | doğrulandı | SreAiAgent.ApiTests (11 test), IntegrationTests (30 test); adp-003-evidence-closure.md |
 | F0-8 | uygulandı | adp-003-integration-support-and-testing.md, product-adaptability-implementation-and-testing.md, DECISIONS.md D37/D38, README.md |
 | F0-9 | uygulandı | product-adaptability-implementation-and-testing.md (ADP-001 tekil tenant sözlüğü ve scope kararı, ADP-002 hedef/kapsam dışı) |
-| F0-10 | bloklu | Gerçek target yok |
+| F0-10 | bloklu | Pilot 2 adayı kaydedildi (TicketHub); Pilot 1 ve kalite eşiği bekleniyor |
 | F1-1 … F1-8 | planlandı | — |
 | F2-1 … F2-7 | planlandı | — |
 | F3-1 … F3-5, F3-7, F3-8 | planlandı | — |

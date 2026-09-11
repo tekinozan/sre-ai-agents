@@ -212,6 +212,59 @@ Bu nedenle sözlük ve kapsam kararı, bu boyutu varmış gibi göstermeden aşa
    - **Sıfır sessiz düşme (fail-loud):** Desteklenmeyen veya izin verilmeyen model/tool çağrılarında
      sahte sonuç üretmek yerine açık hata koduyla (`ErrorCode`) durdurulması.
 
+### ADP-004 — Pilot 2 aday kaydı (TicketHub)
+
+**Aday kaydı:** Ürün: TicketHub (.NET 10 modular monolith, tek API host). Ortam: yerel Docker
+Compose. Amaç: zamanlanmış işler, kalıcı mesajlaşma ve bağımlılık hatalarında RCA. Mevcut
+kaynaklar: PostgreSQL 17, Jaeger 2.20 (OTLP 4317/4318, UI 16686), Mailpit (SMTP 1025, UI 8025),
+uygulama 8080. Durum: seçilmiş yerel pilot adayı, entegrasyon doğrulaması bekliyor.
+
+**Doğrulanan davranış:**
+- Wolverine, PostgreSQL'de `wolverine` şemasında kalıcı (`wolverine_incoming_envelopes`,
+  `wolverine_outgoing_envelopes`); dış broker yok — `src/TicketHub.Host/Extensions/MessagingExtensions.cs`.
+- Tek açık retry politikası Notifications modülünde: `NotificationDeliveryException` için
+  `ScheduleRetry(1s, 5s, 30s)` — `src/Modules/Notifications/TicketHub.Modules.Notifications/NotificationsModule.cs`.
+  Global politika veya dead-letter ayarı yok.
+- SMTP gönderimi MailKit ile; her socket/protokol/auth hatası `NotificationDeliveryException`'a
+  sarılıp yeniden fırlatılıyor, yutulmuyor — `.../Delivery/Channels/Smtp/SmtpNotificationChannel.cs`.
+  Dispatcher `DeliveryLog` satırını `Failed` işaretliyor.
+- Rezervasyon 10 dakikalık `HoldTtl` ile `bus.ScheduleAsync(new ExpireReservation(...))` kuruyor;
+  süre dolunca stok `TicketTypeAllocations.Held` üzerinden geri veriliyor —
+  `src/Modules/Sales/.../Features/Reservations/HoldTickets.cs` ve `ExpireReservationHold.cs`.
+- Ödeme sağlayıcısı stub: `StubPaymentGateway` koşulsuz `Captured` dönüyor, reddetme yolu ölü kod
+  — `src/Modules/Payments/.../Gateway/StubPaymentGateway.cs`.
+- Kimlik: JWT bearer zorunlu (fallback policy); kodda tenant kavramı yok.
+
+**Senaryo sıralaması, gerekçeli:**
+1. SMTP kesintisi — birincil. Gerçek exception tipleri, gerçek retry politikası, kalıcı
+   `DeliveryLog` satırı ve Wolverine envelope yeniden çalıştırmaları. Kök neden uydurma değil.
+2. Rezervasyonun zamanında kapanmaması — ikincil ve dolaylı. Mekanizma gerçek, ama handler'da
+   gecikmeyi doğrudan bildiren log satırı veya domain event yok; gecikme `ExpiresAt` ile
+   envelope/span zaman damgalarının karşılaştırılmasından çıkarılır.
+3. Ödeme akışı — kapsam dışı. Stub kendiliğinden hata veremez; hatayı görmek için koda müdahale
+   gerekir, bu da keşfedilmiş değil imal edilmiş kök nedendir.
+
+**Bağlamadan önce kapatılması gereken boşluklar** (bunlar SRE deposunda doğrulandı, tahmin değil):
+- SRE'nin altı aracı yalnız Prometheus, Loki, Kubernetes ve (yalnızca fake implementasyonu olan)
+  PostgreSQL sağlık ucuna bakıyor — `config/tools/releases/tools-2026.08.25.1.yaml`. TicketHub'da
+  Prometheus exporter veya `/metrics` ucu yok; loglar yalnız konsola yazılıyor (Serilog Console
+  sink), Loki yok.
+- SRE trace okuyamıyor: `ITraceProvider` arayüzü tanımlı ama hiçbir implementasyonu, DI kaydı veya
+  karşılık gelen tool'u yok. Jaeger'daki kanıt bugün erişilemez durumda.
+- Alarm kaynağı `alertmanager`, `datadog`, `grafana` veya `webhook` olmak zorunda; bilinmeyen
+  kaynak reddediliyor. Webhook gövdesi `external_id`, `title`, `service`, `environment` ister.
+- Alarm gönderimi doğrulanmış JWT ister: `tenant` claim'i ve `WriteIncidents` politikası
+  (`SreInvestigator`, `SreOperator` veya `SrePlatformAdmin`).
+- Soruşturmanın çalışması için tenant'a pinlenmiş model assignment gerekir; ya `Llm:Bootstrap`
+  konfigürasyonu ya da model-provider yönetim uçları.
+
+**Kalite eşiği:** ADP-004 önceden ilan edilmiş ölçülebilir eşik ister. Bu kayıt eşik önermez,
+çünkü eşik operasyonel bir karardır ve henüz verilmemiştir; alan `bekleniyor` olarak bırakılır ve
+bu açıkça yazılır.
+
+**Pilot 1:** verilmedi. ADP-004 iki gerçek hedef ister, bu yüzden iş bloklu kalır ve Aşama 1'e bu
+kayıtla geçilmez.
+
 ## Aşama 1 — product/environment control plane ve snapshot uyumluluğu
 
 İşler: ADP-101, ADP-102, ADP-103, ADP-104, ADP-105. Durum: planlandı.
