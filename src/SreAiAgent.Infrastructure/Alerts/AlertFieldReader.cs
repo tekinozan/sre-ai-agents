@@ -25,6 +25,26 @@ internal static class AlertFieldReader
             ? value
             : default;
 
+    /// <summary>Reads an array of objects, or an empty list when it is absent or not an array.</summary>
+    public static IReadOnlyList<JsonElement> Array(JsonElement element, string name)
+    {
+        if (element.ValueKind != JsonValueKind.Object
+            || !element.TryGetProperty(name, out JsonElement value)
+            || value.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        List<JsonElement> items = new(value.GetArrayLength());
+
+        foreach (JsonElement item in value.EnumerateArray())
+        {
+            items.Add(item);
+        }
+
+        return items;
+    }
+
     /// <summary>Reads a timestamp, or null when it is absent or unparseable.</summary>
     public static DateTimeOffset? Timestamp(JsonElement element, string name)
     {

@@ -13,7 +13,10 @@ namespace SreAiAgent.Infrastructure.Tests;
 /// The payloads here are shaped like the real thing rather than minimised,
 /// because the failure these tests exist to catch is a field that is present but
 /// named differently, and a fixture trimmed to the fields the adapter reads can
-/// never catch that.
+/// never catch that. The Alertmanager fixtures in particular are the full group
+/// envelope a real `webhook_config` posts, not the flattened shape this adapter
+/// used to assume: that assumption compiled, passed and never matched a real
+/// delivery.
 ///
 /// The identity labels each adapter nominates get their own assertions. They
 /// decide what counts as the same alert, and getting them wrong does not throw:
@@ -29,26 +32,41 @@ public sealed class AlertAdapterTests
     {
         const string Payload = """
             {
+              "receiver": "sre-platform",
               "status": "firing",
-              "fingerprint": "8a5f2c1d9e",
-              "startsAt": "2026-08-26T09:12:00Z",
-              "labels": {
-                "alertname": "HighCheckoutLatency",
-                "service": "checkout",
-                "environment": "production",
-                "severity": "critical",
-                "component": "database"
-              },
-              "annotations": {
-                "summary": "Checkout p99 latency above 2s",
-                "description": "Sustained for 5 minutes"
-              }
+              "alerts": [
+                {
+                  "status": "firing",
+                  "fingerprint": "8a5f2c1d9e",
+                  "startsAt": "2026-08-26T09:12:00Z",
+                  "endsAt": "0001-01-01T00:00:00Z",
+                  "labels": {
+                    "alertname": "HighCheckoutLatency",
+                    "service": "checkout",
+                    "environment": "production",
+                    "severity": "critical",
+                    "component": "database"
+                  },
+                  "annotations": {
+                    "summary": "Checkout p99 latency above 2s",
+                    "description": "Sustained for 5 minutes"
+                  }
+                }
+              ],
+              "groupLabels": {"alertname": "HighCheckoutLatency"},
+              "commonLabels": {"alertname": "HighCheckoutLatency"},
+              "commonAnnotations": {},
+              "externalURL": "http://alertmanager.internal",
+              "version": "4",
+              "groupKey": "{}:{alertname=\"HighCheckoutLatency\"}",
+              "truncatedAlerts": 0
             }
             """;
 
-        Result<CanonicalAlert> result = new AlertmanagerAlertAdapter().Normalize(Parse(Payload));
+        Result<IReadOnlyList<CanonicalAlert>> result = new AlertmanagerAlertAdapter().Normalize(Parse(Payload));
 
-        CanonicalAlert alert = result.Value;
+        result.Value.Count.ShouldBe(1);
+        CanonicalAlert alert = result.Value[0];
         alert.Source.ShouldBe("alertmanager");
         alert.Title.ShouldBe("Checkout p99 latency above 2s");
         alert.Service.ShouldBe("checkout");
@@ -64,10 +82,10 @@ public sealed class AlertAdapterTests
     public void AnAlertmanagerPayloadWithoutAServiceIsRejectedRatherThanGuessed()
     {
         const string Payload = """
-            {"labels": {"alertname": "SomethingBroke", "severity": "warning"}}
+            {"status": "firing", "alerts": [{"labels": {"alertname": "SomethingBroke", "severity": "warning"}}]}
             """;
 
-        Result<CanonicalAlert> result = new AlertmanagerAlertAdapter().Normalize(Parse(Payload));
+        Result<IReadOnlyList<CanonicalAlert>> result = new AlertmanagerAlertAdapter().Normalize(Parse(Payload));
 
         // Guessing a service would attribute the incident to the wrong team and
         // route the wrong agents at it.
@@ -81,11 +99,87 @@ public sealed class AlertAdapterTests
         const string Payload = """
             {
               "status": "resolved",
-              "labels": {"alertname": "HighLatency", "service": "checkout", "severity": "high"}
+              "alerts": [
+                {"status": "resolved", "labels": {"alertname": "HighLatency", "service": "checkout", "severity": "high"}}
+              ]
             }
             """;
 
-        new AlertmanagerAlertAdapter().Normalize(Parse(Payload)).Value.IsResolved.ShouldBeTrue();
+        new AlertmanagerAlertAdapter().Normalize(Parse(Payload)).Value[0].IsResolved.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void AnAlertmanagerEnvelopeWithTwoAlertsProducesTwoCanonicalAlerts()
+    {
+        const string Payload = """
+            {
+              "status": "firing",
+              "alerts": [
+                {
+                  "status": "firing",
+                  "fingerprint": "alert-one",
+                  "labels": {"alertname": "HighCheckoutLatency", "service": "checkout", "environment": "production"},
+                  "annotations": {"summary": "Checkout latency"}
+                },
+                {
+                  "status": "firing",
+                  "fingerprint": "alert-two",
+                  "labels": {"alertname": "HighCheckoutErrorRate", "service": "checkout", "environment": "production"},
+                  "annotations": {"summary": "Checkout error rate"}
+                }
+              ]
+            }
+            """;
+
+        Result<IReadOnlyList<CanonicalAlert>> result = new AlertmanagerAlertAdapter().Normalize(Parse(Payload));
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Count.ShouldBe(2);
+        result.Value[0].Fingerprint.ShouldBe("alert-one");
+        result.Value[1].Fingerprint.ShouldBe("alert-two");
+    }
+
+    [Fact]
+    public void AnAlertmanagerEnvelopeWhereOneAlertFailsValidationFailsTheWholeBatch()
+    {
+        const string Payload = """
+            {
+              "status": "firing",
+              "alerts": [
+                {
+                  "status": "firing",
+                  "fingerprint": "alert-one",
+                  "labels": {"alertname": "HighCheckoutLatency", "service": "checkout", "environment": "production"},
+                  "annotations": {"summary": "Checkout latency"}
+                },
+                {
+                  "status": "firing",
+                  "fingerprint": "alert-two",
+                  "labels": {"environment": "production"},
+                  "annotations": {"summary": "Missing alertname and service"}
+                }
+              ]
+            }
+            """;
+
+        Result<IReadOnlyList<CanonicalAlert>> result = new AlertmanagerAlertAdapter().Normalize(Parse(Payload));
+
+        // A silently dropped alert is an incident nobody opens. The whole
+        // delivery is refused instead, and Alertmanager retries what it never
+        // gets a 2xx for.
+        result.IsFailure.ShouldBeTrue();
+        result.Error.IsRetryable.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void AnEmptyAlertsArrayIsRejected()
+    {
+        const string Payload = """{"status": "firing", "alerts": []}""";
+
+        Result<IReadOnlyList<CanonicalAlert>> result = new AlertmanagerAlertAdapter().Normalize(Parse(Payload));
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.IsRetryable.ShouldBeFalse();
     }
 
     [Fact]
@@ -105,7 +199,7 @@ public sealed class AlertAdapterTests
             }
             """;
 
-        CanonicalAlert alert = new DatadogAlertAdapter().Normalize(Parse(Payload)).Value;
+        CanonicalAlert alert = new DatadogAlertAdapter().Normalize(Parse(Payload)).Value[0];
 
         alert.ExternalId.ShouldBe("4821993");
         alert.Severity.ShouldBe(IncidentSeverity.High);
@@ -128,7 +222,7 @@ public sealed class AlertAdapterTests
             }
             """;
 
-        CanonicalAlert alert = new GrafanaAlertAdapter().Normalize(Parse(Payload)).Value;
+        CanonicalAlert alert = new GrafanaAlertAdapter().Normalize(Parse(Payload)).Value[0];
 
         alert.Title.ShouldBe("PaymentsErrorRate");
         alert.Environment.ShouldBe("staging");
@@ -152,7 +246,7 @@ public sealed class AlertAdapterTests
             }
             """;
 
-        CanonicalAlert alert = new WebhookAlertAdapter().Normalize(Parse(Complete)).Value;
+        CanonicalAlert alert = new WebhookAlertAdapter().Normalize(Parse(Complete)).Value[0];
         alert.Severity.ShouldBe(IncidentSeverity.High);
 
         // A generic sender has no label convention to rely on, so identity falls
@@ -164,10 +258,10 @@ public sealed class AlertAdapterTests
     public void AnUnknownSeverityBecomesMediumRatherThanBeingRejected()
     {
         const string Payload = """
-            {"labels": {"alertname": "Odd", "service": "checkout", "severity": "spicy"}}
+            {"status": "firing", "alerts": [{"labels": {"alertname": "Odd", "service": "checkout", "severity": "spicy"}}]}
             """;
 
-        new AlertmanagerAlertAdapter().Normalize(Parse(Payload)).Value.Severity
+        new AlertmanagerAlertAdapter().Normalize(Parse(Payload)).Value[0].Severity
             .ShouldBe(IncidentSeverity.Medium);
     }
 
@@ -191,7 +285,9 @@ public sealed class AlertAdapterTests
         const string Payload = """
             {
               "status": "resolved",
-              "labels": {"alertname": "HighLatency", "service": "checkout", "severity": "high"}
+              "alerts": [
+                {"status": "resolved", "labels": {"alertname": "HighLatency", "service": "checkout", "severity": "high"}}
+              ]
             }
             """;
 
@@ -199,6 +295,6 @@ public sealed class AlertAdapterTests
 
         // The condition has already cleared, so spending a model budget would
         // produce a report about something that is no longer happening.
-        normalizer.Normalize("alertmanager", Parse(Payload)).Value.StartInvestigation.ShouldBe(false);
+        normalizer.Normalize("alertmanager", Parse(Payload)).Value[0].StartInvestigation.ShouldBe(false);
     }
 }

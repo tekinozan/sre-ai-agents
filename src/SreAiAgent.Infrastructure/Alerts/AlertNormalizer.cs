@@ -32,24 +32,33 @@ public sealed class AlertNormalizer
     /// <summary>The sources this deployment can accept.</summary>
     public IReadOnlyCollection<string> SupportedSources => _adapters.Keys;
 
-    /// <summary>Normalizes a payload from a named source.</summary>
-    public Result<CreateIncidentRequest> Normalize(string source, JsonElement payload)
+    /// <summary>
+    /// Normalizes a payload from a named source into every incident request it
+    /// names.
+    /// </summary>
+    /// <remarks>
+    /// A single webhook delivery can name more than one alert — Alertmanager
+    /// always posts a group envelope — so this returns every request the
+    /// adapter produced rather than assuming there is exactly one.
+    /// </remarks>
+    public Result<IReadOnlyList<CreateIncidentRequest>> Normalize(string source, JsonElement payload)
     {
         if (!_adapters.TryGetValue(source, out IAlertSourceAdapter? adapter))
         {
             // An allowlist. Falling back to the generic webhook adapter for an
             // unknown source would silently accept anything and attribute it to a
             // provider nobody configured.
-            return Result<CreateIncidentRequest>.Failure(Error.Permanent(
+            return Result<IReadOnlyList<CreateIncidentRequest>>.Failure(Error.Permanent(
                 ApplicationErrorCodes.ValidationFailed,
                 $"No adapter is configured for alert source '{source}'."));
         }
 
-        Result<CanonicalAlert> alert = adapter.Normalize(payload);
+        Result<IReadOnlyList<CanonicalAlert>> alerts = adapter.Normalize(payload);
 
-        return alert.IsFailure
-            ? Result<CreateIncidentRequest>.Failure(alert.Error)
-            : Result<CreateIncidentRequest>.Success(ToRequest(alert.Value));
+        return alerts.IsFailure
+            ? Result<IReadOnlyList<CreateIncidentRequest>>.Failure(alerts.Error)
+            : Result<IReadOnlyList<CreateIncidentRequest>>.Success(
+                [.. alerts.Value.Select(ToRequest)]);
     }
 
     /// <summary>Maps a canonical alert onto the incident request.</summary>

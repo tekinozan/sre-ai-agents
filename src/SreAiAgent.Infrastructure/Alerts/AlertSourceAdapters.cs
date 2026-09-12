@@ -20,10 +20,51 @@ internal sealed class AlertmanagerAlertAdapter : IAlertSourceAdapter
     public string Source => "alertmanager";
 
     /// <inheritdoc />
-    public Result<CanonicalAlert> Normalize(JsonElement payload)
+    public Result<IReadOnlyList<CanonicalAlert>> Normalize(JsonElement payload)
     {
-        JsonElement labels = AlertFieldReader.Object(payload, "labels");
-        JsonElement annotations = AlertFieldReader.Object(payload, "annotations");
+        // Alertmanager's webhook_config always posts the group envelope
+        // ({"status":...,"alerts":[...],"groupLabels":...,...}), even for a
+        // single firing alert. Reading fields off the envelope root, as this
+        // adapter once did, silently matches nothing on real traffic; every
+        // field this adapter needs lives on each element of `alerts`.
+        IReadOnlyList<JsonElement> alerts = AlertFieldReader.Array(payload, "alerts");
+
+        if (alerts.Count == 0)
+        {
+            return Result<IReadOnlyList<CanonicalAlert>>.Failure(Error.Permanent(
+                ApplicationErrorCodes.ValidationFailed,
+                "An Alertmanager webhook payload requires a non-empty 'alerts' array."));
+        }
+
+        List<CanonicalAlert> canonical = new(alerts.Count);
+
+        foreach (JsonElement alert in alerts)
+        {
+            Result<CanonicalAlert> mapped = NormalizeOne(alert);
+
+            if (mapped.IsFailure)
+            {
+                // A partially valid batch fails as a whole. Dropping the one bad
+                // alert and opening incidents for the rest would mean a firing
+                // condition Alertmanager told this platform about never opens an
+                // incident, with nothing in the response saying so — exactly the
+                // silent loss the Result contract on this port exists to avoid.
+                // Alertmanager retries a webhook_config delivery it never gets a
+                // 2xx for, so refusing the whole group is recoverable; silently
+                // accepting part of it is not.
+                return Result<IReadOnlyList<CanonicalAlert>>.Failure(mapped.Error);
+            }
+
+            canonical.Add(mapped.Value);
+        }
+
+        return Result<IReadOnlyList<CanonicalAlert>>.Success(canonical);
+    }
+
+    private static Result<CanonicalAlert> NormalizeOne(JsonElement alert)
+    {
+        JsonElement labels = AlertFieldReader.Object(alert, "labels");
+        JsonElement annotations = AlertFieldReader.Object(alert, "annotations");
 
         Dictionary<string, string> labelMap = AlertFieldReader.Map(labels);
         Dictionary<string, string> annotationMap = AlertFieldReader.Map(annotations);
@@ -35,19 +76,19 @@ internal sealed class AlertmanagerAlertAdapter : IAlertSourceAdapter
         {
             return Result<CanonicalAlert>.Failure(Error.Permanent(
                 ApplicationErrorCodes.ValidationFailed,
-                "An Alertmanager payload requires the 'alertname' and 'service' or 'job' labels."));
+                "An Alertmanager alert requires the 'alertname' and 'service' or 'job' labels."));
         }
 
         return Result<CanonicalAlert>.Success(new CanonicalAlert(
-            Source,
-            AlertFieldReader.String(payload, "fingerprint") ?? alertName,
-            AlertFieldReader.String(payload, "fingerprint"),
+            "alertmanager",
+            AlertFieldReader.String(alert, "fingerprint") ?? alertName,
+            AlertFieldReader.String(alert, "fingerprint"),
             Value(annotationMap, "summary") ?? alertName,
             Value(annotationMap, "description"),
             service,
             Value(labelMap, "environment") ?? Value(labelMap, "env") ?? "unknown",
             AlertFieldReader.Severity(Value(labelMap, "severity")),
-            AlertFieldReader.Timestamp(payload, "startsAt"),
+            AlertFieldReader.Timestamp(alert, "startsAt"),
             labelMap,
             annotationMap,
             RawPayloadReference: null)
@@ -55,8 +96,13 @@ internal sealed class AlertmanagerAlertAdapter : IAlertSourceAdapter
             // Alertmanager's own grouping is by these labels, so matching them
             // keeps the platform's incidents aligned with the operator's alerts.
             IdentityLabelKeys = ["alertname", "service", "job", "environment", "env"],
+            // Each alert element carries its own status. The envelope also has a
+            // top-level status, but that is the group's status, not necessarily
+            // this alert's — Alertmanager groups by shared labels, not by shared
+            // resolution state, and only the per-alert field is true for the
+            // alert being mapped here.
             IsResolved = string.Equals(
-                AlertFieldReader.String(payload, "status"), "resolved", StringComparison.OrdinalIgnoreCase),
+                AlertFieldReader.String(alert, "status"), "resolved", StringComparison.OrdinalIgnoreCase),
         });
     }
 
@@ -71,7 +117,7 @@ internal sealed class DatadogAlertAdapter : IAlertSourceAdapter
     public string Source => "datadog";
 
     /// <inheritdoc />
-    public Result<CanonicalAlert> Normalize(JsonElement payload)
+    public Result<IReadOnlyList<CanonicalAlert>> Normalize(JsonElement payload)
     {
         string? monitorId = AlertFieldReader.String(payload, "id");
         string? title = AlertFieldReader.String(payload, "title");
@@ -79,7 +125,7 @@ internal sealed class DatadogAlertAdapter : IAlertSourceAdapter
 
         if (monitorId is null || title is null || service is null)
         {
-            return Result<CanonicalAlert>.Failure(Error.Permanent(
+            return Result<IReadOnlyList<CanonicalAlert>>.Failure(Error.Permanent(
                 ApplicationErrorCodes.ValidationFailed,
                 "A Datadog payload requires 'id', 'title' and 'service'."));
         }
@@ -91,7 +137,7 @@ internal sealed class DatadogAlertAdapter : IAlertSourceAdapter
         // environment rather than one per notification.
         tags["monitor_id"] = monitorId;
 
-        return Result<CanonicalAlert>.Success(new CanonicalAlert(
+        return Result<IReadOnlyList<CanonicalAlert>>.Success([new CanonicalAlert(
             Source,
             monitorId,
             Fingerprint: null,
@@ -111,7 +157,7 @@ internal sealed class DatadogAlertAdapter : IAlertSourceAdapter
                 AlertFieldReader.String(payload, "alert_transition"),
                 "Recovered",
                 StringComparison.OrdinalIgnoreCase),
-        });
+        }]);
     }
 }
 
@@ -122,7 +168,7 @@ internal sealed class GrafanaAlertAdapter : IAlertSourceAdapter
     public string Source => "grafana";
 
     /// <inheritdoc />
-    public Result<CanonicalAlert> Normalize(JsonElement payload)
+    public Result<IReadOnlyList<CanonicalAlert>> Normalize(JsonElement payload)
     {
         Dictionary<string, string> labels = AlertFieldReader.Map(AlertFieldReader.Object(payload, "labels"));
         Dictionary<string, string> annotations =
@@ -135,12 +181,12 @@ internal sealed class GrafanaAlertAdapter : IAlertSourceAdapter
 
         if (ruleName is null || string.IsNullOrWhiteSpace(service))
         {
-            return Result<CanonicalAlert>.Failure(Error.Permanent(
+            return Result<IReadOnlyList<CanonicalAlert>>.Failure(Error.Permanent(
                 ApplicationErrorCodes.ValidationFailed,
                 "A Grafana payload requires a rule name and a 'service' label."));
         }
 
-        return Result<CanonicalAlert>.Success(new CanonicalAlert(
+        return Result<IReadOnlyList<CanonicalAlert>>.Success([new CanonicalAlert(
             Source,
             AlertFieldReader.String(payload, "fingerprint") ?? ruleName,
             AlertFieldReader.String(payload, "fingerprint"),
@@ -157,7 +203,7 @@ internal sealed class GrafanaAlertAdapter : IAlertSourceAdapter
             IdentityLabelKeys = ["alertname", "service", "environment"],
             IsResolved = string.Equals(
                 AlertFieldReader.String(payload, "status"), "resolved", StringComparison.OrdinalIgnoreCase),
-        });
+        }]);
     }
 }
 
@@ -176,7 +222,7 @@ internal sealed class WebhookAlertAdapter : IAlertSourceAdapter
     public string Source => "webhook";
 
     /// <inheritdoc />
-    public Result<CanonicalAlert> Normalize(JsonElement payload)
+    public Result<IReadOnlyList<CanonicalAlert>> Normalize(JsonElement payload)
     {
         string? externalId = AlertFieldReader.String(payload, "external_id");
         string? title = AlertFieldReader.String(payload, "title");
@@ -185,14 +231,14 @@ internal sealed class WebhookAlertAdapter : IAlertSourceAdapter
 
         if (externalId is null || title is null || service is null || environment is null)
         {
-            return Result<CanonicalAlert>.Failure(Error.Permanent(
+            return Result<IReadOnlyList<CanonicalAlert>>.Failure(Error.Permanent(
                 ApplicationErrorCodes.ValidationFailed,
                 "A webhook payload requires 'external_id', 'title', 'service' and 'environment'."));
         }
 
         Dictionary<string, string> labels = AlertFieldReader.Map(AlertFieldReader.Object(payload, "labels"));
 
-        return Result<CanonicalAlert>.Success(new CanonicalAlert(
+        return Result<IReadOnlyList<CanonicalAlert>>.Success([new CanonicalAlert(
             Source,
             externalId,
             AlertFieldReader.String(payload, "fingerprint"),
@@ -210,6 +256,6 @@ internal sealed class WebhookAlertAdapter : IAlertSourceAdapter
             // to rely on, so identity falls back to source, service, environment
             // and title, which is stable for any well-behaved sender.
             IdentityLabelKeys = [],
-        });
+        }]);
     }
 }

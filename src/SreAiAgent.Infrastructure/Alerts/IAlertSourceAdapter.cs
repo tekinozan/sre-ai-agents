@@ -24,6 +24,15 @@ internal interface IAlertSourceAdapter
     /// <summary>The source key, for example <c>alertmanager</c>.</summary>
     string Source { get; }
 
-    /// <summary>Maps a provider payload onto the canonical shape.</summary>
-    Result<CanonicalAlert> Normalize(JsonElement payload);
+    /// <summary>
+    /// Maps a provider payload onto the canonical shape.
+    /// </summary>
+    /// <remarks>
+    /// A webhook delivery is a batch even when it carries one alert — Alertmanager
+    /// always posts the group envelope, never a bare alert — so the port returns
+    /// every alert the payload named rather than assuming there is exactly one. An
+    /// empty list is never a valid success: a payload that named zero alerts is
+    /// malformed, not an empty batch to shrug off.
+    /// </remarks>
+    Result<IReadOnlyList<CanonicalAlert>> Normalize(JsonElement payload);
 }

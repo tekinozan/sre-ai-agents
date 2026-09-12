@@ -49,31 +49,49 @@ public static class AlertEndpoints
         HttpContext context,
         CancellationToken cancellationToken)
     {
-        Result<CreateIncidentRequest> normalized = normalizer.Normalize(source, payload);
+        Result<IReadOnlyList<CreateIncidentRequest>> normalized = normalizer.Normalize(source, payload);
 
         if (normalized.IsFailure)
         {
             return ResultExtensions.Problem(normalized.Error);
         }
 
-        Result<CreateIncidentRequest> bound = AlertNormalizer.BindTenant(normalized.Value, context.User.Tenant());
+        string tenant = context.User.Tenant();
+        List<CreateIncidentRequest> bound = new(normalized.Value.Count);
 
-        if (bound.IsFailure)
+        foreach (CreateIncidentRequest request in normalized.Value)
         {
-            return ResultExtensions.Problem(bound.Error);
+            Result<CreateIncidentRequest> boundRequest = AlertNormalizer.BindTenant(request, tenant);
+
+            if (boundRequest.IsFailure)
+            {
+                // One cross-tenant alert rejects the whole delivery. Staging the
+                // rest and dropping only the offending alert would leave some
+                // firing conditions from one Alertmanager group open and others
+                // silently missing, with no signal in the 403 response as to
+                // which; refusing the batch is the only response that is honest
+                // about what was and was not accepted.
+                return ResultExtensions.Problem(boundRequest.Error);
+            }
+
+            bound.Add(boundRequest.Value);
         }
 
-        CreateIncidentRequest request = bound.Value;
+        string correlationId = CorrelationId.From(context);
 
-        publisher.Enqueue(
-            KafkaTopics.AlertReceived,
-            "sre.alert.received",
-            ToCanonical(request),
-            CorrelationId.From(context));
+        foreach (CreateIncidentRequest request in bound)
+        {
+            publisher.Enqueue(
+                KafkaTopics.AlertReceived,
+                "sre.alert.received",
+                ToCanonical(request),
+                correlationId);
+        }
 
-        // Staged in the outbox rather than produced directly, so an alert that
-        // was accepted cannot be lost if this process dies before the broker
-        // acknowledges it (ARCHITECTURE.md 9.4).
+        // One SaveChanges call for the whole batch, so it commits atomically:
+        // either every alert in the delivery is durably staged in the outbox or,
+        // if this fails, none of it is and Alertmanager's retry replays the
+        // whole group rather than a partially-staged remainder.
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         return Results.Accepted();

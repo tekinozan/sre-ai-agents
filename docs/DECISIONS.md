@@ -432,3 +432,36 @@ actually changed rather than by the caller.
 **Cost:** integration work requires an upfront classification step before code is
 written, and requests for bespoke adapters that merely vary endpoints or
 credentials are systematically rejected in favor of configuration updates.
+
+### D39 — Alertmanager webhooks are a batch; a partial batch fails whole
+
+`AlertmanagerAlertAdapter.Normalize` read `labels`, `annotations`, `fingerprint`,
+`startsAt` and `status` off the payload root. Alertmanager's `webhook_config`
+never posts that shape: it always posts the group envelope
+(`{"status":...,"alerts":[...],"groupLabels":...,...}`), even for a single
+firing alert, so every real delivery failed validation
+("requires the 'alertname' and 'service' or 'job' labels") while every test
+fixture, shaped like the root-level assumption, passed. D38's triage rule calls
+this: the wire format changed nothing about configuration, scope or policy, so
+the fix belongs entirely in the adapter, and `IAlertSourceAdapter.Normalize` now
+returns `Result<IReadOnlyList<CanonicalAlert>>` so the port can say "these N
+alerts", including N = 1 for the other three providers, which are not
+batch-shaped and continue to map one payload to one alert.
+
+A batch that is partially valid fails as a whole, and staging is one
+`SaveChangesAsync` call for the entire batch rather than one per alert. Both
+follow from the same reasoning: Alertmanager retries a `webhook_config`
+delivery it never gets a 2xx for, so refusing the whole group on one bad alert,
+or on a mid-batch database failure, is recoverable — the next retry sees the
+same envelope and can succeed or fail the same way. Silently dropping the one
+bad alert, or committing half a batch before a later alert's failure, would
+each mean a firing condition this platform was told about never opens an
+incident, with nothing in the 202 response saying so.
+
+**Cost:** one malformed alert in an otherwise-healthy Alertmanager group blocks
+every alert in that group until the sender fixes it or an operator intervenes;
+there is no partial-acceptance path. Grafana's unified alerting can also emit a
+batched webhook payload in newer versions; this repository has not confirmed
+whether the deployed Grafana version does, so `GrafanaAlertAdapter` still
+assumes one alert per payload. Follow-up: verify against a real Grafana
+instance before relying on it for high-volume routing.
