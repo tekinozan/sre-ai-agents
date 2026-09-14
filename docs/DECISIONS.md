@@ -465,3 +465,155 @@ batched webhook payload in newer versions; this repository has not confirmed
 whether the deployed Grafana version does, so `GrafanaAlertAdapter` still
 assumes one alert per payload. Follow-up: verify against a real Grafana
 instance before relying on it for high-volume routing.
+
+### D40 — Product and environment extend tenant's composite key; they are not new first-class entities
+
+`IModelProviderControlPlane`'s 13 members (`ListConnectionsAsync` through
+`ActivateAsync`) take only `string tenant`, and every model-provider entity
+configuration already threads `Tenant` through the schema as a composite-key
+component rather than a plain foreign key to a lookup table:
+`ProviderConnectionEntity`, `ProviderConnectionRevisionEntity`,
+`ModelDeploymentVersionEntity` and `ModelAssignmentReleaseEntity` each declare
+`HasKey(entity => entity.Id)` plus `HasAlternateKey(entity => new {
+entity.Tenant, entity.Id })`, and every relationship between them is a
+composite foreign key `(Tenant, ForeignId) -> (Tenant, Id)`
+(`ModelProviderConfigurations.cs`). `tenant_active_model_assignments`, the
+table holding the one currently-active assignment, goes one step further: its
+primary key is `Tenant` alone (`TenantActiveModelAssignmentConfiguration.cs`,
+`HasKey(entity => entity.Tenant)`), so "exactly one active assignment for X"
+is already a schema-enforced invariant, not an application-level check.
+
+Product and environment become two more columns on that same composite key —
+`(Tenant, Product, Environment, ...)` wherever `(Tenant, ...)` appears today —
+not new entities with their own generated id, table and lifecycle. Rejected: a
+`Product` entity with a surrogate id and a `ProductId` foreign key on every
+model-provider row. It costs a lookup join on every one of the 13
+control-plane calls for a value the product-adaptability guide does not plan
+to manage independently (no create/list/rename Product endpoint is in scope),
+and it invites exactly the anti-pattern the guide's ADP-001 glossary forbids:
+a `Products` table has rows that exist and can be listed independent of any
+tenant, which is a global identity by construction no matter how carefully
+every query remembers to filter it. `Incident.Environment`
+(`IncidentConfiguration.cs`) already lives in the schema as a plain string
+with no entity, no foreign key and no lifecycle of its own, and it is never
+used as a query filter anywhere in the incident or model-provider
+repositories — introducing `Environment` as an entity now would give the
+platform two incompatible representations of the same word.
+
+Landing on what exists: every `Tenant`-only filter and key in
+`ModelProviderRepository` (a dozen-plus call sites) and every
+`HasAlternateKey`/`HasForeignKey` pair in `ModelProviderConfigurations.cs`
+widens by two columns. `tenant_active_model_assignments.HasKey(entity =>
+entity.Tenant)` becomes `HasKey(entity => new { entity.Tenant, entity.Product,
+entity.Environment })`, generalizing the same "exactly one active assignment"
+invariant to a scope instead of a bare tenant. Rows written before this change
+get `Product = ""` and `Environment = ""` (an empty-string sentinel, not
+`NULL`, so the composite key and its indexes keep working) rather than a
+backfilled guess: nothing about a row written before product/environment
+existed tells the truth about which one it belongs to, and inventing one would
+be worse than a sentinel that plainly means "not scoped." The JWT gains two
+new **optional** claims beside the mandatory `tenant` (`SreClaims.Tenant`);
+`PrincipalExtensions` gains `Product()`/`Environment()` reading them with the
+same empty-string default, so a caller that sends neither scopes exactly as it
+does today — full tenant, no narrowing — and the 13 control-plane members take
+a small `TenantScope` value (wrapping `Tenant`, `Product`, `Environment`) in
+place of the bare `tenant` string, rather than each growing two more
+positional parameters one by one.
+
+Both of the guide's constraints hold under this shape by construction, not by
+convention: product and environment only ever appear as trailing columns of a
+key whose leading column is `Tenant`, so neither can be queried, indexed or
+authorized independent of a tenant, and `Tenant` alone still decides every
+existing index that does not opt into the wider scope
+(`ix_incidents_active_fingerprint` and the incident table's other indexes stay
+exactly as they are — incidents are not in ADP-101's scope).
+
+**Cost:** renaming a product means updating every row that carries the
+string, because nothing gives a product a stable identity independent of its
+name, and there is nowhere to hang product-specific metadata (a display name
+distinct from the key, an owner, a description) without a later migration to
+an actual entity if that need ever arrives.
+
+`TenantScope` is a closed set of exactly three scope kinds, not three free
+strings, and an illegal combination is a construction error the type refuses
+to represent, not a row a repository or a migration has to reject later:
+
+1. **TenantWide** — product and environment both absent. Applies to the whole
+   tenant; nothing narrower has been asked of it.
+2. **ProductWide** — product present, environment absent. Applies to every
+   environment of that product.
+3. **Full** — product and environment both present. Applies to exactly that
+   product in exactly that environment.
+
+Environment present with product absent (an environment with no product) is
+the one combination this set has no member for, and `TenantScope`'s
+constructor rejects it outright rather than letting it reach a repository,
+let alone a column. This also answers the question the first draft of this
+entry left open: environment never sits beside product as an independent
+dimension; it exists only inside one, so two products in the same tenant each
+naming a "production" environment are two unrelated `Full` scopes by
+construction, not two callers sharing one name.
+
+A row written before this decision and a deliberately tenant-wide assignment
+created afterward are the same `TenantScope` kind, `TenantWide`, not two
+meanings hiding behind one representation: operationally, a row nobody has
+ever narrowed behaves identically whether that is because product did not
+exist yet or because an operator chose not to narrow it. Telling those two
+histories apart — which rows were never reviewed for a migration to
+`ProductWide`/`Full` versus which were reviewed and left broad on purpose — is
+an audit question for whoever runs a tenant's migration, not a scope-model
+question, and it does not get a member in this closed set.
+
+**Authorization matrix.** This governs who may create, read, update or
+activate a row of a given scope through the control plane; it says nothing
+about whether an investigation's runtime lookup of the active assignment
+falls back from `Full` to `ProductWide` to `TenantWide` when no exact match is
+activated — that is a separate question for whichever of F1-5/ADP-103 cuts
+over `IModelProviderControlPlane`'s 13 members, and this decision does not
+answer it. For authorization, ADP-203's rule that scope never comes from the
+request body applies here without exception: a caller's `TenantScope` is
+derived only from validated claims, and it must equal a row's `TenantScope`
+exactly — kind and every value — for either read or write. A broader or
+narrower claim set than a row's kind never matches it, in either direction:
+
+| Row's scope | Claims required to read or write it |
+|---|---|
+| `TenantWide(tenant)` | `tenant` claim equal; no `product` claim present |
+| `ProductWide(tenant, product)` | `tenant` claim equal and `product` claim equal; no `environment` claim present |
+| `Full(tenant, product, environment)` | `tenant`, `product` and `environment` claims all equal |
+
+A missing `product` or `environment` claim is never a wildcard. It derives
+`TenantScope.TenantWide` for that caller, a specific and narrow scope that
+matches only other `TenantWide` rows — not "every row in this tenant" and not
+"every row this tenant has not yet narrowed for someone else." Symmetrically,
+a caller holding `product`/`environment` claims gets no special reach into
+`TenantWide` rows either: `Full` and `TenantWide` are different kinds, and
+different kinds never match regardless of which one looks "more specific."
+
+Named as a real cost, not smoothed over: once a tenant has rows in more than
+one `TenantScope` kind, a caller whose token is never reissued with
+`product`/`environment` claims can still reach only that tenant's `TenantWide`
+rows. If the tenant's real assignment has since moved to `ProductWide` or
+`Full`, that caller's old row is stranded — reachable by nobody until
+something reissues its token with the right claims or an explicit
+control-plane operation promotes or copies the row into the new scope. No
+query answers "the tenant's assignment" without first deciding which kind is
+meant, and this decision does not invent a fallback that would quietly answer
+it for them.
+
+F1-3 exists to prove this matrix, not merely to exercise the code path, so its
+cases are named here rather than left to whoever implements it to guess:
+
+- Cross-tenant is refused: tenant A's claims never read or write tenant B's
+  row, at any scope kind.
+- Same tenant, different product is refused: a `ProductWide`/`Full` caller for
+  product P never reads or writes a row scoped to product Q in the same
+  tenant.
+- A claim-less caller does not read another product's rows: a caller with
+  only a `tenant` claim (`TenantScope.TenantWide`) is refused on every
+  `ProductWide` and `Full` row in that tenant, not merely on other tenants'
+  rows.
+- An illegal scope combination is rejected at construction: building a scope
+  from an `environment` claim with no `product` claim fails before any
+  repository call, with a test asserting the rejection happens at
+  `TenantScope` construction and never reaches `ModelProviderRepository`.

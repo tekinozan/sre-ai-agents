@@ -218,7 +218,7 @@ Kapsam: ADP-101–ADP-105. Giriş: F0-9 sözlüğü ve scope kararı.
 |---|---|---|
 | F1-1 | Scope modeli kararı (`docs/DECISIONS.md`): product/environment ayrı entity mi, tenant'a bileşik anahtar mı | Karar yazılmadan şema yazılmaz |
 | F1-2 | Product/Environment entity, EF configuration, migration (ADP-101) | Testcontainers round-trip; önceki veri korunur |
-| F1-3 | Scope policy: principal → product/env; create/read/update/activate doğrulaması (ADP-101) | Tenant A/B ve aynı tenant farklı product testleri **F0-3 host'unda** |
+| F1-3 | Scope policy: principal → product/env; create/read/update/activate doğrulaması (ADP-101) | `docs/DECISIONS.md` D40'ın yetki matrisini kanıtlar, **F0-3 host'unda**: çapraz tenant reddedilir; aynı tenant farklı product reddedilir; claim'siz çağıran (`TenantWide`) başka bir product'ın satırını okuyamaz; `product` olmadan `environment` claim'i `TenantScope` construction'ında reddedilir (repository'ye hiç ulaşmaz) |
 | F1-4 | Credential reference yaşam döngüsü (ADP-102) | Raw secret API/DB/snapshot/log/audit'e girmez; security unit |
 | F1-5 | Scoped model assignment: `IModelProviderControlPlane` 13 üyesinin cutover'ı (ADP-103) | Tüm çağıranlar taşınır; shim veya overload bırakılmaz |
 | F1-6 | Versioned immutable snapshot alanları (ADP-104) | Skill `change-a-serialized-type`; beş JSON context'ten hangileri değişiyor açıkça listelenir |
@@ -314,6 +314,78 @@ kanıtı (`production-readiness.md`: Phase 5 bugün pending;
 | F6-5 | Support matrix, runbook, ownership/on-call handoff (ADP-605) | Doküman + sahiplik |
 
 Kanıt yalnız ölçülen product/env/revision için geçerlidir.
+
+---
+
+## Bilinen defekt — mutlaka düzeltilmeli, ayrı bir faz değil
+
+**BUG-001 — "Resolved" durumundaki bir Alertmanager teslimatı, boş kalmış bir fingerprint üzerinde hiç soruşturulmayacak yeni bir incident açıyor; sonraki gerçek alarmlar ona sessizce yığılıyor.**
+Pilot'un `postgres-data` volume'ünde doğrudan sorgulanarak doğrulandı (bkz.
+`incidents`, `incident_events`, `outbox_messages`, 2026-09-12 verisi). İlk
+rapor "aynı fingerprint için aynı anda iki incident satırı" diyordu ve bu
+**yanlıştı** — ama altında farklı, gerçek bir kusur çıktı.
+
+`978abfd0ab45b6c0` fingerprint'i için `incidents` tablosunda altı satır var,
+hepsi sırayla açılıp `Resolved` ile kapanmış, hiçbiri çakışmıyor. İlk ikisi:
+- `01a095fd…`: `created_at` 14:20:46.27, `resolved_at` 14:20:48.25 (2 saniye
+  sonra) — investigation başladı, üç expert de (database/app/kubernetes) o
+  zamanki flag/classification nedeniyle elendi, `InsufficientAgentCapability`
+  ile otomatik kapandı.
+- `01a09602…`: `created_at` 14:25:46.11 — **birincisinden 5 dakika sonra,
+  birincisi zaten `Resolved` olduktan sonra**. `configuration_snapshot_id`
+  **NULL**; timeline'ında yalnız `sre.incident.created` ve üç
+  `sre.incident.updated` ("Alert count is now 2/3/4") var, hiç "Investigation
+  started" yok.
+
+İki satırın da `detected_at`'i aynı: `2026-09-12 14:20:30.948+00`, ve
+`outbox_messages`'taki her iki `sre.incident.created` olayının `occurred_at`'i
+de bu değer — çünkü `IncidentOpened.OccurredAt`, `Incident.cs`'te
+`DetectedAt`'ten geliyor (`IncidentEvents.cs:19`), gerçek yaratılma anından
+değil. Raporun "aynı anda oluşturuldu" izlenimi muhtemelen buradan geldi. Ama
+gerçek yaratılma zamanları (`created_at`) 5 dakika ayrı ve ikinci satır
+birincisi zaten kapandıktan sonra açıldı — **bu bir yarış değil, sıralı bir
+olay**.
+
+İkinci satırın hiç soruşturulmamasının nedeni doğrulandı: `AlertmanagerAlertAdapter`
+her alarmın kendi `status` alanını okuyor (`AlertSourceAdapters.cs:104-105`)
+ve `AlertNormalizer.cs:89`, `StartInvestigation = !alert.IsResolved`
+uyguluyor. Birincisi kapandıktan sonra bu fingerprint için aktif hiçbir
+incident yokken gelen `"resolved"` durumundaki bir Alertmanager teslimatı,
+`CreateIncidentHandler.OpenAsync`'te `startInvestigation = false` ile
+**yeni** bir incident açıyor — investigation hiç başlamıyor
+(`ConfigurationSnapshotId` yalnız `StartInvestigation(...)` çağrısında set
+ediliyor, `Incident.cs:169`; constructor set etmiyor). Bu andan sonra
+fingerprint tekrar "aktif" sayıldığı için, o gece gelen üç gerçek
+`sre.alert.received` teslimatı (14:33, 14:39, 14:44 — SMTP kesintisi gerçekten
+sürüyor) `RecordRecurrenceAsync`'e düşüyor; bu metod `incident.Status`'a hiç
+bakmıyor, yalnızca `AlertCount`'u artırıp gerekirse severity yükseltiyor —
+**asla** `StartInvestigation` çağırmıyor. Sonuç: gerçek, sürmekte olan bir SMTP
+kesintisi üç kez daha bildiriliyor ve üçünde de hiçbir soruşturma, hiçbir
+bulgu, hiçbir operatör sinyali üretilmeden yalnızca sayaç artışına
+indirgeniyor.
+
+**Sınıf: veri kaybı — doğrulandı, hipotez değil.** Gerçek, süregelen bir alarm
+hiç soruşturulmadan sessizce sayaç artışına düşüyor; ne timeline'da
+"Investigation started", ne raporda, ne metrikte hiçbir iz kalmıyor.
+
+*(Not: eşzamanlı bir yarışın `idempotency_keys.Key` birincil anahtarıyla nasıl
+kapatıldığına dair önceki analiz kod olarak doğru kalıyor —
+`IdempotencyStore.TryClaimAsync` ve tek `SaveChangesAsync` içinde commit,
+gerçek bir eşzamanlı yarışa karşı hâlâ geçerli bir koruma — sadece bu pilotta
+gözlemlenen iki satırı açıklamıyor, çünkü aralarında yarış yoktu; ikisi
+arasında 5 dakika var.)*
+
+**Düzeltmenin doğal yeri:** Faz 1'in persistence işi (F1-2 zaten EF
+configuration ve migration açıyor). Düzeltme iki parçalı: (1)
+`CreateIncidentHandler.OpenAsync`, aktif incident yokken gelen bir
+`IsResolved=true` (`StartInvestigation=false`) teslimattan **yeni** bir
+incident açmamalı — soruşturulacak hiçbir şey yokken satır açmanın tek etkisi,
+fingerprint'i sonraki gerçek alarmı gölgeleyecek şekilde işgal etmek; (2)
+`RecordRecurrenceAsync`, katıldığı incident hiç investigation başlatmamışsa
+(`ConfigurationSnapshotId is null`) ve gelen alarm `IsResolved=false` ise,
+sayaç artırmak yerine `StartInvestigation`'ı tetiklemeli. Sahibin tercihi: bu
+iş fazlardan sonra veya bu alana zaten dokunan hangi faz varsa onun içine
+katlanarak yapılsın — ayrı bir faz açılmaz. **Burada uygulanmaz.**
 
 ---
 
