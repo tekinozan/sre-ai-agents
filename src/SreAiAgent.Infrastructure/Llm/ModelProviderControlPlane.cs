@@ -93,8 +93,7 @@ internal sealed class ModelProviderControlPlane(
 
         try
         {
-            if (!command.CredentialRef.StartsWith(ExternalReferenceCredentialResolver.EnvironmentPrefix, StringComparison.Ordinal)
-                && !command.CredentialRef.StartsWith(ExternalReferenceCredentialResolver.FilePrefix, StringComparison.Ordinal))
+            if (!ExternalReferenceCredentialResolver.IsWellFormedReference(command.CredentialRef))
             {
                 return Result<ProviderConnectionRevision>.Failure(Error.Permanent(
                     DomainErrorCodes.ModelConfigurationInvalid,

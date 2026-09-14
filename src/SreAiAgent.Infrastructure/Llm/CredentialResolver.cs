@@ -6,11 +6,30 @@ using SreAiAgent.Infrastructure.Configuration;
 
 namespace SreAiAgent.Infrastructure.Llm;
 
+/// <remarks>
+/// <see cref="IsWellFormedReference"/> is the one place that decides what a
+/// legal reference looks like. Two callers need that answer before a revision
+/// exists at all -- <c>ModelProviderControlPlane.CreateRevisionAsync</c> for an
+/// operator request, <c>ModelAssignmentBootstrapper.StartAsync</c> for
+/// configuration -- and both call this rather than repeating the prefix check,
+/// so a future third scheme (or a tightened one) cannot update one and miss
+/// the other.
+/// </remarks>
 internal sealed class ExternalReferenceCredentialResolver(IOptions<LlmOptions> options) : ICredentialResolver
 {
     internal const string EnvironmentPrefix = "env://";
     internal const string FilePrefix = "file://";
     private readonly string _credentialRoot = Path.GetFullPath(options.Value.CredentialFileRoot);
+
+    /// <summary>
+    /// True when <paramref name="credentialRef"/> is a reference this resolver
+    /// can attempt to resolve, rather than a literal value a caller mistakenly
+    /// supplied in place of one.
+    /// </summary>
+    internal static bool IsWellFormedReference(string credentialRef)
+        => credentialRef.StartsWith(EnvironmentPrefix, StringComparison.Ordinal)
+           || credentialRef.StartsWith(FilePrefix, StringComparison.Ordinal);
+
 
     public async ValueTask<Result<CredentialValue>> ResolveAsync(
         string credentialReference,

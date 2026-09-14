@@ -35,6 +35,23 @@ internal sealed partial class ModelAssignmentBootstrapper(
             return;
         }
 
+        // ModelProviderControlPlane.CreateRevisionAsync enforces this same
+        // guard for an operator's request; this path reaches the same
+        // ProviderConnectionRevision.Create constructor without going through
+        // the control plane at all, so nothing else stands between a
+        // misconfigured Llm:Bootstrap:CredentialRef and a literal secret
+        // landing, unresolved and unvalidated, in provider_connection_revisions.
+        // Checked before any scope or transaction opens, so a bad value never
+        // reaches the database to begin with -- consistent with "a
+        // misconfigured process must fail at boot, loudly" above. The message
+        // never repeats the value: whatever an operator pasted here might be
+        // exactly the secret this guard exists to keep out of a log line.
+        if (!ExternalReferenceCredentialResolver.IsWellFormedReference(bootstrap.CredentialRef))
+        {
+            throw new InvalidOperationException(
+                "Llm:Bootstrap:CredentialRef must be an external reference (env:// or file://), never a literal secret.");
+        }
+
         using IServiceScope scope = scopeFactory.CreateScope();
         SreDbContext context = scope.ServiceProvider.GetRequiredService<SreDbContext>();
         ModelProviderRepository repository = scope.ServiceProvider.GetRequiredService<ModelProviderRepository>();
