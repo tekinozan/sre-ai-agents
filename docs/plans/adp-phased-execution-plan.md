@@ -217,7 +217,7 @@ Kapsam: ADP-101–ADP-105. Giriş: F0-9 sözlüğü ve scope kararı.
 | Adım | İş | Sınır ve kanıt |
 |---|---|---|
 | F1-1 | Scope modeli kararı (`docs/DECISIONS.md`): product/environment ayrı entity mi, tenant'a bileşik anahtar mı | Karar yazılmadan şema yazılmaz |
-| F1-2 | Product/Environment entity, EF configuration, migration (ADP-101) | Testcontainers round-trip; önceki veri korunur |
+| F1-2 | Product/Environment: composite key sütunları (entity değil, D40), `TenantScope`, EF configuration, migration (ADP-101) | Testcontainers round-trip; önceki veri korunur; illegal kombinasyon `TenantScope` construction'ında reddedilir |
 | F1-3 | Scope policy: principal → product/env; create/read/update/activate doğrulaması (ADP-101) | `docs/DECISIONS.md` D40'ın yetki matrisini kanıtlar, **F0-3 host'unda**: çapraz tenant reddedilir; aynı tenant farklı product reddedilir; claim'siz çağıran (`TenantWide`) başka bir product'ın satırını okuyamaz; `product` olmadan `environment` claim'i `TenantScope` construction'ında reddedilir (repository'ye hiç ulaşmaz) |
 | F1-4 | Credential reference yaşam döngüsü (ADP-102) | Raw secret API/DB/snapshot/log/audit'e girmez; security unit |
 | F1-5 | Scoped model assignment: `IModelProviderControlPlane` 13 üyesinin cutover'ı (ADP-103) | Tüm çağıranlar taşınır; shim veya overload bırakılmaz |
@@ -319,11 +319,13 @@ Kanıt yalnız ölçülen product/env/revision için geçerlidir.
 
 ## Bilinen defekt — mutlaka düzeltilmeli, ayrı bir faz değil
 
-**BUG-001 — "Resolved" durumundaki bir Alertmanager teslimatı, boş kalmış bir fingerprint üzerinde hiç soruşturulmayacak yeni bir incident açıyor; sonraki gerçek alarmlar ona sessizce yığılıyor.**
-Pilot'un `postgres-data` volume'ünde doğrudan sorgulanarak doğrulandı (bkz.
-`incidents`, `incident_events`, `outbox_messages`, 2026-09-12 verisi). İlk
-rapor "aynı fingerprint için aynı anda iki incident satırı" diyordu ve bu
-**yanlıştı** — ama altında farklı, gerçek bir kusur çıktı.
+**BUG-001 — Bir incident iki bağımsız doğrulanmış yoldan kalıcı olarak soruşturulmadan kalabiliyor: "resolved" durumundaki bir teslimatın açtığı ölü bir incident, ve daha geniş bir catch bloğunun sessizce attığı gerçek bir eşzamanlı yarış.**
+
+**Birinci mekanizma — hipotez değil, pilot'un kendi veritabanı sorgulanarak
+doğrulandı.** `postgres-data` volume'ünden doğrudan okundu (`incidents`,
+`incident_events`, `outbox_messages`, 2026-09-12 verisi). İlk rapor "aynı
+fingerprint için aynı anda iki incident satırı" diyordu; bu **yanlıştı** ve
+burada geri çekiliyor — ama altında farklı, gerçek bir kusur çıktı.
 
 `978abfd0ab45b6c0` fingerprint'i için `incidents` tablosunda altı satır var,
 hepsi sırayla açılıp `Resolved` ile kapanmış, hiçbiri çakışmıyor. İlk ikisi:
@@ -337,14 +339,12 @@ hepsi sırayla açılıp `Resolved` ile kapanmış, hiçbiri çakışmıyor. İl
   `sre.incident.updated` ("Alert count is now 2/3/4") var, hiç "Investigation
   started" yok.
 
-İki satırın da `detected_at`'i aynı: `2026-09-12 14:20:30.948+00`, ve
+İki satırın da `detected_at`'i aynı (`2026-09-12 14:20:30.948+00`), ve
 `outbox_messages`'taki her iki `sre.incident.created` olayının `occurred_at`'i
-de bu değer — çünkü `IncidentOpened.OccurredAt`, `Incident.cs`'te
-`DetectedAt`'ten geliyor (`IncidentEvents.cs:19`), gerçek yaratılma anından
-değil. Raporun "aynı anda oluşturuldu" izlenimi muhtemelen buradan geldi. Ama
-gerçek yaratılma zamanları (`created_at`) 5 dakika ayrı ve ikinci satır
-birincisi zaten kapandıktan sonra açıldı — **bu bir yarış değil, sıralı bir
-olay**.
+de bu değer — çünkü `IncidentOpened.OccurredAt`, `DetectedAt`'ten geliyor
+(`IncidentEvents.cs:19`), gerçek yaratılma anından değil. Raporun "aynı anda
+oluşturuldu" izlenimi muhtemelen buradan geldi. Gerçek yaratılma zamanları
+(`created_at`) 5 dakika ayrı ve sıralı: **bu bir yarış değil.**
 
 İkinci satırın hiç soruşturulmamasının nedeni doğrulandı: `AlertmanagerAlertAdapter`
 her alarmın kendi `status` alanını okuyor (`AlertSourceAdapters.cs:104-105`)
@@ -360,32 +360,58 @@ fingerprint tekrar "aktif" sayıldığı için, o gece gelen üç gerçek
 sürüyor) `RecordRecurrenceAsync`'e düşüyor; bu metod `incident.Status`'a hiç
 bakmıyor, yalnızca `AlertCount`'u artırıp gerekirse severity yükseltiyor —
 **asla** `StartInvestigation` çağırmıyor. Sonuç: gerçek, sürmekte olan bir SMTP
-kesintisi üç kez daha bildiriliyor ve üçünde de hiçbir soruşturma, hiçbir
-bulgu, hiçbir operatör sinyali üretilmeden yalnızca sayaç artışına
-indirgeniyor.
+kesintisi üç kez daha bildiriliyor ve üçünde de hiçbir soruşturma üretilmiyor.
 
-**Sınıf: veri kaybı — doğrulandı, hipotez değil.** Gerçek, süregelen bir alarm
-hiç soruşturulmadan sessizce sayaç artışına düşüyor; ne timeline'da
-"Investigation started", ne raporda, ne metrikte hiçbir iz kalmıyor.
+**İkinci mekanizma — kod okumasıyla doğrulandı, bu pilotun neye rastladığından
+bağımsız.** `ix_incidents_active_fingerprint` (`IncidentConfiguration.cs:51-53`)
+filtrelenmiş düz bir btree indeks, `IsUnique()` çağrısı yok. Tek gerçek koruma
+`IdempotencyStore.TryClaimAsync`'in `idempotency_keys.Key` birincil anahtarı
+(`HasKey(key => key.Key)`, `SupportingStores.cs:71-124`) ve
+`CreateIncidentHandler.OpenAsync`'in bunu incident/snapshot/timeline/outbox
+satırlarıyla tek `SaveChangesAsync`'te commit etmesi — gerçekten eşzamanlı bir
+yarışta kaybedenin **bütün** transaction'ı rollback olur, yetim bir incident
+satırı kalmaz. Kusur bir seviye yukarıda: `KafkaConsumerService.ProcessAsync`'in
+`catch (DbUpdateException) when (IsDuplicateDelivery(...))` bloğu
+(`:228-238,274-275`) **her** unique violation'ı "bu mesaj zaten işlendi" sayıp
+offset'i sessizce commit ediyor — inbox satırının kendi `EventId`'i
+çakıştığında bu doğru, ama idempotency-key çakışması **farklı** bir mesajın
+(farklı `EventId`, aynı fingerprint) yarışı kaybettiği anlamına geliyor ve bu
+durumda kod, alarmı `RecordRecurrenceAsync`'e yönlendirmek yerine tamamen
+atıyor: ne timeline kaydı, ne `AlertCount` artışı, ne severity escalation.
+Doğrudan HTTP yolunda (`IncidentEndpoints.cs` `CreateAsync`) bu race'i
+yakalayan hiçbir catch yok; eşzamanlı bir POST bu yarışı kaybederse
+`DbUpdateException` yakalanmadan fırlar (kayıtsız 500, en azından sessiz
+değil).
 
-*(Not: eşzamanlı bir yarışın `idempotency_keys.Key` birincil anahtarıyla nasıl
-kapatıldığına dair önceki analiz kod olarak doğru kalıyor —
-`IdempotencyStore.TryClaimAsync` ve tek `SaveChangesAsync` içinde commit,
-gerçek bir eşzamanlı yarışa karşı hâlâ geçerli bir koruma — sadece bu pilotta
-gözlemlenen iki satırı açıklamıyor, çünkü aralarında yarış yoktu; ikisi
-arasında 5 dakika var.)*
+**Etki, her iki mekanizma için doğrulandı — sınıf: veri kaybı.** Gerçek,
+süregelen bir alarm — pilotta üç kez, teorik yarışta bir kez — hiçbir
+soruşturma, hiçbir bulgu, hiçbir operatör sinyali üretmeden kayboluyor: ne
+timeline'da, ne raporda, ne metrikte hiçbir iz kalmıyor.
 
-**Düzeltmenin doğal yeri:** Faz 1'in persistence işi (F1-2 zaten EF
-configuration ve migration açıyor). Düzeltme iki parçalı: (1)
-`CreateIncidentHandler.OpenAsync`, aktif incident yokken gelen bir
-`IsResolved=true` (`StartInvestigation=false`) teslimattan **yeni** bir
-incident açmamalı — soruşturulacak hiçbir şey yokken satır açmanın tek etkisi,
-fingerprint'i sonraki gerçek alarmı gölgeleyecek şekilde işgal etmek; (2)
-`RecordRecurrenceAsync`, katıldığı incident hiç investigation başlatmamışsa
-(`ConfigurationSnapshotId is null`) ve gelen alarm `IsResolved=false` ise,
-sayaç artırmak yerine `StartInvestigation`'ı tetiklemeli. Sahibin tercihi: bu
-iş fazlardan sonra veya bu alana zaten dokunan hangi faz varsa onun içine
-katlanarak yapılsın — ayrı bir faz açılmaz. **Burada uygulanmaz.**
+**Kabul kriterleri, üçü de gerekli:**
+1. `ix_incidents_active_fingerprint` gerçek bir `IsUnique()` partial index
+   olur: `(tenant, source, fingerprint) WHERE status NOT IN ('Resolved',
+   'Cancelled')`.
+2. Eşzamanlılık testi: aynı fingerprint için gerçekten eşzamanlı iki create
+   çağrısı **tek bir incident ve tek bir kaydedilmiş recurrence** üretir,
+   sessiz bir discard değil — bu, `KafkaConsumerService.IsDuplicateDelivery`'nin
+   "aynı mesaj tekrarı" ile "farklı mesaj, fingerprint yarışını kaybetti"
+   durumlarını ayırt etmesini ve ikincisini `RecordRecurrenceAsync`'e
+   yönlendirmesini gerektirir.
+3. "Resolved" durumundaki teslimat testi: aktif incident yokken gelen bir
+   `IsResolved=true` teslimat yeni, soruşturulmamış bir incident açmıyor — ya
+   da açtıysa, sonraki bir `IsResolved=false` teslimat geldiğinde
+   `RecordRecurrenceAsync`, sayaç artırmak yerine `StartInvestigation`'ı
+   tetikliyor.
+
+**Yerleşim:** kendi başına, bağımsız bir kayıt — F1-2'nin veya başka herhangi
+bir adımın kapsamına sessizce eklenmez. Incident fingerprint tekilliği ve
+alarm-yaratma yolu, product/environment şema işinden farklı bir sınırlı
+bağlamdır; ikisini birleştirmek ya o migration'ın review'ına ilgisiz risk
+sızdırır ya da F1-2 kapsamı daraltıldığında unutulur. Sahibin tercihi: F1
+adımları arasına güvenli bir kesim olarak (kendi adımı, mevcut bir adıma
+eklenti değil) girsin, ya da fazlardan sonra ayrı bir iş olarak yapılsın.
+**Burada uygulanmaz.**
 
 ---
 

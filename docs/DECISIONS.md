@@ -486,19 +486,54 @@ is already a schema-enforced invariant, not an application-level check.
 Product and environment become two more columns on that same composite key —
 `(Tenant, Product, Environment, ...)` wherever `(Tenant, ...)` appears today —
 not new entities with their own generated id, table and lifecycle. Rejected: a
-`Product` entity with a surrogate id and a `ProductId` foreign key on every
-model-provider row. It costs a lookup join on every one of the 13
-control-plane calls for a value the product-adaptability guide does not plan
-to manage independently (no create/list/rename Product endpoint is in scope),
-and it invites exactly the anti-pattern the guide's ADP-001 glossary forbids:
-a `Products` table has rows that exist and can be listed independent of any
-tenant, which is a global identity by construction no matter how carefully
-every query remembers to filter it. `Incident.Environment`
-(`IncidentConfiguration.cs`) already lives in the schema as a plain string
-with no entity, no foreign key and no lifecycle of its own, and it is never
-used as a query filter anywhere in the incident or model-provider
-repositories — introducing `Environment` as an entity now would give the
-platform two incompatible representations of the same word.
+`Product` entity keyed `(Tenant, ProductId)`, referenced everywhere through the
+same composite-FK shape `ModelProviderConfigurations.cs` already uses. An
+earlier draft of this entry rejected that option on isolation grounds — that a
+`Products` table would be "a global identity by construction." That claim does
+not hold and is retracted, not reused: a table keyed `(Tenant, ProductId)` and
+referenced only through `(Tenant, ForeignId) -> (Tenant, Id)` composite
+foreign keys is exactly as tenant-owned as a bare column, enforced by the
+identical mechanism; nothing about giving Product a surrogate id changes what
+a query can reach without a tenant. The real reasons are consistency and
+sequencing, not isolation.
+
+Consistency: `Tenant` itself — the platform's outermost and most consequential
+scope dimension — has no dedicated entity anywhere in this schema. There is no
+`Tenants` table, no `TenantId`, no surrogate key; every entity's `Tenant`
+column is a bare `string`, and renaming one (if that were ever needed) would
+be exactly the cascading update this decision accepts for `Product`. Giving
+`Product`, one level narrower than `Tenant`, more structure than `Tenant`
+itself — a surrogate id, a dedicated table, a lifecycle — would be an
+inconsistency nothing else in this schema exhibits. `Incident.Environment`
+(`IncidentConfiguration.cs`) reinforces the same point from the other
+direction: it already lives in the schema as a plain string with no entity, no
+foreign key and no lifecycle of its own, and it is never used as a query
+filter anywhere in the incident or model-provider repositories.
+
+Sequencing: the entity option's one real advantage — a rename becomes a
+single-row update instead of a cascade — only reaches the *live* control-plane
+tables, not history, and history is where immutability actually matters.
+`PinnedModelCandidate` (`ProviderRuntimeContracts.cs`), the type
+`ConfigurationPinner.PinCurrentAsync` freezes into every `ConfigurationSnapshot`,
+already denormalizes `Tenant`, `DeploymentLogicalName` and `ProviderModel` as
+plain strings at pin time, even though `ModelDeploymentVersionEntity` and
+`ProviderConnectionRevisionEntity` *do* have stable surrogate ids of their own.
+The established convention here is: keep a stable id for the mutable source of
+truth, but copy the human-meaningful value into the snapshot at the moment it
+is pinned, so a later rename of the source cannot retroactively change what a
+closed incident's report says it ran against. Making `Product` an entity would
+not change what gets frozen into a snapshot — it would still be a name, copied
+at pin time, exactly like `DeploymentLogicalName` is today — so the entity's
+rename benefit never reaches the one place immutability matters, and only pays
+for itself on the live side, for an operation (rename) the product-adaptability
+guide does not currently plan to expose (a backlog gap, not a design property,
+and not the reason for this decision by itself — named only because the cost
+is paid today for a benefit nobody exercises yet). A denormalized column is
+also the cheaper direction to grow from later: turning a `Product` string into
+a real entity, if a genuine need for owned metadata or a stable rename target
+appears, is a mechanical backfill — distinct strings become rows, the string
+becomes a display name. Collapsing an entity back into a bare column after
+code has come to depend on a `ProductId` is not.
 
 Landing on what exists: every `Tenant`-only filter and key in
 `ModelProviderRepository` (a dozen-plus call sites) and every
@@ -528,11 +563,19 @@ existing index that does not opt into the wider scope
 (`ix_incidents_active_fingerprint` and the incident table's other indexes stay
 exactly as they are — incidents are not in ADP-101's scope).
 
-**Cost:** renaming a product means updating every row that carries the
-string, because nothing gives a product a stable identity independent of its
-name, and there is nowhere to hang product-specific metadata (a display name
-distinct from the key, an owner, a description) without a later migration to
-an actual entity if that need ever arrives.
+**Cost:** renaming a product is a cascading update across every table that
+carries the string — `provider_connections`, `provider_connection_revisions`,
+`model_deployment_versions`, `model_assignment_releases`,
+`model_assignment_agent_slots`, `tenant_active_model_assignments` — all inside
+one transaction, because nothing gives a product a stable identity independent
+of its name. Already-pinned `configuration_snapshots` are correctly left
+untouched by that update: they freeze whatever product name was current at pin
+time, the same `PinnedModelCandidate` denormalization described above, so a
+report opened against an old snapshot can legitimately show a product name
+that no longer exists live — intended immutable-history behavior, not a
+defect this decision needs to fix. There is nowhere to hang product-specific
+metadata (a display name distinct from the key, an owner, a description)
+without a later migration to an actual entity if that need ever arrives.
 
 `TenantScope` is a closed set of exactly three scope kinds, not three free
 strings, and an illegal combination is a construction error the type refuses
