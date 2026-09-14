@@ -1081,6 +1081,20 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(128)")
                         .HasColumnName("tenant");
 
+                    b.Property<string>("Product")
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasDefaultValue("")
+                        .HasColumnName("product");
+
+                    b.Property<string>("Environment")
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasDefaultValue("")
+                        .HasColumnName("environment");
+
                     b.Property<Guid>("AssignmentReleaseId")
                         .HasColumnType("uuid")
                         .HasColumnName("assignment_release_id");
@@ -1094,9 +1108,9 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("deployment_version_id");
 
-                    b.HasKey("Tenant", "AssignmentReleaseId", "AgentName");
+                    b.HasKey("Tenant", "Product", "Environment", "AssignmentReleaseId", "AgentName");
 
-                    b.HasIndex("Tenant", "DeploymentVersionId");
+                    b.HasIndex("Tenant", "Product", "Environment", "DeploymentVersionId");
 
                     b.ToTable("model_assignment_agent_slots", (string)null);
                 });
@@ -1132,9 +1146,25 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(256)")
                         .HasColumnName("dataset");
 
+                    b.Property<string>("Environment")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasDefaultValue("")
+                        .HasColumnName("environment");
+
                     b.Property<bool>("Passed")
                         .HasColumnType("boolean")
                         .HasColumnName("passed");
+
+                    b.Property<string>("Product")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasDefaultValue("")
+                        .HasColumnName("product");
 
                     b.Property<DateTimeOffset>("RequestedAt")
                         .HasColumnType("timestamptz")
@@ -1160,7 +1190,7 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Tenant", "AssignmentReleaseId", "RequestedAt");
+                    b.HasIndex("Tenant", "Product", "Environment", "AssignmentReleaseId", "RequestedAt");
 
                     b.ToTable("model_assignment_evaluations", (string)null);
                 });
@@ -1195,11 +1225,27 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(256)")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("Environment")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasDefaultValue("")
+                        .HasColumnName("environment");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)")
                         .HasColumnName("name");
+
+                    b.Property<string>("Product")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasDefaultValue("")
+                        .HasColumnName("product");
 
                     b.Property<string>("Tenant")
                         .IsRequired()
@@ -1213,11 +1259,11 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Tenant", "ClassifierDeploymentVersionId");
+                    b.HasIndex("Tenant", "Product", "Environment", "ClassifierDeploymentVersionId");
 
-                    b.HasIndex("Tenant", "CorrelatorDeploymentVersionId");
+                    b.HasIndex("Tenant", "Product", "Environment", "CorrelatorDeploymentVersionId");
 
-                    b.HasIndex("Tenant", "Name", "Version")
+                    b.HasIndex("Tenant", "Product", "Environment", "Name", "Version")
                         .IsUnique();
 
                     b.ToTable("model_assignment_releases", (string)null);
@@ -1303,6 +1349,14 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(3)")
                         .HasColumnName("currency");
 
+                    b.Property<string>("Environment")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasDefaultValue("")
+                        .HasColumnName("environment");
+
                     b.Property<decimal>("InputCostPerMillionTokens")
                         .HasPrecision(18, 6)
                         .HasColumnType("numeric(18,6)")
@@ -1322,6 +1376,14 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 6)
                         .HasColumnType("numeric(18,6)")
                         .HasColumnName("output_cost_per_million_tokens");
+
+                    b.Property<string>("Product")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasDefaultValue("")
+                        .HasColumnName("product");
 
                     b.Property<Guid>("ProviderConnectionRevisionId")
                         .HasColumnType("uuid")
@@ -1362,9 +1424,9 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Tenant", "ProviderConnectionRevisionId");
+                    b.HasIndex("Tenant", "Product", "Environment", "ProviderConnectionRevisionId");
 
-                    b.HasIndex("Tenant", "LogicalName", "Version")
+                    b.HasIndex("Tenant", "Product", "Environment", "LogicalName", "Version")
                         .IsUnique();
 
                     b.ToTable("model_deployment_versions", (string)null);
@@ -1477,6 +1539,22 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(256)")
                         .HasColumnName("display_name");
 
+                    b.Property<string>("Environment")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasDefaultValue("")
+                        .HasColumnName("environment");
+
+                    b.Property<string>("Product")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasDefaultValue("")
+                        .HasColumnName("product");
+
                     b.Property<string>("Tenant")
                         .IsRequired()
                         .HasMaxLength(128)
@@ -1485,9 +1563,9 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Tenant", "ActiveRevisionId");
+                    b.HasIndex("Tenant", "Product", "Environment", "ActiveRevisionId");
 
-                    b.HasIndex("Tenant", "DisplayName")
+                    b.HasIndex("Tenant", "Product", "Environment", "DisplayName")
                         .IsUnique();
 
                     b.ToTable("provider_connections", (string)null);
@@ -1542,10 +1620,26 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(2048)")
                         .HasColumnName("endpoint");
 
+                    b.Property<string>("Environment")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasDefaultValue("")
+                        .HasColumnName("environment");
+
                     b.Property<string>("Organization")
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)")
                         .HasColumnName("organization");
+
+                    b.Property<string>("Product")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasDefaultValue("")
+                        .HasColumnName("product");
 
                     b.Property<Guid>("ProviderConnectionId")
                         .HasColumnType("uuid")
@@ -1568,7 +1662,7 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Tenant", "ProviderConnectionId", "Revision")
+                    b.HasIndex("Tenant", "Product", "Environment", "ProviderConnectionId", "Revision")
                         .IsUnique();
 
                     b.ToTable("provider_connection_revisions", (string)null);
@@ -1580,6 +1674,22 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<string>("Environment")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasDefaultValue("")
+                        .HasColumnName("environment");
+
+                    b.Property<string>("Product")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasDefaultValue("")
+                        .HasColumnName("product");
 
                     b.Property<Guid>("ProviderConnectionRevisionId")
                         .HasColumnType("uuid")
@@ -1613,7 +1723,7 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Tenant", "ProviderConnectionRevisionId", "VerifiedAt");
+                    b.HasIndex("Tenant", "Product", "Environment", "ProviderConnectionRevisionId", "VerifiedAt");
 
                     b.ToTable("provider_revision_verifications", (string)null);
                 });
@@ -1624,6 +1734,20 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)")
                         .HasColumnName("tenant");
+
+                    b.Property<string>("Product")
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasDefaultValue("")
+                        .HasColumnName("product");
+
+                    b.Property<string>("Environment")
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasDefaultValue("")
+                        .HasColumnName("environment");
 
                     b.Property<DateTimeOffset>("ActivatedAt")
                         .HasColumnType("timestamptz")
@@ -1639,9 +1763,9 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("assignment_release_id");
 
-                    b.HasKey("Tenant");
+                    b.HasKey("Tenant", "Product", "Environment");
 
-                    b.HasIndex("Tenant", "AssignmentReleaseId");
+                    b.HasIndex("Tenant", "Product", "Environment", "AssignmentReleaseId");
 
                     b.ToTable("tenant_active_model_assignments", (string)null);
                 });
@@ -1719,15 +1843,15 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                 {
                     b.HasOne("SreAiAgent.Infrastructure.Persistence.Entities.ModelAssignmentReleaseEntity", null)
                         .WithMany()
-                        .HasForeignKey("Tenant", "AssignmentReleaseId")
-                        .HasPrincipalKey("Tenant", "Id")
+                        .HasForeignKey("Tenant", "Product", "Environment", "AssignmentReleaseId")
+                        .HasPrincipalKey("Tenant", "Product", "Environment", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("SreAiAgent.Infrastructure.Persistence.Entities.ModelDeploymentVersionEntity", null)
                         .WithMany()
-                        .HasForeignKey("Tenant", "DeploymentVersionId")
-                        .HasPrincipalKey("Tenant", "Id")
+                        .HasForeignKey("Tenant", "Product", "Environment", "DeploymentVersionId")
+                        .HasPrincipalKey("Tenant", "Product", "Environment", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -1736,8 +1860,8 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                 {
                     b.HasOne("SreAiAgent.Infrastructure.Persistence.Entities.ModelAssignmentReleaseEntity", null)
                         .WithMany()
-                        .HasForeignKey("Tenant", "AssignmentReleaseId")
-                        .HasPrincipalKey("Tenant", "Id")
+                        .HasForeignKey("Tenant", "Product", "Environment", "AssignmentReleaseId")
+                        .HasPrincipalKey("Tenant", "Product", "Environment", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -1746,15 +1870,15 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                 {
                     b.HasOne("SreAiAgent.Infrastructure.Persistence.Entities.ModelDeploymentVersionEntity", null)
                         .WithMany()
-                        .HasForeignKey("Tenant", "ClassifierDeploymentVersionId")
-                        .HasPrincipalKey("Tenant", "Id")
+                        .HasForeignKey("Tenant", "Product", "Environment", "ClassifierDeploymentVersionId")
+                        .HasPrincipalKey("Tenant", "Product", "Environment", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("SreAiAgent.Infrastructure.Persistence.Entities.ModelDeploymentVersionEntity", null)
                         .WithMany()
-                        .HasForeignKey("Tenant", "CorrelatorDeploymentVersionId")
-                        .HasPrincipalKey("Tenant", "Id")
+                        .HasForeignKey("Tenant", "Product", "Environment", "CorrelatorDeploymentVersionId")
+                        .HasPrincipalKey("Tenant", "Product", "Environment", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("FK_model_assignment_releases_model_deployment_versions_tenant~1");
@@ -1764,8 +1888,8 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                 {
                     b.HasOne("SreAiAgent.Infrastructure.Persistence.Entities.ProviderConnectionRevisionEntity", null)
                         .WithMany()
-                        .HasForeignKey("Tenant", "ProviderConnectionRevisionId")
-                        .HasPrincipalKey("Tenant", "Id")
+                        .HasForeignKey("Tenant", "Product", "Environment", "ProviderConnectionRevisionId")
+                        .HasPrincipalKey("Tenant", "Product", "Environment", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -1774,8 +1898,8 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                 {
                     b.HasOne("SreAiAgent.Infrastructure.Persistence.Entities.ProviderConnectionRevisionEntity", null)
                         .WithMany()
-                        .HasForeignKey("Tenant", "ActiveRevisionId")
-                        .HasPrincipalKey("Tenant", "Id")
+                        .HasForeignKey("Tenant", "Product", "Environment", "ActiveRevisionId")
+                        .HasPrincipalKey("Tenant", "Product", "Environment", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
@@ -1783,8 +1907,8 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                 {
                     b.HasOne("SreAiAgent.Infrastructure.Persistence.Entities.ProviderConnectionEntity", null)
                         .WithMany()
-                        .HasForeignKey("Tenant", "ProviderConnectionId")
-                        .HasPrincipalKey("Tenant", "Id")
+                        .HasForeignKey("Tenant", "Product", "Environment", "ProviderConnectionId")
+                        .HasPrincipalKey("Tenant", "Product", "Environment", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -1793,8 +1917,8 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                 {
                     b.HasOne("SreAiAgent.Infrastructure.Persistence.Entities.ProviderConnectionRevisionEntity", null)
                         .WithMany()
-                        .HasForeignKey("Tenant", "ProviderConnectionRevisionId")
-                        .HasPrincipalKey("Tenant", "Id")
+                        .HasForeignKey("Tenant", "Product", "Environment", "ProviderConnectionRevisionId")
+                        .HasPrincipalKey("Tenant", "Product", "Environment", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -1803,8 +1927,8 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                 {
                     b.HasOne("SreAiAgent.Infrastructure.Persistence.Entities.ModelAssignmentReleaseEntity", null)
                         .WithMany()
-                        .HasForeignKey("Tenant", "AssignmentReleaseId")
-                        .HasPrincipalKey("Tenant", "Id")
+                        .HasForeignKey("Tenant", "Product", "Environment", "AssignmentReleaseId")
+                        .HasPrincipalKey("Tenant", "Product", "Environment", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

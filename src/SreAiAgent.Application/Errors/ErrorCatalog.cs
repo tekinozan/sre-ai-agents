@@ -97,6 +97,7 @@ public static class ErrorCatalog
             [DomainErrorCodes.RemediationRiskNotPermitted.Value] = new(Forbidden, false),
             [DomainErrorCodes.ReportVersionConflict.Value] = new(Conflict, false),
             [DomainErrorCodes.ModelConfigurationInvalid.Value] = new(BadRequest, false),
+            [DomainErrorCodes.TenantScopeInvalid.Value] = new(BadRequest, false),
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>

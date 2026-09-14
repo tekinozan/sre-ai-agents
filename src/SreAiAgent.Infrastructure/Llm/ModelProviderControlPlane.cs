@@ -327,10 +327,15 @@ internal sealed class ModelProviderControlPlane(
 
             DateTimeOffset now = timeProvider.GetUtcNow();
             ModelAssignmentEvaluationId evaluationId = ModelAssignmentEvaluationId.New();
+            // Staging point (D40): tenant arrives bare until F1-5 cuts this
+            // interface over to a real TenantScope.
+            TenantScope scope = TenantScope.TenantWide(tenant);
             providers.AddEvaluation(new ModelAssignmentEvaluationEntity
             {
                 Id = evaluationId,
-                Tenant = tenant,
+                Tenant = scope.Tenant,
+                Product = scope.Product,
+                Environment = scope.Environment,
                 AssignmentReleaseId = releaseId,
                 Dataset = Required(dataset, "dataset"),
                 Baseline = Required(baseline, "baseline"),
