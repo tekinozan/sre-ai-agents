@@ -265,6 +265,34 @@ bu açıkça yazılır.
 **Pilot 1:** verilmedi. ADP-004 iki gerçek hedef ister, bu yüzden iş bloklu kalır ve Aşama 1'e bu
 kayıtla geçilmez.
 
+**Canlı çalıştırma (2026-09-14):** Transport ve orkestrasyon uçtan uca doğrulandı: gerçek bir
+Alertmanager zarfı kabul edildi, incident açıldı, outbox dispatch edildi, soruşturma başladı ve
+flag release'in ardından yalnızca `app-expert` seçildi (`kubernetes-expert` üretim/staging'e
+kalır, `database-expert` sınıflandırma dışı kaldığı için seçilmedi). RCA kalite kriteri hâlâ
+**bloklu**: sağlanan OpenAI kimlik bilgisi yaklaşık 24 dakika boyunca her denemede HTTP 429
+döndürdü, `app-expert` `Failed` durumunda `LLM_RATE_LIMITED` hatasıyla kapandı ve sıfır tool
+çağrısı yaptı. Bu, pilotun başarılı olduğu anlamına gelmez: kanıt zinciri (alert → incident →
+outbox → workflow → agent seçimi) doğrulandı, ama hiçbir bulgu üretilmedi ve RCA kalitesi hiç
+ölçülemedi.
+
+#### Çoklu sağlayıcı gereksinimi (canlı çalıştırmadan çıkan bulgu)
+
+Tek, ücretli bir sağlayıcı pilotun tek arıza noktasıdır — yukarıdaki 429 kesintisi bunu gösterdi.
+Platformun `openai-compatible` adaptörü bugün doğrudan OpenRouter'a, Google'ın OpenAI-uyumlu
+ucuna veya NVIDIA'nın barındırılan ucuna yönlendirilemez: `ProviderClientCatalog.Descriptor`
+`OpenAiCompatible`'a yalnızca `StructuredOutput | SystemMessage` yeteneği tanıyor
+(`src/SreAiAgent.Infrastructure/Llm/Providers/ProviderClientResolver.cs`), oysa gönderilen
+`analytical` profili (`config/models/analytical.v1.yaml`) `tool_calling` ve
+`parallel_tool_calls` bildiriyor; aktivasyon `MODEL_CAPABILITY_MISMATCH` ile reddedilir. Ayrıca
+`ProviderRevisionVerifier` yalnızca tek bir GET isteği atıyor
+(`src/SreAiAgent.Infrastructure/Llm/Providers/ProviderRevisionVerifier.cs`) — bu erişilebilirliği
+kanıtlar, bir backend'in `response_format`'ı veya herhangi bir bildirilen yeteneği gerçekten
+desteklediğini kanıtlamaz.
+
+Bu iş Aşama 3'e aittir (ADP-301 provider-model seçimi, ADP-302 capability activation validation,
+ADP-306 iki gerçek provider için opt-in live kanıt — bkz. `adp-phased-execution-plan.md`
+F3-1/F3-2/F3-6); burada başlatılmaz.
+
 ## Aşama 1 — product/environment control plane ve snapshot uyumluluğu
 
 İşler: ADP-101, ADP-102, ADP-103, ADP-104, ADP-105. Durum: planlandı.

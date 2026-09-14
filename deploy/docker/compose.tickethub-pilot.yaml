@@ -1,0 +1,186 @@
+# TicketHub pilot overlay — HTTP-boundary + live-provider verification.
+#
+# A third layer on top of `compose.yaml` + `compose.observability.yaml` that:
+#   1. points this platform's `Llm:Bootstrap` at a real (non-Scripted) model
+#      provider for tenant `local`, instead of the Scripted adapter every other
+#      overlay uses;
+#   2. redirects `api` and `investigation-worker` to a pilot target's own
+#      Prometheus/Loki instead of this platform's fakes;
+#   3. joins `api` to the pilot target's alerting network so a real
+#      Alertmanager delivery can reach alert ingress by service name.
+#
+# Provider selection (compose substitution; every one is optional except
+# SRE_PILOT_CREDENTIAL_DIR, and the defaults reproduce the original TicketHub
+# run):
+#
+#   SRE_PILOT_ADAPTER_KIND      default: OpenAi. Also accepts OpenAiCompatible
+#                               for an endpoint that speaks the OpenAI wire
+#                               format without being OpenAI itself (OpenRouter,
+#                               Google's OpenAI-compatible endpoint, NVIDIA's
+#                               hosted endpoint). Read the capability note below
+#                               before switching to it.
+#   SRE_PILOT_ENDPOINT          default: https://api.openai.com/v1/
+#   SRE_PILOT_MODEL_ANALYTICAL  default: gpt-4o-mini
+#   SRE_PILOT_MODEL_FAST        default: gpt-4o-mini
+#
+# Credential — file mount, not the process environment. `Llm:CredentialFileRoot`
+# defaults to `/var/run/secrets/sre-ai` (`SreOptions.cs`, `LlmOptions`; nothing
+# in this repository's shipped configuration overrides it) and
+# `ExternalReferenceCredentialResolver` (`CredentialResolver.cs:12,38-53`)
+# resolves a `file://<relative-path>` reference under that root, refusing
+# anything that escapes it, and trims the file's contents before use. That
+# means the key never has to enter the container's environment at all:
+#
+#   SRE_PILOT_CREDENTIAL_DIR    REQUIRED, no default. Host directory, yours to
+#                               create and to keep out of version control,
+#                               containing one file per credential you
+#                               reference. Mounted read-only at
+#                               `/var/run/secrets/sre-ai` on all three
+#                               services — a plain bind mount, matching every
+#                               other file mount in this compose stack
+#                               (`provision-postgres.sh`, `otel-collector.yaml`,
+#                               `prometheus.yaml`), rather than Compose's
+#                               `secrets:` construct, which this repository
+#                               does not otherwise use and which, outside a
+#                               Swarm, resolves to the same bind-mount
+#                               mechanism with a fixed in-container path — no
+#                               meaningful difference here, one more construct
+#                               to know.
+#   SRE_PILOT_CREDENTIAL_FILE   default: sre-pilot-credential. The relative
+#                               filename, under SRE_PILOT_CREDENTIAL_DIR, that
+#                               `Llm__Bootstrap__CredentialRef` resolves as
+#                               `file://<name>`. The file contains nothing but
+#                               the key — no trailing newline needed, the
+#                               resolver trims whitespace.
+#
+# `env://` fallback. If mounting a directory is awkward for your setup, revert
+# to the environment-variable form this overlay used before: override
+# `Llm__Bootstrap__CredentialRef` to `env://<VAR_NAME>` on each of the three
+# services below, and supply that variable via `environment:` or `env_file:`
+# in your own additional compose layer. Know what that costs before choosing
+# it: the credential becomes visible in `docker inspect`, in
+# `/proc/<pid>/environ` inside the container, and in any crash dump or
+# diagnostic tool that prints the process environment. The file mount above
+# does not have that exposure.
+#
+# Capability note (recorded as an ADP-004 finding in
+# docs/plans/product-adaptability-implementation-and-testing.md): the platform
+# cannot simply point OpenAiCompatible at an arbitrary OpenAI-wire-format
+# endpoint today. `ProviderClientCatalog.Descriptor` grants
+# `ProviderAdapterKind.OpenAiCompatible` only
+# `ModelCapability.StructuredOutput | ModelCapability.SystemMessage`, while the
+# shipped `analytical` profile (`config/models/analytical.v1.yaml`) declares
+# `tool_calling` and `parallel_tool_calls`. Every agent that resolves through
+# `analytical` fails activation with `MODEL_CAPABILITY_MISMATCH` against an
+# OpenAiCompatible revision. `fast` (classification only, no tool calling)
+# would activate; the agents would not.
+#
+# Non-destructive provider switch. `ModelAssignmentBootstrapper` only
+# bootstraps a tenant with no ACTIVE assignment (fast-path check before the
+# advisory lock, `ModelAssignmentBootstrapper.cs`). Once tenant `local` has run
+# once, bringing this overlay back up with different `Llm__Bootstrap__*` values
+# does nothing — bootstrap does not re-run, and `docker compose down -v` to
+# force it destroys the `postgres-data` volume along with every incident,
+# report and audit row. To change the provider without losing any of that, use
+# the management API instead (`ModelProviderEndpoints.cs`, ARCHITECTURE.md
+# 12.1), authenticated as a caller with the Operator or PlatformAdmin role
+# (`SrePolicies.ManageModelProviders`):
+#
+#   1. POST /v1/model-providers/{connectionId}/revisions — a new immutable
+#      revision on the tenant's existing connection: adapter kind, endpoint,
+#      declared capabilities, and `credentialRef: file://<name>` (or
+#      `env://<var>`, see the fallback above) for the new provider. The prior
+#      revision and the currently active assignment are untouched.
+#   2. POST /v1/model-providers/{connectionId}/revisions/{revision}/verify —
+#      `ProviderRevisionVerifier` issues one GET against the endpoint. This
+#      proves reachability and records verified capabilities; it does NOT
+#      prove the backend honours `response_format`, tool calling, or any other
+#      declared capability under load.
+#   3. POST /v1/model-deployments (then
+#      /v1/model-deployments/{deploymentVersionId}/versions for a later
+#      version) — one `ModelDeploymentVersion` per model profile (analytical,
+#      fast, ...), pinned to the new revision, naming the real model and the
+#      capabilities that revision declares.
+#   4. POST /v1/model-assignment-releases — a new `ModelAssignmentRelease`
+#      naming the classifier/correlator deployment versions and one deployment
+#      version per released agent.
+#   5. `Llm:RequireEvaluationForActivation` defaults to `true` and nothing in
+#      this repository's shipped configuration turns it off, so activation
+#      needs a genuinely recorded passing evaluation first:
+#      POST .../model-assignment-releases/{releaseId}/evaluate, then
+#      POST .../model-assignment-releases/{releaseId}/evaluations/{evaluationId}
+#      with `passed: true` and a real artifact hash. There is no bypass for a
+#      local pilot — recording a pass without an evaluation that actually ran
+#      is exactly the fabricated evidence this gate exists to catch.
+#   6. POST /v1/model-assignment-releases/{releaseId}/activate — the new
+#      release becomes active for tenant `local`. Every prior connection,
+#      revision, assignment and incident stays in the database.
+#
+# Observability redirection. `api` and `investigation-worker` are pointed at
+# TicketHub's own Prometheus/Loki (ports 9090/3100) via the Docker Desktop host
+# gateway (`host.docker.internal`), not by joining TicketHub's
+# `prometheus`/`loki` containers to a shared network — that would collide by
+# name with this platform's own same-named containers (see TicketHub's
+# `docker-compose.yml` header comment).
+#
+# `api` also joins the external `sre-observability` network, the same network
+# TicketHub's `alertmanager` joins, so a real Alertmanager delivery can reach
+# this container by service name `api`. Create the network first if it does
+# not already exist:
+#
+#   docker network create sre-observability
+#
+# Usage:
+#   docker compose \
+#     -f deploy/docker/compose.yaml \
+#     -f deploy/docker/compose.observability.yaml \
+#     -f deploy/docker/compose.tickethub-pilot.yaml \
+#     up -d --build
+
+services:
+  api:
+    volumes:
+      - ${SRE_PILOT_CREDENTIAL_DIR}:/var/run/secrets/sre-ai:ro
+    environment:
+      Llm__Bootstrap__AdapterKind: ${SRE_PILOT_ADAPTER_KIND:-OpenAi}
+      Llm__Bootstrap__Endpoint: ${SRE_PILOT_ENDPOINT:-https://api.openai.com/v1/}
+      Llm__Bootstrap__CredentialRef: file://${SRE_PILOT_CREDENTIAL_FILE:-sre-pilot-credential}
+      Llm__ModelNameByProfile__analytical: ${SRE_PILOT_MODEL_ANALYTICAL:-gpt-4o-mini}
+      Llm__ModelNameByProfile__fast: ${SRE_PILOT_MODEL_FAST:-gpt-4o-mini}
+      Observability__MetricsProvider: prometheus
+      Observability__LogProvider: loki
+      Observability__PrometheusBaseAddress: http://host.docker.internal:9090/
+      Observability__LogBackendBaseAddress: http://host.docker.internal:3100/
+      Observability__KubernetesProvider: fake
+    networks:
+      - default
+      - sre-observability
+
+  investigation-worker:
+    volumes:
+      - ${SRE_PILOT_CREDENTIAL_DIR}:/var/run/secrets/sre-ai:ro
+    environment:
+      Llm__Bootstrap__AdapterKind: ${SRE_PILOT_ADAPTER_KIND:-OpenAi}
+      Llm__Bootstrap__Endpoint: ${SRE_PILOT_ENDPOINT:-https://api.openai.com/v1/}
+      Llm__Bootstrap__CredentialRef: file://${SRE_PILOT_CREDENTIAL_FILE:-sre-pilot-credential}
+      Llm__ModelNameByProfile__analytical: ${SRE_PILOT_MODEL_ANALYTICAL:-gpt-4o-mini}
+      Llm__ModelNameByProfile__fast: ${SRE_PILOT_MODEL_FAST:-gpt-4o-mini}
+      Observability__MetricsProvider: prometheus
+      Observability__LogProvider: loki
+      Observability__PrometheusBaseAddress: http://host.docker.internal:9090/
+      Observability__LogBackendBaseAddress: http://host.docker.internal:3100/
+      Observability__KubernetesProvider: fake
+
+  alert-worker:
+    volumes:
+      - ${SRE_PILOT_CREDENTIAL_DIR}:/var/run/secrets/sre-ai:ro
+    environment:
+      Llm__Bootstrap__AdapterKind: ${SRE_PILOT_ADAPTER_KIND:-OpenAi}
+      Llm__Bootstrap__Endpoint: ${SRE_PILOT_ENDPOINT:-https://api.openai.com/v1/}
+      Llm__Bootstrap__CredentialRef: file://${SRE_PILOT_CREDENTIAL_FILE:-sre-pilot-credential}
+      Llm__ModelNameByProfile__analytical: ${SRE_PILOT_MODEL_ANALYTICAL:-gpt-4o-mini}
+      Llm__ModelNameByProfile__fast: ${SRE_PILOT_MODEL_FAST:-gpt-4o-mini}
+
+networks:
+  sre-observability:
+    external: true

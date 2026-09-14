@@ -1,0 +1,89 @@
+# Agent control plane flags (ARCHITECTURE.md 24).
+#
+# A flag decides whether an agent participates. It does not decide what the agent
+# may do: `state: active` never implies permission to write. Section 24.4 keeps
+# availability and authorization in separate components precisely so that
+# flipping a flag cannot become a privilege escalation, and the risk ceiling on
+# the execution context still overrides anything set here.
+#
+# Evaluated flags are pinned into the incident's configuration snapshot at
+# investigation start, so a change made mid-incident does not alter work already
+# in flight. The one documented exception is kill_switched, which is evaluated
+# live because it exists for emergencies.
+#
+# v2: adds `development: true` for app-expert only. v1 only listed
+# production/staging, which meant every incident from a local/dev deployment
+# excluded app-expert outright — not a capability mismatch, an environment the
+# release never anticipated. kubernetes-expert stays production/staging only:
+# this pilot runs on local Docker Compose with no Kubernetes cluster behind
+# it, so enabling it for development would not add capability, only an agent
+# that gets selected by the `availability` classification and then fails or
+# fabricates findings calling `kubernetes.pods`/`kubernetes.events` against a
+# cluster that does not exist. database-expert is untouched: it was correctly
+# excluded from the incident that surfaced this by classification (it doesn't
+# handle error-rate/availability), not by environment.
+
+version: v2
+
+defaults:
+  state: disabled
+  environments:
+    production: false
+    staging: false
+
+agents:
+  - name: database-expert
+    version: v1
+    availability:
+      state: active
+      environments:
+        production: true
+        staging: true
+    routing:
+      allowed_incident_types:
+        - database
+        - latency
+        - timeout
+        - connection-pool
+    execution:
+      mode: read_only
+    rollout:
+      mode: all
+
+  - name: app-expert
+    version: v1
+    availability:
+      state: active
+      environments:
+        production: true
+        staging: true
+        development: true
+    routing:
+      allowed_incident_types:
+        - latency
+        - error-rate
+        - availability
+        - deployment
+        - timeout
+    execution:
+      mode: read_only
+    rollout:
+      mode: all
+
+  - name: kubernetes-expert
+    version: v1
+    availability:
+      state: active
+      environments:
+        production: true
+        staging: true
+    routing:
+      allowed_incident_types:
+        - kubernetes
+        - availability
+        - resource-exhaustion
+        - deployment
+    execution:
+      mode: read_only
+    rollout:
+      mode: all

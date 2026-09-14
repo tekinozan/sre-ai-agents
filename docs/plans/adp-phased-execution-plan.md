@@ -253,12 +253,12 @@ provider target'ı (bloklu bileşen).
 
 | Adım | İş | Sınır ve kanıt |
 |---|---|---|
-| F3-1 | Product/env/agent bazlı provider-model seçimi (ADP-301) | Pinned revision ile çözülür; parametre düşürme veya scripted'a dönüş yasak |
-| F3-2 | Capability activation validation: descriptor bazlı (ADP-302) | Model adından yetenek tahmini yok; eksik slot atomik reddedilir |
+| F3-1 | Product/env/agent bazlı provider-model seçimi (ADP-301) | Pinned revision ile çözülür; parametre düşürme veya scripted'a dönüş yasak; ADP-004 canlı çalıştırması tek-sağlayıcı riskini gösterdi (product-adaptability-implementation-and-testing.md, "Çoklu sağlayıcı gereksinimi") |
+| F3-2 | Capability activation validation: descriptor bazlı (ADP-302) | Model adından yetenek tahmini yok; eksik slot atomik reddedilir; `OpenAiCompatible` bugün yalnızca `StructuredOutput \| SystemMessage` verir, `analytical` profilinin tool-calling talebiyle çakışır (aynı bulgu) |
 | F3-3 | Açık fallback / disabled davranışı (ADP-303) | Cloud fallback varsayılan kapalı; açıksa policy + allowlist + aggregate budget |
 | F3-4 | Gateway-enforced budget (ADP-304) | Budget dolduğunda outbound çağrı yok; audit/metric güvenli |
 | F3-5 | Credential rotation ve revision cutover (ADP-305) | Yeni revision üretir; eski snapshot çözülemezse açık hata |
-| F3-6 | İki gerçek provider için opt-in live kanıt (ADP-306) | **BLOKLU**: credential + onaylı target gerekir; eksikse `failed`/`blocked`, asla skip |
+| F3-6 | İki gerçek provider için opt-in live kanıt (ADP-306) | **BLOKLU**: credential + onaylı target gerekir; eksikse `failed`/`blocked`, asla skip; ADP-004'ün OpenAI 429 kesintisi ikinci gerçek provider ihtiyacını doğruladı (aynı bulgu) |
 | F3-7 | Planlı fixture'lar: local compatible endpoint contract, native Gemini wire, discovery'siz manual model ID | Bunlar live kanıt değildir, öyle yazılmaz |
 | F3-8 | Gate + evidence + doküman | Adapter dosyasının varlığı kanıt sayılmaz |
 

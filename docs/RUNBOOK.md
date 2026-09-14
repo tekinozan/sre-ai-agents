@@ -232,3 +232,15 @@ rather than continued, and the tokens already spent are spent again.
 The row keeps its payload. Reset `is_dead_lettered` and `next_attempt_at` once the
 cause is fixed, and the dispatcher picks it up on its next pass. Consumers are
 idempotent, so a replay of something that partly succeeded is safe.
+
+### Running a pilot against a real provider and a real target
+
+`deploy/docker/compose.tickethub-pilot.yaml` is a fourth compose layer, on top
+of `compose.yaml` + `compose.observability.yaml`, that points `Llm:Bootstrap`
+at a real model provider instead of Scripted and redirects observability to a
+pilot target's own Prometheus/Loki. Adapter kind, endpoint, per-profile model
+and the credential variable name are all compose substitution parameters —
+read the file's own header for the full parameter list, the capability
+mismatch a non-OpenAI-shaped provider hits today, and the non-destructive
+sequence (management API, not `docker compose down -v`) for changing the
+provider on a tenant that has already bootstrapped.
