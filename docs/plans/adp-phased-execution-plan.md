@@ -415,6 +415,59 @@ eklenti değil) girsin, ya da fazlardan sonra ayrı bir iş olarak yapılsın.
 
 ---
 
+**BUG-002 — Bir operatör `TenantWide` seviyesinde aktif bir assignment bırakmadan bir `ProductWide` veya `Full` release'i aktive ederse, o tenant'ın **bütün** incident'ları sessizce soruşturulamaz hale geliyor; ne şema ne de `ActivateAsync`'in başarılı yanıtı bunu uyarıyor.**
+
+**Kaynak — D41 (`DECISIONS.md`), kod okumasıyla doğrulandı, hipotez değil.**
+D41, `GetActiveSnapshotAsync`'in tam kapsam eşleşmesi (exact match) kullanmasına,
+`Full → ProductWide → TenantWide` gibi bir fallback zincirine **asla**
+başvurmamasına karar verdi — çünkü bu metodun tek gerçek çağrı yolu
+(`ConfigurationPinner.PinCurrentAsync`, `CreateIncidentHandler`/
+`StartInvestigationHandler`/`RetryInvestigationHandler` ve
+`ModelAssignmentBootstrapper` üzerinden) principal'siz ve yalnızca çıplak bir
+tenant string'ine sahip: `Incident`'ın şemasında `Product` alanı yok,
+`LlmOptions.BootstrapOptions`'ta da yok. Bu karar doğruydu — kanıt onu
+destekliyor — ama kendi maliyet paragrafı şunu açıkça söylüyor: `TenantWide`
+dışına daraltan bir operatör, daraltılmış ürüne değil, **o tenant'ın bütün
+incident'larına** ait yapılandırma çözümlemesini kırıyor, çünkü hiçbir
+etiketlenmemiş incident hangi ürüne ait olduğunu seçemiyor.
+
+**Etki, sınıf: sessiz operasyonel kesinti.** `ActivateAsync`
+(`IModelProviderControlPlane`) tenant'ın hâlâ erişilebilir bir `TenantWide`
+assignment'ı olup olmadığını kontrol etmiyor; başarılı `ModelAssignmentRelease`
+döndürüyor, ne bir uyarı ne bir hata. Bundan sonra o tenant için açılan her
+incident, `ConfigurationPinner.PinCurrentAsync` içinde
+`ApplicationErrorCodes.ModelAssignmentNotFound` ile başarısız olur —
+soruşturma hiç başlamaz — operatör bunu fark edene ve elle bir `TenantWide`
+release'i yeniden aktive edene kadar. Şemada bu durumu engelleyen hiçbir
+kısıt yok; D41 bunu bilerek kabul etti, çünkü kapsamındaki tek gerçek soru
+"fallback var mı yok mu" idi, "aktivasyon operatörü uyarmalı mı" değil.
+
+**Kabul kriterleri, D41'in kendi metninde adı geçen iki seçenekten biri —
+hangisi seçilirse kapanır:**
+1. Incident pipeline'ı bir ürün boyutu kazanır (ör. `Incident.Product`), böylece
+   `ProductWide`/`Full` seviyeleri `GetActiveSnapshotAsync`'in tek gerçek çağrı
+   yolundan gerçekten çözümlenebilir hale gelir; **veya**
+2. `ActivateAsync`, bir `ProductWide`/`Full` release'i aktive etmek tenant'ı
+   erişilebilir hiçbir `TenantWide` assignment'ı olmadan bırakacaksa reddeder
+   ya da açıkça uyarır — bu, `ModelProviderRepository`'nin aktivasyon anında
+   aynı tenant için `TenantWide` kapsamlı bir aktif assignment sorgulamasını
+   gerektirir.
+
+Hangisi seçilirse seçilsin, kapanış kanıtı: (a) bir entegrasyon testi, bir
+`TenantWide` release aktifken bir `ProductWide` release'in aktive edilmesinin
+ardından o tenant için yeni bir incident'ın soruşturmaya başladığını
+doğrulamalı, ve (b) seçenek 2 ise, aynı senaryoda `TenantWide` release'in
+geri çekilmesinin `ActivateAsync`'i reddettiğini veya uyardığını doğrulayan
+ayrı bir test.
+
+**Yerleşim:** BUG-001 ile aynı gerekçeyle kendi başına, bağımsız bir kayıt —
+F1-3'ün veya F1-5'in kapsamına sessizce eklenmez; her ikisi de bu tuzağı
+*açıklıyor*, kapatmıyor. Ürün boyutunun nereye ekleneceği (incident şeması mı,
+aktivasyon kontrolü mü) ayrı bir tasarım kararı gerektiriyor ve F1 fazının
+geri kalanının review'ına ilgisiz risk sızdırmamalı. **Burada uygulanmaz.**
+
+---
+
 ## Kullanıcıdan beklenen girdiler
 
 | Girdi | Bloklanan adım | Neden uydurulamaz |

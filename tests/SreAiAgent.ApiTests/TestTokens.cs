@@ -25,13 +25,26 @@ internal static class TestTokens
 
     public static SymmetricSecurityKey SigningKey { get; } = new(KeyBytes);
 
-    public static string For(string? tenant, params string[] roles)
+    public static string For(string? tenant, params string[] roles) => ForScope(tenant, null, null, roles);
+
+    /// <summary>Mints a token carrying optional product and environment claims (D40, F1-3).</summary>
+    public static string ForScope(string? tenant, string? product, string? environment, params string[] roles)
     {
         List<Claim> claims = [new(ClaimTypes.NameIdentifier, "test-operator")];
 
         if (!string.IsNullOrWhiteSpace(tenant))
         {
             claims.Add(new(SreClaims.Tenant, tenant));
+        }
+
+        if (!string.IsNullOrWhiteSpace(product))
+        {
+            claims.Add(new(SreClaims.Product, product));
+        }
+
+        if (!string.IsNullOrWhiteSpace(environment))
+        {
+            claims.Add(new(SreClaims.Environment, environment));
         }
 
         foreach (string role in roles)

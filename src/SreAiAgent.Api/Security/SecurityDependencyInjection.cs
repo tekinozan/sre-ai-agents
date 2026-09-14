@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using SreAiAgent.Infrastructure.Configuration;
+using ModelProviderTenantScope = SreAiAgent.Domain.ModelProviders.TenantScope;
 
 namespace SreAiAgent.Api.Security;
 
@@ -110,6 +111,35 @@ public static class PrincipalExtensions
         ArgumentNullException.ThrowIfNull(principal);
 
         return principal.FindFirstValue(SreClaims.Tenant) ?? string.Empty;
+    }
+
+    /// <summary>
+    /// The caller's <see cref="ModelProviderTenantScope"/> (D40, F1-3),
+    /// derived only from validated claims.
+    /// </summary>
+    /// <remarks>
+    /// ADP-203: scope never comes from a request body, a query string or a
+    /// header, so this is the only place a <see cref="ModelProviderTenantScope"/>
+    /// is built for a caller. A missing <see cref="SreClaims.Product"/> or
+    /// <see cref="SreClaims.Environment"/> claim is never a wildcard —
+    /// <see cref="ModelProviderTenantScope.Create"/> turns its absence into
+    /// <c>TenantWide</c>, a specific and narrow scope that matches only other
+    /// <c>TenantWide</c> rows, never "every row in this tenant."
+    /// </remarks>
+    /// <exception cref="SreAiAgent.Domain.Shared.DomainException">
+    /// The caller holds an <see cref="SreClaims.Environment"/> claim without a
+    /// <see cref="SreClaims.Product"/> claim. D40 has no scope kind for that
+    /// combination, so it is rejected here, at construction, before it can
+    /// reach anything that matches a scope against a row.
+    /// </exception>
+    public static ModelProviderTenantScope TenantScope(this ClaimsPrincipal principal)
+    {
+        ArgumentNullException.ThrowIfNull(principal);
+
+        return ModelProviderTenantScope.Create(
+            principal.Tenant(),
+            principal.FindFirstValue(SreClaims.Product),
+            principal.FindFirstValue(SreClaims.Environment));
     }
 
     /// <summary>The caller's identifier, for the audit trail.</summary>

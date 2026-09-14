@@ -64,4 +64,22 @@ public static class SreClaims
     /// another's.
     /// </remarks>
     public const string Tenant = "tenant";
+
+    /// <summary>
+    /// Narrows the caller's <see cref="SreAiAgent.Domain.ModelProviders.TenantScope"/>
+    /// to one product (D40, F1-3). Optional: absent, it derives
+    /// <see cref="SreAiAgent.Domain.ModelProviders.TenantScopeKind.TenantWide"/>,
+    /// not a wildcard over every product.
+    /// </summary>
+    public const string Product = "product";
+
+    /// <summary>
+    /// Narrows the caller's <see cref="SreAiAgent.Domain.ModelProviders.TenantScope"/>
+    /// to one environment of one product (D40, F1-3). Optional, and
+    /// meaningless without <see cref="Product"/> also present —
+    /// <see cref="SreAiAgent.Domain.ModelProviders.TenantScope.Create"/>
+    /// rejects that combination rather than silently dropping the
+    /// environment claim.
+    /// </summary>
+    public const string Environment = "environment";
 }

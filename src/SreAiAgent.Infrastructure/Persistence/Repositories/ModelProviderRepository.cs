@@ -8,18 +8,8 @@ namespace SreAiAgent.Infrastructure.Persistence.Repositories;
 
 internal sealed class ModelProviderRepository(SreDbContext context) : IProviderRevisionReader
 {
-    // Every method here still takes a bare tenant string because
-    // IModelProviderControlPlane's 13 members do too — F1-5 has not cut them
-    // over yet. Until that lands, every row this repository touches is
-    // TenantWide by construction (D40); constructing the scope explicitly
-    // here, instead of leaving Product/Environment at their CLR default, is
-    // this staging point: the day a caller has a real TenantScope to pass,
-    // this is the line that changes.
-    private static TenantScope Scope(string tenant) => TenantScope.TenantWide(tenant);
-
-    public async Task<IReadOnlyList<ProviderConnection>> ListConnectionsAsync(string tenant, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<ProviderConnection>> ListConnectionsAsync(TenantScope scope, CancellationToken cancellationToken)
     {
-        TenantScope scope = Scope(tenant);
         return (await context.ProviderConnections
                 .Where(entity => entity.Tenant == scope.Tenant && entity.Product == scope.Product
                     && entity.Environment == scope.Environment && entity.ArchivedAt == null)
@@ -30,9 +20,8 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
             .ToArray();
     }
 
-    public void AddConnection(ProviderConnection connection)
+    public void AddConnection(TenantScope scope, ProviderConnection connection)
     {
-        TenantScope scope = Scope(connection.Tenant);
         context.ProviderConnections.Add(new ProviderConnectionEntity
         {
             Id = connection.Id,
@@ -47,11 +36,10 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
     }
 
     public async Task<ProviderConnection?> FindConnectionAsync(
-        string tenant,
+        TenantScope scope,
         ProviderConnectionId id,
         CancellationToken cancellationToken)
     {
-        TenantScope scope = Scope(tenant);
         ProviderConnectionEntity? entity = await context.ProviderConnections
             .FirstOrDefaultAsync(item => item.Tenant == scope.Tenant && item.Product == scope.Product
                 && item.Environment == scope.Environment && item.Id == id, cancellationToken)
@@ -60,11 +48,10 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
     }
 
     public async Task<IReadOnlyList<ProviderConnectionRevision>> ListRevisionsAsync(
-        string tenant,
+        TenantScope scope,
         ProviderConnectionId connectionId,
         CancellationToken cancellationToken)
     {
-        TenantScope scope = Scope(tenant);
         return (await context.ProviderConnectionRevisions
                 .Where(entity => entity.Tenant == scope.Tenant && entity.Product == scope.Product
                     && entity.Environment == scope.Environment && entity.ProviderConnectionId == connectionId)
@@ -75,9 +62,8 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
             .ToArray();
     }
 
-    public async Task<int> NextRevisionAsync(string tenant, ProviderConnectionId connectionId, CancellationToken cancellationToken)
+    public async Task<int> NextRevisionAsync(TenantScope scope, ProviderConnectionId connectionId, CancellationToken cancellationToken)
     {
-        TenantScope scope = Scope(tenant);
         return (await context.ProviderConnectionRevisions
             .Where(entity => entity.Tenant == scope.Tenant && entity.Product == scope.Product
                 && entity.Environment == scope.Environment && entity.ProviderConnectionId == connectionId)
@@ -86,17 +72,15 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
             .ConfigureAwait(false) ?? 0) + 1;
     }
 
-    public void AddRevision(ProviderConnectionRevision revision)
-        => context.ProviderConnectionRevisions.Add(ToEntity(revision));
+    public void AddRevision(TenantScope scope, ProviderConnectionRevision revision)
+        => context.ProviderConnectionRevisions.Add(ToEntity(scope, revision));
 
     public async Task SetActiveRevisionAsync(
-        string tenant,
+        TenantScope scope,
         ProviderConnectionId connectionId,
         ProviderConnectionRevisionId revisionId,
         CancellationToken cancellationToken)
     {
-        TenantScope scope = Scope(tenant);
-
         // Bootstrap adds the connection and sets active in the same unit of
         // work, so the row is tracked but not yet in the database. Look at the
         // change tracker first; fall back to a database read for the ordinary
@@ -116,12 +100,28 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
         entity.ActiveRevisionId = revisionId;
     }
 
-    public async Task<ProviderConnectionRevision?> FindRevisionAsync(
+    /// <inheritdoc />
+    /// <remarks>
+    /// The <see cref="IProviderRevisionReader"/> implementation. Its only
+    /// caller, <c>ChatClientResolver</c>, resolves a client from a
+    /// <c>PinnedModelCandidate</c> frozen into a configuration snapshot at pin
+    /// time, and that type denormalizes only <c>Tenant</c> — never Product or
+    /// Environment (D40) — so this overload can only ever look up
+    /// <see cref="TenantScope.TenantWide"/>. That is not a default standing in
+    /// for data this caller doesn't have; it is the whole of what a pinned
+    /// candidate has to offer.
+    /// </remarks>
+    public Task<ProviderConnectionRevision?> FindRevisionAsync(
         string tenant,
         ProviderConnectionRevisionId revisionId,
         CancellationToken cancellationToken)
+        => FindRevisionAsync(TenantScope.TenantWide(tenant), revisionId, cancellationToken);
+
+    public async Task<ProviderConnectionRevision?> FindRevisionAsync(
+        TenantScope scope,
+        ProviderConnectionRevisionId revisionId,
+        CancellationToken cancellationToken)
     {
-        TenantScope scope = Scope(tenant);
         ProviderConnectionRevisionEntity? entity = await context.ProviderConnectionRevisions
             .FirstOrDefaultAsync(item => item.Tenant == scope.Tenant && item.Product == scope.Product
                 && item.Environment == scope.Environment && item.Id == revisionId, cancellationToken)
@@ -130,12 +130,11 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
     }
 
     public async Task<ProviderConnectionRevision?> FindRevisionAsync(
-        string tenant,
+        TenantScope scope,
         ProviderConnectionId connectionId,
         int revision,
         CancellationToken cancellationToken)
     {
-        TenantScope scope = Scope(tenant);
         ProviderConnectionRevisionEntity? entity = await context.ProviderConnectionRevisions
             .FirstOrDefaultAsync(
                 item => item.Tenant == scope.Tenant && item.Product == scope.Product && item.Environment == scope.Environment
@@ -147,11 +146,10 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
 
 
     public async Task<ProviderRevisionVerification?> LatestVerificationAsync(
-        string tenant,
+        TenantScope scope,
         ProviderConnectionRevisionId revisionId,
         CancellationToken cancellationToken)
     {
-        TenantScope scope = Scope(tenant);
         ProviderRevisionVerificationEntity? entity = await context.ProviderRevisionVerifications
             .Where(item => item.Tenant == scope.Tenant && item.Product == scope.Product
                 && item.Environment == scope.Environment && item.ProviderConnectionRevisionId == revisionId)
@@ -165,10 +163,9 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
     }
 
     public async Task<IReadOnlyList<ModelDeploymentVersion>> ListDeploymentVersionsAsync(
-        string tenant,
+        TenantScope scope,
         CancellationToken cancellationToken)
     {
-        TenantScope scope = Scope(tenant);
         return (await context.ModelDeploymentVersions
                 .Where(entity => entity.Tenant == scope.Tenant && entity.Product == scope.Product && entity.Environment == scope.Environment)
                 .OrderBy(entity => entity.LogicalName)
@@ -180,11 +177,10 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
     }
 
     public async Task<ModelDeploymentVersion?> FindDeploymentAsync(
-        string tenant,
+        TenantScope scope,
         ModelDeploymentVersionId id,
         CancellationToken cancellationToken)
     {
-        TenantScope scope = Scope(tenant);
         ModelDeploymentVersionEntity? entity = await context.ModelDeploymentVersions
             .FirstOrDefaultAsync(item => item.Tenant == scope.Tenant && item.Product == scope.Product
                 && item.Environment == scope.Environment && item.Id == id, cancellationToken)
@@ -192,9 +188,8 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
         return entity is null ? null : ToDomain(entity);
     }
 
-    public async Task<int> NextDeploymentVersionAsync(string tenant, string logicalName, CancellationToken cancellationToken)
+    public async Task<int> NextDeploymentVersionAsync(TenantScope scope, string logicalName, CancellationToken cancellationToken)
     {
-        TenantScope scope = Scope(tenant);
         return (await context.ModelDeploymentVersions
             .Where(entity => entity.Tenant == scope.Tenant && entity.Product == scope.Product
                 && entity.Environment == scope.Environment && entity.LogicalName == logicalName)
@@ -203,9 +198,8 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
             .ConfigureAwait(false) ?? 0) + 1;
     }
 
-    public void AddDeployment(ModelDeploymentVersion deployment)
+    public void AddDeployment(TenantScope scope, ModelDeploymentVersion deployment)
     {
-        TenantScope scope = Scope(deployment.Tenant);
         context.ModelDeploymentVersions.Add(new ModelDeploymentVersionEntity
         {
             Id = deployment.Id,
@@ -231,10 +225,9 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
     }
 
     public async Task<IReadOnlyList<ModelAssignmentRelease>> ListAssignmentsAsync(
-        string tenant,
+        TenantScope scope,
         CancellationToken cancellationToken)
     {
-        TenantScope scope = Scope(tenant);
         List<ModelAssignmentReleaseEntity> releases = await context.ModelAssignmentReleases
             .Where(entity => entity.Tenant == scope.Tenant && entity.Product == scope.Product && entity.Environment == scope.Environment)
             .OrderBy(entity => entity.Name)
@@ -250,11 +243,10 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
     }
 
     public async Task<ModelAssignmentRelease?> FindAssignmentAsync(
-        string tenant,
+        TenantScope scope,
         ModelAssignmentReleaseId id,
         CancellationToken cancellationToken)
     {
-        TenantScope scope = Scope(tenant);
         ModelAssignmentReleaseEntity? entity = await context.ModelAssignmentReleases
             .FirstOrDefaultAsync(item => item.Tenant == scope.Tenant && item.Product == scope.Product
                 && item.Environment == scope.Environment && item.Id == id, cancellationToken)
@@ -272,9 +264,8 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
         return ToDomain(entity, slots);
     }
 
-    public async Task<int> NextAssignmentVersionAsync(string tenant, string name, CancellationToken cancellationToken)
+    public async Task<int> NextAssignmentVersionAsync(TenantScope scope, string name, CancellationToken cancellationToken)
     {
-        TenantScope scope = Scope(tenant);
         return (await context.ModelAssignmentReleases
             .Where(entity => entity.Tenant == scope.Tenant && entity.Product == scope.Product
                 && entity.Environment == scope.Environment && entity.Name == name)
@@ -283,9 +274,8 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
             .ConfigureAwait(false) ?? 0) + 1;
     }
 
-    public void AddAssignment(ModelAssignmentRelease release)
+    public void AddAssignment(TenantScope scope, ModelAssignmentRelease release)
     {
-        TenantScope scope = Scope(release.Tenant);
         context.ModelAssignmentReleases.Add(new ModelAssignmentReleaseEntity
         {
             Id = release.Id,
@@ -314,11 +304,10 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
 
     public void AddEvaluation(ModelAssignmentEvaluationEntity evaluation) => context.ModelAssignmentEvaluations.Add(evaluation);
     public Task<ModelAssignmentEvaluationEntity?> FindEvaluationAsync(
-        string tenant,
+        TenantScope scope,
         ModelAssignmentEvaluationId evaluationId,
         CancellationToken cancellationToken)
     {
-        TenantScope scope = Scope(tenant);
         return context.ModelAssignmentEvaluations
             .AsTracking()
             .FirstOrDefaultAsync(item => item.Tenant == scope.Tenant && item.Product == scope.Product
@@ -328,11 +317,10 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
     public void UpdateEvaluation(ModelAssignmentEvaluationEntity evaluation) => context.ModelAssignmentEvaluations.Update(evaluation);
 
     public Task<bool> HasPassedEvaluationAsync(
-        string tenant,
+        TenantScope scope,
         ModelAssignmentReleaseId releaseId,
         CancellationToken cancellationToken)
     {
-        TenantScope scope = Scope(tenant);
         return context.ModelAssignmentEvaluations.AnyAsync(
             item => item.Tenant == scope.Tenant && item.Product == scope.Product && item.Environment == scope.Environment
                 && item.AssignmentReleaseId == releaseId && item.Passed,
@@ -340,13 +328,12 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
     }
 
     public async Task ActivateAsync(
-        string tenant,
+        TenantScope scope,
         ModelAssignmentReleaseId releaseId,
         DateTimeOffset activatedAt,
         string actor,
         CancellationToken cancellationToken)
     {
-        TenantScope scope = Scope(tenant);
         TenantActiveModelAssignmentEntity? active = await context.TenantActiveModelAssignments
             .AsTracking()
             .FirstOrDefaultAsync(item => item.Tenant == scope.Tenant && item.Product == scope.Product
@@ -372,24 +359,28 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
         }
     }
 
-    public async Task<PinnedModelAssignment?> GetActiveSnapshotAsync(string tenant, CancellationToken cancellationToken)
+    /// <summary>
+    /// The active assignment for exactly <paramref name="scope"/> (D41). Never
+    /// falls back to a broader kind: a lookup for a scope with nothing
+    /// activated at that exact scope returns <c>null</c>, the same as if the
+    /// tenant had never activated anything at all.
+    /// </summary>
+    public async Task<PinnedModelAssignment?> GetActiveSnapshotAsync(TenantScope scope, CancellationToken cancellationToken)
     {
-        TenantScope scope = Scope(tenant);
         ModelAssignmentReleaseId? releaseId = await context.TenantActiveModelAssignments
             .Where(item => item.Tenant == scope.Tenant && item.Product == scope.Product && item.Environment == scope.Environment)
             .Select(item => (ModelAssignmentReleaseId?)item.AssignmentReleaseId)
             .SingleOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
-        return releaseId is null ? null : await BuildSnapshotAsync(tenant, releaseId.Value, cancellationToken).ConfigureAwait(false);
+        return releaseId is null ? null : await BuildSnapshotAsync(scope, releaseId.Value, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<PinnedModelAssignment?> BuildSnapshotAsync(
-        string tenant,
+        TenantScope scope,
         ModelAssignmentReleaseId releaseId,
         CancellationToken cancellationToken)
     {
-        TenantScope scope = Scope(tenant);
-        ModelAssignmentRelease? release = await FindAssignmentAsync(tenant, releaseId, cancellationToken).ConfigureAwait(false);
+        ModelAssignmentRelease? release = await FindAssignmentAsync(scope, releaseId, cancellationToken).ConfigureAwait(false);
         if (release is null)
         {
             return null;
@@ -428,7 +419,7 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
 
             return new PinnedModelCandidate
             {
-                Tenant = tenant,
+                Tenant = scope.Tenant,
                 AssignmentReleaseId = release.Id,
                 AssignmentConfigurationHash = release.ConfigurationHash,
                 Slot = slot,
@@ -505,9 +496,8 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
     public Task<int> SaveChangesAsync(CancellationToken cancellationToken) => context.SaveChangesAsync(cancellationToken);
 
 
-    public void AddVerification(string tenant, ProviderRevisionVerification verification)
+    public void AddVerification(TenantScope scope, ProviderRevisionVerification verification)
     {
-        TenantScope scope = Scope(tenant);
         context.ProviderRevisionVerifications.Add(new ProviderRevisionVerificationEntity
         {
             Id = Guid.CreateVersion7(),
@@ -531,10 +521,8 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
             entity.AdapterKind, entity.Endpoint, entity.Region, entity.ApiVersion, entity.Organization,
             entity.CredentialRef, entity.DeclaredCapabilities, entity.ConfigurationHash, entity.CreatedAt, entity.CreatedBy);
 
-    private static ProviderConnectionRevisionEntity ToEntity(ProviderConnectionRevision revision)
-    {
-        TenantScope scope = Scope(revision.Tenant);
-        return new()
+    private static ProviderConnectionRevisionEntity ToEntity(TenantScope scope, ProviderConnectionRevision revision)
+        => new()
         {
             Id = revision.Id,
             ProviderConnectionId = revision.ProviderConnectionId,
@@ -553,7 +541,6 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
             CreatedAt = revision.CreatedAt,
             CreatedBy = revision.CreatedBy,
         };
-    }
 
     private static ModelDeploymentVersion ToDomain(ModelDeploymentVersionEntity entity)
         => ModelDeploymentVersion.Restore(entity.Id, entity.Tenant, entity.LogicalName, entity.Version,

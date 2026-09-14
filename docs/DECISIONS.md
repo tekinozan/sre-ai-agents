@@ -660,3 +660,91 @@ cases are named here rather than left to whoever implements it to guess:
   from an `environment` claim with no `product` claim fails before any
   repository call, with a test asserting the rejection happens at
   `TenantScope` construction and never reaches `ModelProviderRepository`.
+
+### D41 — Runtime active-assignment resolution matches a scope exactly; no fallback
+
+D40 named this question and deliberately left it open: when resolving the
+active model assignment, does a lookup for a narrower scope fall back to a
+broader one (`Full` → `ProductWide` → `TenantWide`) if nothing is activated at
+the exact scope, or must the scope match exactly? F1-5's cutover of
+`IModelProviderControlPlane`'s 13 members forces an answer, because
+`ModelProviderRepository.GetActiveSnapshotAsync` — the one method that
+actually performs this lookup — has to take a real `TenantScope` instead of
+manufacturing `TenantWide` internally the way F1-2 left it staged.
+
+**Decided: exact match, no fallback.** A lookup for scope `S` finds only a
+`tenant_active_model_assignments` row whose own `(Tenant, Product,
+Environment)` equals `S`'s exactly. A narrower scope with nothing activated at
+that exact scope gets `ModelAssignmentNotFound`, the same failure it already
+gets today, never a broader row it did not ask for.
+
+**The evidence that settled it, not a preference:** `GetActiveSnapshotAsync`
+has exactly one call path in the entire codebase that is not the control
+plane's own `ActivateAsync` — `ConfigurationPinner.PinCurrentAsync`, called
+from `CreateIncidentHandler`, `StartInvestigationHandler` and
+`RetryInvestigationHandler`, plus `ModelAssignmentBootstrapper` at startup.
+Every one of those callers is principal-less (an alert consumer, a workflow
+use case, a hosted service) and has only ever had a bare tenant string —
+`Incident.Tenant`/`Incident.Environment` exist, but `Incident` has no
+`Product` field anywhere in its schema, and `LlmOptions.BootstrapOptions` has
+none either. So the only `TenantScope` any real caller of this method can
+honestly construct today is `TenantWide`. A `Full`/`ProductWide` → `TenantWide`
+fallback cascade has no entry point to cascade *from* in the one call path
+that exists: there is no caller anywhere asking for `Full` or `ProductWide`
+that a fallback would ever get the chance to widen.
+
+**Weighing the scenarios named for this decision:**
+- *An operator narrows one product, others go dark?* Worse than that: because
+  incidents carry no product signal, activating anything other than a
+  `TenantWide` release means **every** incident for that tenant fails to pin,
+  not just the narrowed product's. This is true regardless of the fallback
+  policy chosen, because the only scope `ConfigurationPinner` can ever ask
+  for is `TenantWide` — a fallback cascade helps a caller who asked for
+  something narrow and is willing to accept something broader; it cannot help
+  a caller who was only ever able to ask for the broadest kind to begin with.
+- *A workflow resuming from an old snapshot?* Not affected by this decision at
+  all. `InvestigationActivities.ResolveConfigurationAsync` reads
+  `ConfigurationSnapshot.ModelAssignment` — the `PinnedModelAssignment`
+  already frozen into the snapshot at pin time — straight out of
+  `IConfigurationSnapshotStore`. It never calls `GetActiveSnapshotAsync`
+  again. A resumed workflow sees exactly what its own snapshot pinned, on
+  every replay, which is the immutability D40's `PinnedModelCandidate`
+  discussion already established for a different reason (ARCHITECTURE.md's
+  pin-time denormalization) and this decision does not disturb.
+- *A caller whose scope has no assignment — is silence a convenience or a
+  surprise?* A surprise, deliberately. D40 already decided a missing claim is
+  never a wildcard; a fallback here would smuggle the same wildcard back in
+  one layer down, at resolution instead of authorization. Worse, guessing
+  between two real candidates is not a neutral convenience: if a tenant has
+  narrowed to two different `ProductWide` releases (say checkout and
+  payments) with different provider connections, silently picking one for an
+  untagged incident could pin the wrong vendor's credentials and cost profile
+  to an investigation that has no way to say which product it was ever
+  about. `ModelAssignmentNotFound` is recoverable and loud; a wrong guess is
+  neither.
+
+**Rejected: `Full` → `ProductWide` → `TenantWide` fallback**, because it
+solves a problem this codebase does not have yet (a caller with a genuine
+`Full`/`ProductWide` claim and nothing activated at that exact scope) and
+creates one it does have (an untagged incident silently adopting one of
+several plausible releases). If incidents ever gain a product dimension —
+the actual missing piece — the caller-side question changes, and a fallback
+can be re-evaluated then with a caller that has something to fall back
+*from*. Deciding it now, for callers that do not exist, is exactly the kind
+of unexercised code path this repository's history of infrastructure-only
+defects (AGENTS.md's "the one rule") keeps warning against.
+
+**Cost:** an operator who activates a `ProductWide` or `Full` release without
+also keeping a `TenantWide` release active takes every incident for that
+tenant offline until they either activate a `TenantWide` release too or the
+incident pipeline gains a product dimension of its own. This is a real
+operational trap, not a theoretical one, and nothing in the schema or the API
+response for a successful `ActivateAsync` warns the operator that they just
+did this.
+
+F1-5 also settles a related, smaller question: `ConfigurationPinner` and
+`ModelAssignmentBootstrapper` are principal-less paths with no `Product` to
+offer, so both construct `TenantScope.TenantWide(tenant)` explicitly at their
+own call site — not hidden inside `ModelProviderRepository`, and not a
+repository-level default, because `TenantWide` is what the data they actually
+have supports, not a guess standing in for data they don't.

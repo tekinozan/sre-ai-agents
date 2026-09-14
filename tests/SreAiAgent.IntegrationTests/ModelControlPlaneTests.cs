@@ -152,6 +152,8 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
         CancellationToken ct = TestContext.Current.CancellationToken;
         string tenantA = "tenant-a-" + Guid.NewGuid();
         string tenantB = "tenant-b-" + Guid.NewGuid();
+        TenantScope scopeA = TenantScope.TenantWide(tenantA);
+        TenantScope scopeB = TenantScope.TenantWide(tenantB);
 
         CreateProviderRevisionCommand revCmd = new(
             ProviderAdapterKind.Scripted,
@@ -163,26 +165,26 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
             ModelCapability.None);
 
         // 1. Connection isolation
-        var createConnA = await Plane.CreateConnectionAsync(tenantA, "Connection A", "actor", ct);
+        var createConnA = await Plane.CreateConnectionAsync(scopeA, "Connection A", "actor", ct);
         createConnA.IsSuccess.ShouldBeTrue();
         ProviderConnection connA = createConnA.Value;
 
-        IReadOnlyList<ProviderConnection> listConnB = await Plane.ListConnectionsAsync(tenantB, ct);
+        IReadOnlyList<ProviderConnection> listConnB = await Plane.ListConnectionsAsync(scopeB, ct);
         listConnB.ShouldBeEmpty();
 
-        var revBOnConnA = await Plane.CreateRevisionAsync(tenantB, connA.Id, revCmd, "actor", ct);
+        var revBOnConnA = await Plane.CreateRevisionAsync(scopeB, connA.Id, revCmd, "actor", ct);
         revBOnConnA.IsSuccess.ShouldBeFalse();
         revBOnConnA.Error.Code.ToString().ShouldBe(ApplicationErrorCodes.ProviderConnectionNotFound.ToString());
 
         // 2. Revision isolation
-        var createRevA = await Plane.CreateRevisionAsync(tenantA, connA.Id, revCmd, "actor", ct);
+        var createRevA = await Plane.CreateRevisionAsync(scopeA, connA.Id, revCmd, "actor", ct);
         createRevA.IsSuccess.ShouldBeTrue();
         ProviderConnectionRevision revA = createRevA.Value;
 
-        IReadOnlyList<ProviderConnectionRevision> listRevB = await Plane.ListRevisionsAsync(tenantB, connA.Id, ct);
+        IReadOnlyList<ProviderConnectionRevision> listRevB = await Plane.ListRevisionsAsync(scopeB, connA.Id, ct);
         listRevB.ShouldBeEmpty();
 
-        var verifyB = await Plane.VerifyRevisionAsync(tenantB, connA.Id, revA.Revision, "actor", ct);
+        var verifyB = await Plane.VerifyRevisionAsync(scopeB, connA.Id, revA.Revision, "actor", ct);
         verifyB.IsSuccess.ShouldBeFalse();
         verifyB.Error.Code.ToString().ShouldBe(ApplicationErrorCodes.ProviderRevisionNotFound.ToString());
 
@@ -198,20 +200,20 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
             0m,
             "USD",
             new Dictionary<string, string>());
-        var deployBOnRevA = await Plane.CreateDeploymentVersionAsync(tenantB, deployCmdWithRevA, "actor", ct);
+        var deployBOnRevA = await Plane.CreateDeploymentVersionAsync(scopeB, deployCmdWithRevA, "actor", ct);
         deployBOnRevA.IsSuccess.ShouldBeFalse();
         deployBOnRevA.Error.Code.ToString().ShouldBe(ApplicationErrorCodes.ProviderRevisionNotFound.ToString());
 
         // 3. Deployment isolation
-        var createDeployA = await Plane.CreateDeploymentVersionAsync(tenantA, deployCmdWithRevA, "actor", ct);
+        var createDeployA = await Plane.CreateDeploymentVersionAsync(scopeA, deployCmdWithRevA, "actor", ct);
         createDeployA.IsSuccess.ShouldBeTrue();
         ModelDeploymentVersion deployA = createDeployA.Value;
 
-        IReadOnlyList<ModelDeploymentVersion> listDeployB = await Plane.ListDeploymentVersionsAsync(tenantB, ct);
+        IReadOnlyList<ModelDeploymentVersion> listDeployB = await Plane.ListDeploymentVersionsAsync(scopeB, ct);
         listDeployB.ShouldBeEmpty();
 
         CreateModelDeploymentVersionCommand deployCmdNext = deployCmdWithRevA with { Temperature = 0.8f };
-        var nextDeployB = await Plane.CreateNextDeploymentVersionAsync(tenantB, deployA.Id, deployCmdNext, "actor", ct);
+        var nextDeployB = await Plane.CreateNextDeploymentVersionAsync(scopeB, deployA.Id, deployCmdNext, "actor", ct);
         nextDeployB.IsSuccess.ShouldBeFalse();
         nextDeployB.Error.Code.ToString().ShouldBe(ApplicationErrorCodes.ModelDeploymentNotFound.ToString());
 
@@ -220,7 +222,7 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
             deployA.Id,
             deployA.Id,
             new Dictionary<string, ModelDeploymentVersionId> { ["test-expert"] = deployA.Id });
-        var assignBOnDeployA = await Plane.CreateAssignmentReleaseAsync(tenantB, assignCmdWithDeployA, "actor", ct);
+        var assignBOnDeployA = await Plane.CreateAssignmentReleaseAsync(scopeB, assignCmdWithDeployA, "actor", ct);
         assignBOnDeployA.IsSuccess.ShouldBeFalse();
         assignBOnDeployA.Error.Code.ToString().ShouldBe(ApplicationErrorCodes.ModelDeploymentNotFound.ToString());
 
@@ -230,27 +232,240 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
             deployA.Id,
             deployA.Id,
             new Dictionary<string, ModelDeploymentVersionId> { ["test-expert"] = deployA.Id });
-        var createAssignA = await Plane.CreateAssignmentReleaseAsync(tenantA, assignCmdA, "actor", ct);
+        var createAssignA = await Plane.CreateAssignmentReleaseAsync(scopeA, assignCmdA, "actor", ct);
         createAssignA.IsSuccess.ShouldBeTrue();
         ModelAssignmentRelease assignA = createAssignA.Value;
 
-        IReadOnlyList<ModelAssignmentRelease> listAssignB = await Plane.ListAssignmentReleasesAsync(tenantB, ct);
+        IReadOnlyList<ModelAssignmentRelease> listAssignB = await Plane.ListAssignmentReleasesAsync(scopeB, ct);
         listAssignB.ShouldBeEmpty();
 
-        var evalB = await Plane.RequestEvaluationAsync(tenantB, assignA.Id, "dataset", "baseline", "actor", ct);
+        var evalB = await Plane.RequestEvaluationAsync(scopeB, assignA.Id, "dataset", "baseline", "actor", ct);
         evalB.IsSuccess.ShouldBeFalse();
         evalB.Error.Code.ToString().ShouldBe(ApplicationErrorCodes.ModelAssignmentNotFound.ToString());
 
-        var activateB = await Plane.ActivateAsync(tenantB, assignA.Id, "actor", ct);
+        var activateB = await Plane.ActivateAsync(scopeB, assignA.Id, "actor", ct);
         activateB.IsSuccess.ShouldBeFalse();
         activateB.Error.Code.ToString().ShouldBe(ApplicationErrorCodes.ModelAssignmentNotFound.ToString());
+    }
+
+    [Fact]
+    public async Task AProductScopedCallerCannotCreateReadUpdateOrActivateAnotherProductsData()
+    {
+        // D40's authorization matrix, exercised through the four verbs the
+        // product-adaptability guide names, within one tenant: a ProductWide
+        // caller for "checkout" never creates, reads, updates or activates
+        // anything scoped to "payments", even though both share a tenant.
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        string tenant = "product-iso-" + Guid.NewGuid();
+        TenantScope checkout = TenantScope.ProductWide(tenant, "checkout");
+        TenantScope payments = TenantScope.ProductWide(tenant, "payments");
+
+        CreateProviderRevisionCommand revCmd = new(
+            ProviderAdapterKind.Scripted,
+            "https://test",
+            null,
+            null,
+            null,
+            "env://TEST_KEY",
+            ModelCapability.None);
+
+        // CREATE + READ: a connection created under checkout is invisible to
+        // payments and cannot be referenced by it.
+        var createConnCheckout = await Plane.CreateConnectionAsync(checkout, "Checkout connection", "actor", ct);
+        createConnCheckout.IsSuccess.ShouldBeTrue();
+        ProviderConnection connection = createConnCheckout.Value;
+
+        IReadOnlyList<ProviderConnection> paymentsConnections = await Plane.ListConnectionsAsync(payments, ct);
+        paymentsConnections.ShouldBeEmpty();
+
+        var revisionFromPayments = await Plane.CreateRevisionAsync(payments, connection.Id, revCmd, "actor", ct);
+        revisionFromPayments.IsSuccess.ShouldBeFalse();
+        revisionFromPayments.Error.Code.ToString().ShouldBe(ApplicationErrorCodes.ProviderConnectionNotFound.ToString());
+
+        var revisionCheckout = await Plane.CreateRevisionAsync(checkout, connection.Id, revCmd, "actor", ct);
+        revisionCheckout.IsSuccess.ShouldBeTrue();
+
+        CreateModelDeploymentVersionCommand deployCmd = new(
+            "product-iso-model",
+            revisionCheckout.Value.Id,
+            "model-1",
+            ModelCapability.None,
+            0.5f,
+            1000,
+            TimeSpan.FromSeconds(30),
+            0m,
+            0m,
+            "USD",
+            new Dictionary<string, string>());
+        var deployCheckout = await Plane.CreateDeploymentVersionAsync(checkout, deployCmd, "actor", ct);
+        deployCheckout.IsSuccess.ShouldBeTrue();
+
+        // UPDATE: versioning checkout's deployment from payments' scope is
+        // refused — the same deployment id is simply not visible there.
+        CreateModelDeploymentVersionCommand deployCmdNext = deployCmd with { Temperature = 0.9f };
+        var nextFromPayments = await Plane.CreateNextDeploymentVersionAsync(
+            payments, deployCheckout.Value.Id, deployCmdNext, "actor", ct);
+        nextFromPayments.IsSuccess.ShouldBeFalse();
+        nextFromPayments.Error.Code.ToString().ShouldBe(ApplicationErrorCodes.ModelDeploymentNotFound.ToString());
+
+        CreateModelAssignmentReleaseCommand assignCmd = new(
+            "product-iso-release",
+            deployCheckout.Value.Id,
+            deployCheckout.Value.Id,
+            new Dictionary<string, ModelDeploymentVersionId> { ["test-expert"] = deployCheckout.Value.Id });
+        var releaseCheckout = await Plane.CreateAssignmentReleaseAsync(checkout, assignCmd, "actor", ct);
+        releaseCheckout.IsSuccess.ShouldBeTrue();
+
+        IReadOnlyList<ModelAssignmentRelease> paymentsReleases = await Plane.ListAssignmentReleasesAsync(payments, ct);
+        paymentsReleases.ShouldBeEmpty();
+
+        // ACTIVATE: activating checkout's release from payments' scope is
+        // refused — the release simply does not exist at that scope.
+        var activateFromPayments = await Plane.ActivateAsync(payments, releaseCheckout.Value.Id, "actor", ct);
+        activateFromPayments.IsSuccess.ShouldBeFalse();
+        activateFromPayments.Error.Code.ToString().ShouldBe(ApplicationErrorCodes.ModelAssignmentNotFound.ToString());
+    }
+
+    [Fact]
+    public async Task ActiveAssignmentResolutionNeverFallsBackToABroaderOrNarrowerScope()
+    {
+        // D41: exact match only. A release activated under exactly one scope
+        // is resolved by that scope and by no other, in either direction —
+        // proven both ways in one test rather than trusting a single
+        // assertion to stand in for "no fallback."
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        string tenant = "no-fallback-" + Guid.NewGuid();
+        TenantScope tenantWide = TenantScope.TenantWide(tenant);
+        TenantScope productWide = TenantScope.ProductWide(tenant, "checkout");
+        TenantScope full = TenantScope.Full(tenant, "checkout", "production");
+
+        ModelAssignmentReleaseId tenantWideReleaseId = await CreateAndActivateMinimalReleaseAsync(tenantWide, ct);
+
+        ModelProviderRepository repository = _scope.ServiceProvider.GetRequiredService<ModelProviderRepository>();
+
+        // Direction 1: the scope with its own activated release resolves it.
+        PinnedModelAssignment? tenantWideSnapshot = await repository.GetActiveSnapshotAsync(tenantWide, ct);
+        tenantWideSnapshot.ShouldNotBeNull();
+        tenantWideSnapshot.ReleaseId.ShouldBe(tenantWideReleaseId);
+
+        // Direction 2: narrower scopes with nothing activated at their own
+        // exact scope resolve nothing — never silently the TenantWide
+        // release, even though it exists and even though Full and
+        // ProductWide are, in the ordinary sense, "narrower" than TenantWide.
+        (await repository.GetActiveSnapshotAsync(productWide, ct)).ShouldBeNull();
+        (await repository.GetActiveSnapshotAsync(full, ct)).ShouldBeNull();
+    }
+
+    /// <summary>
+    /// Builds and activates the smallest possible release directly through
+    /// EF, bypassing <see cref="IModelProviderControlPlane"/>'s evaluation and
+    /// verification checks entirely: this test is about
+    /// <c>GetActiveSnapshotAsync</c>'s resolution rule, not the activation
+    /// pipeline's validation, and the control plane's own checks are already
+    /// covered elsewhere.
+    /// </summary>
+    private async Task<ModelAssignmentReleaseId> CreateAndActivateMinimalReleaseAsync(TenantScope scope, CancellationToken cancellationToken)
+    {
+        await using SreDbContext context = _postgres.CreateContext();
+
+        ProviderConnectionEntity connection = new()
+        {
+            Id = ProviderConnectionId.New(),
+            Tenant = scope.Tenant,
+            Product = scope.Product,
+            Environment = scope.Environment,
+            DisplayName = "fallback-connection-" + Guid.NewGuid(),
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+        context.ProviderConnections.Add(connection);
+        await context.SaveChangesAsync(cancellationToken);
+
+        ProviderConnectionRevisionEntity revision = new()
+        {
+            Id = ProviderConnectionRevisionId.New(),
+            ProviderConnectionId = connection.Id,
+            Tenant = scope.Tenant,
+            Product = scope.Product,
+            Environment = scope.Environment,
+            Revision = 1,
+            AdapterKind = ProviderAdapterKind.Scripted,
+            Endpoint = "https://test",
+            CredentialRef = "env://TEST_KEY",
+            ConfigurationHash = "fallback-revision-hash",
+            CreatedAt = DateTimeOffset.UtcNow,
+            CreatedBy = "test",
+        };
+        context.ProviderConnectionRevisions.Add(revision);
+        connection.ActiveRevisionId = revision.Id;
+        await context.SaveChangesAsync(cancellationToken);
+
+        ModelDeploymentVersionEntity deployment = new()
+        {
+            Id = ModelDeploymentVersionId.New(),
+            Tenant = scope.Tenant,
+            Product = scope.Product,
+            Environment = scope.Environment,
+            LogicalName = "fallback-deployment-" + Guid.NewGuid(),
+            Version = 1,
+            ProviderConnectionRevisionId = revision.Id,
+            ProviderModel = "scripted-model",
+            MaxOutputTokens = 512,
+            TimeoutMilliseconds = 30_000,
+            ProviderParametersJson = "{}",
+            Currency = "USD",
+            ConfigurationHash = "fallback-deployment-hash",
+            CreatedAt = DateTimeOffset.UtcNow,
+            CreatedBy = "test",
+        };
+        context.ModelDeploymentVersions.Add(deployment);
+        await context.SaveChangesAsync(cancellationToken);
+
+        ModelAssignmentReleaseEntity release = new()
+        {
+            Id = ModelAssignmentReleaseId.New(),
+            Tenant = scope.Tenant,
+            Product = scope.Product,
+            Environment = scope.Environment,
+            Name = "fallback-release-" + Guid.NewGuid(),
+            Version = 1,
+            ClassifierDeploymentVersionId = deployment.Id,
+            CorrelatorDeploymentVersionId = deployment.Id,
+            ConfigurationHash = "fallback-release-hash",
+            CreatedAt = DateTimeOffset.UtcNow,
+            CreatedBy = "test",
+        };
+        context.ModelAssignmentReleases.Add(release);
+        context.ModelAssignmentAgentSlots.Add(new ModelAssignmentAgentSlotEntity
+        {
+            AssignmentReleaseId = release.Id,
+            Tenant = scope.Tenant,
+            Product = scope.Product,
+            Environment = scope.Environment,
+            AgentName = "test-expert",
+            DeploymentVersionId = deployment.Id,
+        });
+        await context.SaveChangesAsync(cancellationToken);
+
+        context.TenantActiveModelAssignments.Add(new TenantActiveModelAssignmentEntity
+        {
+            Tenant = scope.Tenant,
+            Product = scope.Product,
+            Environment = scope.Environment,
+            AssignmentReleaseId = release.Id,
+            ActivatedAt = DateTimeOffset.UtcNow,
+            ActivatedBy = "test",
+        });
+        await context.SaveChangesAsync(cancellationToken);
+
+        return release.Id;
     }
 
     [Fact]
     public async Task AnUpdateOnProviderConnectionRevisionsRaisesTheTrigger()
     {
         string tenant = "trigger-tenant-" + Guid.NewGuid();
-        var create = await Plane.CreateConnectionAsync(tenant, "Conn", "actor", TestContext.Current.CancellationToken);
+        TenantScope scope = TenantScope.TenantWide(tenant);
+        var create = await Plane.CreateConnectionAsync(scope, "Conn", "actor", TestContext.Current.CancellationToken);
         CreateProviderRevisionCommand commandRev = new(
             ProviderAdapterKind.Scripted,
             "https://test",
@@ -259,7 +474,7 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
             null,
             "env://TEST_KEY",
             ModelCapability.None);
-        var rev = await Plane.CreateRevisionAsync(tenant, create.Value.Id, commandRev, "actor", TestContext.Current.CancellationToken);
+        var rev = await Plane.CreateRevisionAsync(scope, create.Value.Id, commandRev, "actor", TestContext.Current.CancellationToken);
 
         await using var context = _postgres.CreateContext();
         Npgsql.PostgresException ex = await Assert.ThrowsAsync<Npgsql.PostgresException>(async () =>
@@ -276,8 +491,9 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
     {
         CancellationToken ct = TestContext.Current.CancellationToken;
         string tenant = "race-tenant-" + Guid.NewGuid();
+        TenantScope scope = TenantScope.TenantWide(tenant);
 
-        var createConn = await Plane.CreateConnectionAsync(tenant, "Conn", "actor", ct);
+        var createConn = await Plane.CreateConnectionAsync(scope, "Conn", "actor", ct);
         createConn.IsSuccess.ShouldBeTrue();
 
         CreateProviderRevisionCommand commandRev = new(
@@ -288,7 +504,7 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
             null,
             "env://TEST_KEY",
             ModelCapability.None);
-        var createRev = await Plane.CreateRevisionAsync(tenant, createConn.Value.Id, commandRev, "actor", ct);
+        var createRev = await Plane.CreateRevisionAsync(scope, createConn.Value.Id, commandRev, "actor", ct);
         createRev.IsSuccess.ShouldBeTrue();
 
         TaskCompletionSource plane1ReadTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -332,10 +548,10 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
             "USD",
             new Dictionary<string, string>());
 
-        Task<Result<ModelDeploymentVersion>> task1 = plane1.CreateDeploymentVersionAsync(tenant, deployCmd, "actor1", ct);
+        Task<Result<ModelDeploymentVersion>> task1 = plane1.CreateDeploymentVersionAsync(scope, deployCmd, "actor1", ct);
         await plane1ReadTcs.Task.WaitAsync(TimeSpan.FromSeconds(10), ct);
 
-        Task<Result<ModelDeploymentVersion>> task2 = plane2.CreateDeploymentVersionAsync(tenant, deployCmd, "actor2", ct);
+        Task<Result<ModelDeploymentVersion>> task2 = plane2.CreateDeploymentVersionAsync(scope, deployCmd, "actor2", ct);
 
         Result<ModelDeploymentVersion>[] results = await Task.WhenAll(task1, task2);
 
@@ -350,7 +566,7 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
 
         await using AsyncServiceScope scope3 = customProvider.CreateAsyncScope();
         IModelProviderControlPlane plane3 = scope3.ServiceProvider.GetRequiredService<IModelProviderControlPlane>();
-        var result3 = await plane3.CreateDeploymentVersionAsync(tenant, deployCmd, "actor3", ct);
+        var result3 = await plane3.CreateDeploymentVersionAsync(scope, deployCmd, "actor3", ct);
         result3.IsSuccess.ShouldBeTrue();
         result3.Value.Version.ShouldBe(2);
     }
@@ -376,7 +592,7 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
         await bootstrapper.StartAsync(ct);
 
         ModelProviderRepository repository = scope.ServiceProvider.GetRequiredService<ModelProviderRepository>();
-        PinnedModelAssignment? firstSnapshot = await repository.GetActiveSnapshotAsync(tenant, ct);
+        PinnedModelAssignment? firstSnapshot = await repository.GetActiveSnapshotAsync(TenantScope.TenantWide(tenant), ct);
         firstSnapshot.ShouldNotBeNull();
 
         await using SreDbContext contextBefore = _postgres.CreateContext();
@@ -403,7 +619,7 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
         int assignmentsAfter = await contextAfter.ModelAssignmentReleases
             .CountAsync(entity => entity.Tenant == tenant, ct);
 
-        PinnedModelAssignment? secondSnapshot = await repository.GetActiveSnapshotAsync(tenant, ct);
+        PinnedModelAssignment? secondSnapshot = await repository.GetActiveSnapshotAsync(TenantScope.TenantWide(tenant), ct);
         secondSnapshot.ShouldNotBeNull();
         secondSnapshot.ReleaseId.ShouldBe(firstSnapshot.ReleaseId);
         assignmentsAfter.ShouldBe(assignmentsBefore);
@@ -492,7 +708,7 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
 
         await using AsyncServiceScope verifyScope = customProvider.CreateAsyncScope();
         ModelProviderRepository repository = verifyScope.ServiceProvider.GetRequiredService<ModelProviderRepository>();
-        PinnedModelAssignment? snapshot = await repository.GetActiveSnapshotAsync(tenant, ct);
+        PinnedModelAssignment? snapshot = await repository.GetActiveSnapshotAsync(TenantScope.TenantWide(tenant), ct);
         snapshot.ShouldNotBeNull();
     }
 
@@ -550,7 +766,7 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
         ModelDeploymentVersionEntity fastDeployment = deployments.Single(d => d.LogicalName == "fast");
 
         ModelProviderRepository repository = scope.ServiceProvider.GetRequiredService<ModelProviderRepository>();
-        PinnedModelAssignment? snapshot = await repository.GetActiveSnapshotAsync(tenant, ct);
+        PinnedModelAssignment? snapshot = await repository.GetActiveSnapshotAsync(TenantScope.TenantWide(tenant), ct);
         snapshot.ShouldNotBeNull();
         snapshot.Correlator.DeploymentVersionId.ShouldBe(analyticalDeployment.Id);
         snapshot.Correlator.DeploymentLogicalName.ShouldBe("analytical");

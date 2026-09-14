@@ -12,11 +12,13 @@ namespace SreAiAgent.Api.Endpoints;
 /// The tenant model-provider management surface of ARCHITECTURE.md 12.1.
 /// </summary>
 /// <remarks>
-/// Every route delegates to <see cref="IModelProviderControlPlane"/> and passes
-/// the tenant off the caller's principal. The tenant is never taken from a
-/// route, body or header — a tenant a caller can choose is not an isolation
-/// boundary, and the same guarantee that keeps one customer's incidents away
-/// from another's must hold for their model configuration.
+/// Every route delegates to <see cref="IModelProviderControlPlane"/> and
+/// passes the caller's <see cref="TenantScope"/> (D40, F1-5), derived from
+/// validated claims via <c>principal.TenantScope()</c>. The scope is never
+/// taken from a route, body or header — a scope a caller could choose is not
+/// an isolation boundary, and the same guarantee that keeps one customer's
+/// incidents away from another's must hold for their model configuration,
+/// down to which product and environment it applies to.
 /// </remarks>
 public static class ModelProviderEndpoints
 {
@@ -90,7 +92,7 @@ public static class ModelProviderEndpoints
         CancellationToken cancellationToken)
     {
         IReadOnlyList<ProviderConnection> connections = await controlPlane
-            .ListConnectionsAsync(principal.Tenant(), cancellationToken)
+            .ListConnectionsAsync(principal.TenantScope(), cancellationToken)
             .ConfigureAwait(false);
         IReadOnlyList<ModelProviderConnectionResponse> response = connections
             .Take(DefaultReadLimit)
@@ -107,7 +109,7 @@ public static class ModelProviderEndpoints
     {
         ArgumentNullException.ThrowIfNull(request);
         Result<ProviderConnection> result = await controlPlane
-            .CreateConnectionAsync(principal.Tenant(), request.DisplayName, principal.Actor(), cancellationToken)
+            .CreateConnectionAsync(principal.TenantScope(), request.DisplayName, principal.Actor(), cancellationToken)
             .ConfigureAwait(false);
         return result.IsSuccess
             ? Results.Json(ToResponse(result.Value), statusCode: StatusCodes.Status201Created)
@@ -121,7 +123,7 @@ public static class ModelProviderEndpoints
         CancellationToken cancellationToken)
     {
         IReadOnlyList<ProviderConnectionRevision> revisions = await controlPlane
-            .ListRevisionsAsync(principal.Tenant(), ProviderConnectionId.From(connectionId), cancellationToken)
+            .ListRevisionsAsync(principal.TenantScope(), ProviderConnectionId.From(connectionId), cancellationToken)
             .ConfigureAwait(false);
         IReadOnlyList<ProviderConnectionRevisionResponse> response = revisions
             .Take(DefaultReadLimit)
@@ -160,7 +162,7 @@ public static class ModelProviderEndpoints
 
         Result<ProviderConnectionRevision> result = await controlPlane
             .CreateRevisionAsync(
-                principal.Tenant(),
+                principal.TenantScope(),
                 ProviderConnectionId.From(connectionId),
                 command,
                 principal.Actor(),
@@ -181,7 +183,7 @@ public static class ModelProviderEndpoints
     {
         Result<ProviderRevisionVerification> result = await controlPlane
             .VerifyRevisionAsync(
-                principal.Tenant(),
+                principal.TenantScope(),
                 ProviderConnectionId.From(connectionId),
                 revision,
                 principal.Actor(),
@@ -200,7 +202,7 @@ public static class ModelProviderEndpoints
         CancellationToken cancellationToken)
     {
         IReadOnlyList<ModelDeploymentVersion> deployments = await controlPlane
-            .ListDeploymentVersionsAsync(principal.Tenant(), cancellationToken)
+            .ListDeploymentVersionsAsync(principal.TenantScope(), cancellationToken)
             .ConfigureAwait(false);
 
         IEnumerable<ModelDeploymentVersion> filtered = string.IsNullOrWhiteSpace(logicalName)
@@ -229,7 +231,7 @@ public static class ModelProviderEndpoints
         }
 
         Result<ModelDeploymentVersion> result = await controlPlane
-            .CreateDeploymentVersionAsync(principal.Tenant(), command.Value, principal.Actor(), cancellationToken)
+            .CreateDeploymentVersionAsync(principal.TenantScope(), command.Value, principal.Actor(), cancellationToken)
             .ConfigureAwait(false);
         return result.IsSuccess
             ? Results.Json(ToResponse(result.Value), statusCode: StatusCodes.Status201Created)
@@ -253,7 +255,7 @@ public static class ModelProviderEndpoints
 
         Result<ModelDeploymentVersion> result = await controlPlane
             .CreateNextDeploymentVersionAsync(
-                principal.Tenant(),
+                principal.TenantScope(),
                 ModelDeploymentVersionId.From(deploymentVersionId),
                 command.Value,
                 principal.Actor(),
@@ -270,7 +272,7 @@ public static class ModelProviderEndpoints
         CancellationToken cancellationToken)
     {
         IReadOnlyList<ModelAssignmentRelease> releases = await controlPlane
-            .ListAssignmentReleasesAsync(principal.Tenant(), cancellationToken)
+            .ListAssignmentReleasesAsync(principal.TenantScope(), cancellationToken)
             .ConfigureAwait(false);
         IReadOnlyList<ModelAssignmentReleaseResponse> response = releases
             .Take(DefaultReadLimit)
@@ -293,7 +295,7 @@ public static class ModelProviderEndpoints
             request.AgentDeploymentVersionIds);
 
         Result<ModelAssignmentRelease> result = await controlPlane
-            .CreateAssignmentReleaseAsync(principal.Tenant(), command, principal.Actor(), cancellationToken)
+            .CreateAssignmentReleaseAsync(principal.TenantScope(), command, principal.Actor(), cancellationToken)
             .ConfigureAwait(false);
         return result.IsSuccess
             ? Results.Json(ToResponse(result.Value), statusCode: StatusCodes.Status201Created)
@@ -310,7 +312,7 @@ public static class ModelProviderEndpoints
         ArgumentNullException.ThrowIfNull(request);
         Result<ModelAssignmentEvaluationHandoff> result = await controlPlane
             .RequestEvaluationAsync(
-                principal.Tenant(),
+                principal.TenantScope(),
                 ModelAssignmentReleaseId.From(releaseId),
                 request.Dataset,
                 request.Baseline,
@@ -339,7 +341,7 @@ public static class ModelProviderEndpoints
         ArgumentNullException.ThrowIfNull(request);
         Result<ModelAssignmentEvaluationHandoff> result = await controlPlane
             .CompleteEvaluationAsync(
-                principal.Tenant(),
+                principal.TenantScope(),
                 ModelAssignmentEvaluationId.From(evaluationId),
                 request.Passed,
                 request.ArtifactHash,
@@ -359,7 +361,7 @@ public static class ModelProviderEndpoints
     {
         Result<ModelAssignmentRelease> result = await controlPlane
             .ActivateAsync(
-                principal.Tenant(),
+                principal.TenantScope(),
                 ModelAssignmentReleaseId.From(releaseId),
                 principal.Actor(),
                 cancellationToken)

@@ -25,12 +25,12 @@ internal sealed class ModelProviderControlPlane(
     private readonly LlmOptions _options = options.Value;
 
     public Task<IReadOnlyList<ProviderConnection>> ListConnectionsAsync(
-        string tenant,
+        TenantScope scope,
         CancellationToken cancellationToken)
-        => providers.ListConnectionsAsync(tenant, cancellationToken);
+        => providers.ListConnectionsAsync(scope, cancellationToken);
 
     public async Task<Result<ProviderConnection>> CreateConnectionAsync(
-        string tenant,
+        TenantScope scope,
         string displayName,
         string actor,
         CancellationToken cancellationToken)
@@ -38,9 +38,9 @@ internal sealed class ModelProviderControlPlane(
         try
         {
             DateTimeOffset now = timeProvider.GetUtcNow();
-            ProviderConnection connection = ProviderConnection.Create(tenant, displayName, now);
-            providers.AddConnection(connection);
-            providers.AddAudit(tenant, actor, "create", "provider_connection", connection.Id.Value, "none", now);
+            ProviderConnection connection = ProviderConnection.Create(scope.Tenant, displayName, now);
+            providers.AddConnection(scope, connection);
+            providers.AddAudit(scope.Tenant, actor, "create", "provider_connection", connection.Id.Value, "none", now);
             await providers.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return Result<ProviderConnection>.Success(connection);
         }
@@ -63,13 +63,13 @@ internal sealed class ModelProviderControlPlane(
     }
 
     public Task<IReadOnlyList<ProviderConnectionRevision>> ListRevisionsAsync(
-        string tenant,
+        TenantScope scope,
         ProviderConnectionId connectionId,
         CancellationToken cancellationToken)
-        => providers.ListRevisionsAsync(tenant, connectionId, cancellationToken);
+        => providers.ListRevisionsAsync(scope, connectionId, cancellationToken);
 
     public async Task<Result<ProviderConnectionRevision>> CreateRevisionAsync(
-        string tenant,
+        TenantScope scope,
         ProviderConnectionId connectionId,
         CreateProviderRevisionCommand command,
         string actor,
@@ -77,7 +77,7 @@ internal sealed class ModelProviderControlPlane(
     {
         ArgumentNullException.ThrowIfNull(command);
         ProviderConnection? connection = await providers
-            .FindConnectionAsync(tenant, connectionId, cancellationToken)
+            .FindConnectionAsync(scope, connectionId, cancellationToken)
             .ConfigureAwait(false);
         if (connection is null)
         {
@@ -119,12 +119,12 @@ internal sealed class ModelProviderControlPlane(
             }
 
             int revisionNumber = await providers
-                .NextRevisionAsync(tenant, connectionId, cancellationToken)
+                .NextRevisionAsync(scope, connectionId, cancellationToken)
                 .ConfigureAwait(false);
             DateTimeOffset now = timeProvider.GetUtcNow();
             ProviderConnectionRevision revision = ProviderConnectionRevision.Create(
                 connectionId,
-                tenant,
+                scope.Tenant,
                 revisionNumber,
                 command.AdapterKind,
                 command.Endpoint,
@@ -135,9 +135,9 @@ internal sealed class ModelProviderControlPlane(
                 command.DeclaredCapabilities,
                 now,
                 actor);
-            providers.AddRevision(revision);
-            await providers.SetActiveRevisionAsync(tenant, connectionId, revision.Id, cancellationToken).ConfigureAwait(false);
-            providers.AddAudit(tenant, actor, "create", "provider_revision", revision.Id.Value, revision.ConfigurationHash, now);
+            providers.AddRevision(scope, revision);
+            await providers.SetActiveRevisionAsync(scope, connectionId, revision.Id, cancellationToken).ConfigureAwait(false);
+            providers.AddAudit(scope.Tenant, actor, "create", "provider_revision", revision.Id.Value, revision.ConfigurationHash, now);
             await providers.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return Result<ProviderConnectionRevision>.Success(revision);
         }
@@ -160,14 +160,14 @@ internal sealed class ModelProviderControlPlane(
     }
 
     public async Task<Result<ProviderRevisionVerification>> VerifyRevisionAsync(
-        string tenant,
+        TenantScope scope,
         ProviderConnectionId connectionId,
         int revision,
         string actor,
         CancellationToken cancellationToken)
     {
         ProviderConnectionRevision? providerRevision = await providers
-            .FindRevisionAsync(tenant, connectionId, revision, cancellationToken)
+            .FindRevisionAsync(scope, connectionId, revision, cancellationToken)
             .ConfigureAwait(false);
         if (providerRevision is null)
         {
@@ -191,8 +191,8 @@ internal sealed class ModelProviderControlPlane(
                 probe.Value.RequestId,
                 now,
                 actor);
-            providers.AddVerification(tenant, verification);
-            providers.AddAudit(tenant, actor, "verify", "provider_revision", providerRevision.Id.Value,
+            providers.AddVerification(scope, verification);
+            providers.AddAudit(scope.Tenant, actor, "verify", "provider_revision", providerRevision.Id.Value,
                 providerRevision.ConfigurationHash, now);
             await providers.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return Result<ProviderRevisionVerification>.Success(verification);
@@ -216,39 +216,39 @@ internal sealed class ModelProviderControlPlane(
     }
 
     public Task<IReadOnlyList<ModelDeploymentVersion>> ListDeploymentVersionsAsync(
-        string tenant,
+        TenantScope scope,
         CancellationToken cancellationToken)
-        => providers.ListDeploymentVersionsAsync(tenant, cancellationToken);
+        => providers.ListDeploymentVersionsAsync(scope, cancellationToken);
 
     public async Task<Result<ModelDeploymentVersion>> CreateDeploymentVersionAsync(
-        string tenant,
+        TenantScope scope,
         CreateModelDeploymentVersionCommand command,
         string actor,
         CancellationToken cancellationToken)
-        => await CreateDeploymentAsync(tenant, command, actor, expectedLogicalName: null, cancellationToken)
+        => await CreateDeploymentAsync(scope, command, actor, expectedLogicalName: null, cancellationToken)
             .ConfigureAwait(false);
 
     public async Task<Result<ModelDeploymentVersion>> CreateNextDeploymentVersionAsync(
-        string tenant,
+        TenantScope scope,
         ModelDeploymentVersionId priorVersionId,
         CreateModelDeploymentVersionCommand command,
         string actor,
         CancellationToken cancellationToken)
     {
-        ModelDeploymentVersion? prior = await providers.FindDeploymentAsync(tenant, priorVersionId, cancellationToken)
+        ModelDeploymentVersion? prior = await providers.FindDeploymentAsync(scope, priorVersionId, cancellationToken)
             .ConfigureAwait(false);
         return prior is null
             ? NotFound<ModelDeploymentVersion>(ApplicationErrorCodes.ModelDeploymentNotFound, "No such model deployment version.")
-            : await CreateDeploymentAsync(tenant, command, actor, prior.LogicalName, cancellationToken).ConfigureAwait(false);
+            : await CreateDeploymentAsync(scope, command, actor, prior.LogicalName, cancellationToken).ConfigureAwait(false);
     }
 
     public Task<IReadOnlyList<ModelAssignmentRelease>> ListAssignmentReleasesAsync(
-        string tenant,
+        TenantScope scope,
         CancellationToken cancellationToken)
-        => providers.ListAssignmentsAsync(tenant, cancellationToken);
+        => providers.ListAssignmentsAsync(scope, cancellationToken);
 
     public async Task<Result<ModelAssignmentRelease>> CreateAssignmentReleaseAsync(
-        string tenant,
+        TenantScope scope,
         CreateModelAssignmentReleaseCommand command,
         string actor,
         CancellationToken cancellationToken)
@@ -262,7 +262,7 @@ internal sealed class ModelProviderControlPlane(
         ];
         foreach (ModelDeploymentVersionId id in ids)
         {
-            if (await providers.FindDeploymentAsync(tenant, id, cancellationToken).ConfigureAwait(false) is null)
+            if (await providers.FindDeploymentAsync(scope, id, cancellationToken).ConfigureAwait(false) is null)
             {
                 return NotFound<ModelAssignmentRelease>(
                     ApplicationErrorCodes.ModelDeploymentNotFound,
@@ -272,11 +272,11 @@ internal sealed class ModelProviderControlPlane(
 
         try
         {
-            int version = await providers.NextAssignmentVersionAsync(tenant, command.Name, cancellationToken)
+            int version = await providers.NextAssignmentVersionAsync(scope, command.Name, cancellationToken)
                 .ConfigureAwait(false);
             DateTimeOffset now = timeProvider.GetUtcNow();
             ModelAssignmentRelease release = ModelAssignmentRelease.Create(
-                tenant,
+                scope.Tenant,
                 command.Name,
                 version,
                 command.ClassifierDeploymentVersionId,
@@ -284,8 +284,8 @@ internal sealed class ModelProviderControlPlane(
                 command.AgentDeploymentVersionIds,
                 now,
                 actor);
-            providers.AddAssignment(release);
-            providers.AddAudit(tenant, actor, "create", "model_assignment_release", release.Id.Value,
+            providers.AddAssignment(scope, release);
+            providers.AddAudit(scope.Tenant, actor, "create", "model_assignment_release", release.Id.Value,
                 release.ConfigurationHash, now);
             await providers.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return Result<ModelAssignmentRelease>.Success(release);
@@ -309,7 +309,7 @@ internal sealed class ModelProviderControlPlane(
     }
 
     public async Task<Result<ModelAssignmentEvaluationHandoff>> RequestEvaluationAsync(
-        string tenant,
+        TenantScope scope,
         ModelAssignmentReleaseId releaseId,
         string dataset,
         string baseline,
@@ -318,7 +318,7 @@ internal sealed class ModelProviderControlPlane(
     {
         try
         {
-            ModelAssignmentRelease? release = await providers.FindAssignmentAsync(tenant, releaseId, cancellationToken)
+            ModelAssignmentRelease? release = await providers.FindAssignmentAsync(scope, releaseId, cancellationToken)
                 .ConfigureAwait(false);
             if (release is null)
             {
@@ -327,9 +327,6 @@ internal sealed class ModelProviderControlPlane(
 
             DateTimeOffset now = timeProvider.GetUtcNow();
             ModelAssignmentEvaluationId evaluationId = ModelAssignmentEvaluationId.New();
-            // Staging point (D40): tenant arrives bare until F1-5 cuts this
-            // interface over to a real TenantScope.
-            TenantScope scope = TenantScope.TenantWide(tenant);
             providers.AddEvaluation(new ModelAssignmentEvaluationEntity
             {
                 Id = evaluationId,
@@ -344,7 +341,7 @@ internal sealed class ModelProviderControlPlane(
                 RequestedAt = now,
                 RequestedBy = actor,
             });
-            providers.AddAudit(tenant, actor, "evaluate", "model_assignment_release", release.Id.Value,
+            providers.AddAudit(scope.Tenant, actor, "evaluate", "model_assignment_release", release.Id.Value,
                 release.ConfigurationHash, now);
             await providers.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return Result<ModelAssignmentEvaluationHandoff>.Success(new ModelAssignmentEvaluationHandoff(
@@ -373,7 +370,7 @@ internal sealed class ModelProviderControlPlane(
         }
     }
     public async Task<Result<ModelAssignmentEvaluationHandoff>> CompleteEvaluationAsync(
-        string tenant,
+        TenantScope scope,
         ModelAssignmentEvaluationId evaluationId,
         bool passed,
         string artifactHash,
@@ -382,7 +379,7 @@ internal sealed class ModelProviderControlPlane(
     {
         try
         {
-            ModelAssignmentEvaluationEntity? evaluation = await providers.FindEvaluationAsync(tenant, evaluationId, cancellationToken)
+            ModelAssignmentEvaluationEntity? evaluation = await providers.FindEvaluationAsync(scope, evaluationId, cancellationToken)
                 .ConfigureAwait(false);
             if (evaluation is null)
             {
@@ -403,7 +400,7 @@ internal sealed class ModelProviderControlPlane(
             evaluation.CompletedAt = now;
 
             providers.UpdateEvaluation(evaluation);
-            providers.AddAudit(tenant, actor, "complete_evaluation", "model_assignment_release", evaluation.AssignmentReleaseId.Value,
+            providers.AddAudit(scope.Tenant, actor, "complete_evaluation", "model_assignment_release", evaluation.AssignmentReleaseId.Value,
                 evaluation.ArtifactHash, now);
             await providers.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
@@ -435,16 +432,16 @@ internal sealed class ModelProviderControlPlane(
 
 
     public async Task<Result<ModelAssignmentRelease>> ActivateAsync(
-        string tenant,
+        TenantScope scope,
         ModelAssignmentReleaseId releaseId,
         string actor,
         CancellationToken cancellationToken)
     {
         try
         {
-            ModelAssignmentRelease? release = await providers.FindAssignmentAsync(tenant, releaseId, cancellationToken)
+            ModelAssignmentRelease? release = await providers.FindAssignmentAsync(scope, releaseId, cancellationToken)
                 .ConfigureAwait(false);
-            PinnedModelAssignment? snapshot = await providers.BuildSnapshotAsync(tenant, releaseId, cancellationToken)
+            PinnedModelAssignment? snapshot = await providers.BuildSnapshotAsync(scope, releaseId, cancellationToken)
                 .ConfigureAwait(false);
             if (release is null || snapshot is null)
             {
@@ -452,7 +449,7 @@ internal sealed class ModelProviderControlPlane(
             }
 
             if (_options.RequireEvaluationForActivation
-                && !await providers.HasPassedEvaluationAsync(tenant, releaseId, cancellationToken).ConfigureAwait(false))
+                && !await providers.HasPassedEvaluationAsync(scope, releaseId, cancellationToken).ConfigureAwait(false))
             {
                 return Result<ModelAssignmentRelease>.Failure(Error.Permanent(
                     ApplicationErrorCodes.ModelAssignmentEvaluationRequired,
@@ -479,7 +476,7 @@ internal sealed class ModelProviderControlPlane(
                 }
 
                 ProviderConnectionRevision? revision = await providers.FindRevisionAsync(
-                    tenant,
+                    scope,
                     candidate.ProviderConnectionRevisionId,
                     cancellationToken).ConfigureAwait(false);
                 if (revision is null || !string.Equals(revision.ConfigurationHash, candidate.ProviderConfigurationHash, StringComparison.Ordinal))
@@ -496,7 +493,7 @@ internal sealed class ModelProviderControlPlane(
                 }
 
                 ProviderRevisionVerification? verified = await providers.LatestVerificationAsync(
-                    tenant,
+                    scope,
                     candidate.ProviderConnectionRevisionId,
                     cancellationToken).ConfigureAwait(false);
                 if (verified is null || (verified.VerifiedCapabilities & candidate.Capabilities) != candidate.Capabilities)
@@ -520,8 +517,8 @@ internal sealed class ModelProviderControlPlane(
             }
 
             DateTimeOffset now = timeProvider.GetUtcNow();
-            await providers.ActivateAsync(tenant, releaseId, now, actor, cancellationToken).ConfigureAwait(false);
-            providers.AddAudit(tenant, actor, "activate", "model_assignment_release", release.Id.Value,
+            await providers.ActivateAsync(scope, releaseId, now, actor, cancellationToken).ConfigureAwait(false);
+            providers.AddAudit(scope.Tenant, actor, "activate", "model_assignment_release", release.Id.Value,
                 release.ConfigurationHash, now);
             await providers.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return Result<ModelAssignmentRelease>.Success(release);
@@ -544,7 +541,7 @@ internal sealed class ModelProviderControlPlane(
         }
     }
     private async Task<Result<ModelDeploymentVersion>> CreateDeploymentAsync(
-        string tenant,
+        TenantScope scope,
         CreateModelDeploymentVersionCommand command,
         string actor,
         string? expectedLogicalName,
@@ -552,7 +549,7 @@ internal sealed class ModelProviderControlPlane(
     {
         ArgumentNullException.ThrowIfNull(command);
         ProviderConnectionRevision? revision = await providers.FindRevisionAsync(
-            tenant,
+            scope,
             command.ProviderConnectionRevisionId,
             cancellationToken).ConfigureAwait(false);
         if (revision is null)
@@ -593,11 +590,11 @@ internal sealed class ModelProviderControlPlane(
 
         try
         {
-            int version = await providers.NextDeploymentVersionAsync(tenant, command.LogicalName, cancellationToken)
+            int version = await providers.NextDeploymentVersionAsync(scope, command.LogicalName, cancellationToken)
                 .ConfigureAwait(false);
             DateTimeOffset now = timeProvider.GetUtcNow();
             ModelDeploymentVersion deployment = ModelDeploymentVersion.Create(
-                tenant,
+                scope.Tenant,
                 command.LogicalName,
                 version,
                 command.ProviderConnectionRevisionId,
@@ -613,8 +610,8 @@ internal sealed class ModelProviderControlPlane(
                 command.ProviderParameters,
                 now,
                 actor);
-            providers.AddDeployment(deployment);
-            providers.AddAudit(tenant, actor, "create", "model_deployment_version", deployment.Id.Value,
+            providers.AddDeployment(scope, deployment);
+            providers.AddAudit(scope.Tenant, actor, "create", "model_deployment_version", deployment.Id.Value,
                 deployment.ConfigurationHash, now);
             await providers.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return Result<ModelDeploymentVersion>.Success(deployment);

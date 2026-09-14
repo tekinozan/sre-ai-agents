@@ -41,11 +41,16 @@ internal sealed partial class ModelAssignmentBootstrapper(
         IUnitOfWork unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
         ProviderRevisionVerifier verifier = scope.ServiceProvider.GetRequiredService<ProviderRevisionVerifier>();
 
+        // The bootstrap tenant carries no Product dimension (D41), so
+        // TenantWide is the only scope this hosted service can honestly ask
+        // for — not a default standing in for data it doesn't have.
+        TenantScope tenantScope = TenantScope.TenantWide(bootstrap.Tenant);
+
         // Fast path outside any transaction: the overwhelmingly common case is
         // that some earlier replica already bootstrapped, and this skips opening
         // one — and taking the advisory lock below — for that case entirely.
         PinnedModelAssignment? active = await repository
-            .GetActiveSnapshotAsync(bootstrap.Tenant, cancellationToken)
+            .GetActiveSnapshotAsync(tenantScope, cancellationToken)
             .ConfigureAwait(false);
         if (active is not null)
         {
@@ -71,7 +76,7 @@ internal sealed partial class ModelAssignmentBootstrapper(
                 .ConfigureAwait(false);
 
             PinnedModelAssignment? activeAfterLock = await repository
-                .GetActiveSnapshotAsync(bootstrap.Tenant, ct)
+                .GetActiveSnapshotAsync(tenantScope, ct)
                 .ConfigureAwait(false);
             if (activeAfterLock is not null)
             {
@@ -99,10 +104,10 @@ internal sealed partial class ModelAssignmentBootstrapper(
                 now,
                 "bootstrapper");
 
-            repository.AddConnection(connection);
-            repository.AddRevision(revision);
+            repository.AddConnection(tenantScope, connection);
+            repository.AddRevision(tenantScope, revision);
             await repository.SaveChangesAsync(ct).ConfigureAwait(false);
-            await repository.SetActiveRevisionAsync(bootstrap.Tenant, connection.Id, revision.Id, ct).ConfigureAwait(false);
+            await repository.SetActiveRevisionAsync(tenantScope, connection.Id, revision.Id, ct).ConfigureAwait(false);
             HashSet<string> profileRefs =
             [
                 bootstrap.ClassifierProfile,
@@ -170,7 +175,7 @@ internal sealed partial class ModelAssignmentBootstrapper(
                         now,
                         "bootstrapper");
 
-                    repository.AddDeployment(deployment);
+                    repository.AddDeployment(tenantScope, deployment);
                     distinctDeployments[profile.Name] = deployment;
                 }
 
@@ -193,7 +198,7 @@ internal sealed partial class ModelAssignmentBootstrapper(
                 now,
                 "bootstrapper");
 
-            repository.AddAssignment(assignment);
+            repository.AddAssignment(tenantScope, assignment);
 
             if (environment.IsProduction())
             {
@@ -205,7 +210,7 @@ internal sealed partial class ModelAssignmentBootstrapper(
                     throw new InvalidOperationException($"Bootstrap verification failed in Production: {probe.Error.Message}");
                 }
 
-                repository.AddVerification(bootstrap.Tenant, new ProviderRevisionVerification(
+                repository.AddVerification(tenantScope, new ProviderRevisionVerification(
                     revision.Id,
                     probe.Value.Capabilities,
                     probe.Value.RequestId,
@@ -214,7 +219,7 @@ internal sealed partial class ModelAssignmentBootstrapper(
             }
             else
             {
-                repository.AddVerification(bootstrap.Tenant, new ProviderRevisionVerification(
+                repository.AddVerification(tenantScope, new ProviderRevisionVerification(
                     revision.Id,
                     descriptor.Capabilities,
                     "scripted-verification",
@@ -222,7 +227,7 @@ internal sealed partial class ModelAssignmentBootstrapper(
                     "bootstrapper"));
             }
 
-            await repository.ActivateAsync(bootstrap.Tenant, assignment.Id, now, "bootstrapper", ct).ConfigureAwait(false);
+            await repository.ActivateAsync(tenantScope, assignment.Id, now, "bootstrapper", ct).ConfigureAwait(false);
 
             LogBootstrapSuccess(logger, bootstrap.Tenant, bootstrap.AssignmentName, 1, assignment.ConfigurationHash);
             return true;

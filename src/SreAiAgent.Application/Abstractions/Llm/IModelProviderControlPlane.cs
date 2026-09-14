@@ -48,19 +48,19 @@ public sealed record ModelAssignmentEvaluationHandoff(
 
 public interface IModelProviderControlPlane
 {
-    Task<IReadOnlyList<ProviderConnection>> ListConnectionsAsync(string tenant, CancellationToken cancellationToken);
-    Task<Result<ProviderConnection>> CreateConnectionAsync(string tenant, string displayName, string actor, CancellationToken cancellationToken);
-    Task<IReadOnlyList<ProviderConnectionRevision>> ListRevisionsAsync(string tenant, ProviderConnectionId connectionId, CancellationToken cancellationToken);
-    Task<Result<ProviderConnectionRevision>> CreateRevisionAsync(string tenant, ProviderConnectionId connectionId, CreateProviderRevisionCommand command, string actor, CancellationToken cancellationToken);
-    Task<Result<ProviderRevisionVerification>> VerifyRevisionAsync(string tenant, ProviderConnectionId connectionId, int revision, string actor, CancellationToken cancellationToken);
+    Task<IReadOnlyList<ProviderConnection>> ListConnectionsAsync(TenantScope scope, CancellationToken cancellationToken);
+    Task<Result<ProviderConnection>> CreateConnectionAsync(TenantScope scope, string displayName, string actor, CancellationToken cancellationToken);
+    Task<IReadOnlyList<ProviderConnectionRevision>> ListRevisionsAsync(TenantScope scope, ProviderConnectionId connectionId, CancellationToken cancellationToken);
+    Task<Result<ProviderConnectionRevision>> CreateRevisionAsync(TenantScope scope, ProviderConnectionId connectionId, CreateProviderRevisionCommand command, string actor, CancellationToken cancellationToken);
+    Task<Result<ProviderRevisionVerification>> VerifyRevisionAsync(TenantScope scope, ProviderConnectionId connectionId, int revision, string actor, CancellationToken cancellationToken);
 
-    Task<IReadOnlyList<ModelDeploymentVersion>> ListDeploymentVersionsAsync(string tenant, CancellationToken cancellationToken);
-    Task<Result<ModelDeploymentVersion>> CreateDeploymentVersionAsync(string tenant, CreateModelDeploymentVersionCommand command, string actor, CancellationToken cancellationToken);
-    Task<Result<ModelDeploymentVersion>> CreateNextDeploymentVersionAsync(string tenant, ModelDeploymentVersionId priorVersionId, CreateModelDeploymentVersionCommand command, string actor, CancellationToken cancellationToken);
+    Task<IReadOnlyList<ModelDeploymentVersion>> ListDeploymentVersionsAsync(TenantScope scope, CancellationToken cancellationToken);
+    Task<Result<ModelDeploymentVersion>> CreateDeploymentVersionAsync(TenantScope scope, CreateModelDeploymentVersionCommand command, string actor, CancellationToken cancellationToken);
+    Task<Result<ModelDeploymentVersion>> CreateNextDeploymentVersionAsync(TenantScope scope, ModelDeploymentVersionId priorVersionId, CreateModelDeploymentVersionCommand command, string actor, CancellationToken cancellationToken);
 
-    Task<IReadOnlyList<ModelAssignmentRelease>> ListAssignmentReleasesAsync(string tenant, CancellationToken cancellationToken);
-    Task<Result<ModelAssignmentRelease>> CreateAssignmentReleaseAsync(string tenant, CreateModelAssignmentReleaseCommand command, string actor, CancellationToken cancellationToken);
-    Task<Result<ModelAssignmentEvaluationHandoff>> RequestEvaluationAsync(string tenant, ModelAssignmentReleaseId releaseId, string dataset, string baseline, string actor, CancellationToken cancellationToken);
-    Task<Result<ModelAssignmentEvaluationHandoff>> CompleteEvaluationAsync(string tenant, ModelAssignmentEvaluationId evaluationId, bool passed, string artifactHash, string actor, CancellationToken cancellationToken);
-    Task<Result<ModelAssignmentRelease>> ActivateAsync(string tenant, ModelAssignmentReleaseId releaseId, string actor, CancellationToken cancellationToken);
+    Task<IReadOnlyList<ModelAssignmentRelease>> ListAssignmentReleasesAsync(TenantScope scope, CancellationToken cancellationToken);
+    Task<Result<ModelAssignmentRelease>> CreateAssignmentReleaseAsync(TenantScope scope, CreateModelAssignmentReleaseCommand command, string actor, CancellationToken cancellationToken);
+    Task<Result<ModelAssignmentEvaluationHandoff>> RequestEvaluationAsync(TenantScope scope, ModelAssignmentReleaseId releaseId, string dataset, string baseline, string actor, CancellationToken cancellationToken);
+    Task<Result<ModelAssignmentEvaluationHandoff>> CompleteEvaluationAsync(TenantScope scope, ModelAssignmentEvaluationId evaluationId, bool passed, string artifactHash, string actor, CancellationToken cancellationToken);
+    Task<Result<ModelAssignmentRelease>> ActivateAsync(TenantScope scope, ModelAssignmentReleaseId releaseId, string actor, CancellationToken cancellationToken);
 }
