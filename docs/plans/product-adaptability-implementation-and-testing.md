@@ -166,8 +166,8 @@ Bu nedenle sözlük ve kapsam kararı, bu boyutu varmış gibi göstermeden aşa
    outbox kayıtları ve control plane çağrıları yalnızca tenant düzeyinde izoledir.
 2. **Product (Ürün — Hedeflenen / Planlanan Boyut):** Aşama 1 (ADP-101–105) ile sisteme tanıtılması
    planlanan mantıksal sistem sınırıdır. Bir tenant birden fazla product barındırabilir. Bugün kodda
-   bir entity veya parametre değildir; tenant içinde daha dar bir model profili ve yetki alanı
-   tanımlamak için eklenecektir.
+   bir entity veya parametre değildir; `docs/DECISIONS.md` D40 kararınca tenant'ın composite key'ini
+   genişleten bir sütun olarak eklenecektir (`TenantScope`) — ayrı bir Product entity veya tablo değil.
 3. **Environment (Ortam):** Alert payload'ında (`CanonicalAlert.Environment`) ve gözlemlenebilirlik
    sorgularında (`PromQuery`) etiket olarak taşınan, ancak model sağlayıcı atamasında henüz bir
    boyut oluşturmayan çalışma ortamıdır (`production`, `staging` vb.).
@@ -299,7 +299,7 @@ F3-1/F3-2/F3-6); burada başlatılmaz.
 
 | İş | Planlanan değişiklik | Mevcut temel |
 |---|---|---|
-| ADP-101 | Product/environment entity, API, scope policy | Tenant principal/control-plane abstractions |
+| ADP-101 | Product/environment composite key sütunları (`TenantScope`, D40) ve scope policy; ayrı Product entity/tablo yok | Tenant principal/control-plane abstractions |
 | ADP-102 | Credential reference yaşam döngüsü | Provider revision modeli |
 | ADP-103 | Scoped model assignment | IModelProviderControlPlane, repository |
 | ADP-104 | Versioned immutable snapshot alanları | ConfigurationPinner, ModelAssignmentJson |
