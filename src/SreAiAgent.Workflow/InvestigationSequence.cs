@@ -1,4 +1,5 @@
 using SreAiAgent.Application.Abstractions.Workflow;
+using SreAiAgent.Application.Errors;
 using SreAiAgent.Domain.Findings;
 using SreAiAgent.Domain.Shared;
 
@@ -128,7 +129,7 @@ public abstract class InvestigationSequence
         {
             Result waited = await WaitForApprovalAsync(approval.Value, input, cancellationToken);
 
-            if (waited.IsFailure)
+            if (waited.IsFailure && !WithholdsOnlyTheRemediation(waited.Error.Code))
             {
                 await FailAsync(activities, input, waited.Error.Code, waited.Error.Message);
                 return;
@@ -160,6 +161,26 @@ public abstract class InvestigationSequence
                 input.IncidentId, outcome, report.Value.Version, input.CorrelationId),
             cancellationToken);
     }
+
+    /// <summary>
+    /// Whether a failed approval wait refuses only the proposed action, leaving
+    /// the diagnosis to be reported.
+    /// </summary>
+    /// <remarks>
+    /// A rejection is a human saying what they think of the fix, and an approval
+    /// that never came is nobody saying yes; neither says anything about the
+    /// correlation, which is the expensive part. Both used to fail the
+    /// investigation before the report was written, so the RCA was lost exactly
+    /// when a human had engaged with it. The decision itself is on the approval
+    /// record, which the decision handler writes before it signals. Anything
+    /// else, such as an executor that cannot wait at all, still fails.
+    ///
+    /// Replay-safe without a version marker: V1 never requires an approval, so
+    /// no recorded history has taken this branch.
+    /// </remarks>
+    private static bool WithholdsOnlyTheRemediation(ErrorCode code)
+        => code == ApplicationErrorCodes.ApprovalRejected
+           || code == ApplicationErrorCodes.WorkflowDeadlineExceeded;
 
     /// <summary>Records a failure without closing the incident, so a retry stays possible.</summary>
     /// <remarks>

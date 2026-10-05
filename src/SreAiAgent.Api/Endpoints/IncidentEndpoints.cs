@@ -132,7 +132,7 @@ public static class IncidentEndpoints
         RetryInvestigationHandler handler,
         CancellationToken cancellationToken)
         => (await handler
-                .HandleAsync(principal.Tenant(), IncidentId.From(incidentId), request.Reason, cancellationToken)
+                .HandleAsync(principal.Tenant(), IncidentId.From(incidentId), principal.Actor(), request.Reason, cancellationToken)
                 .ConfigureAwait(false))
             .ToHttpResult(StatusCodes.Status202Accepted);
 

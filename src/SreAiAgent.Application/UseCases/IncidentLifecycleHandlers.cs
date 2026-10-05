@@ -94,9 +94,18 @@ public sealed class RetryInvestigationHandler(
     TimeProvider timeProvider)
 {
     /// <summary>Requests another attempt.</summary>
+    /// <param name="tenant">The caller's tenant.</param>
+    /// <param name="incidentId">The incident to retry.</param>
+    /// <param name="actor">
+    /// Who asked. Recorded when the retry reopens a resolved incident, which is
+    /// an audited operation: a fixed "operator" told a reviewer nothing.
+    /// </param>
+    /// <param name="reason">Why, in the operator's words.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
     public async Task<Result> HandleAsync(
         string tenant,
         IncidentId incidentId,
+        string actor,
         string reason,
         CancellationToken cancellationToken)
     {
@@ -137,7 +146,7 @@ public sealed class RetryInvestigationHandler(
 
         if (IncidentStatePolicy.IsClosed(incident.Status))
         {
-            incident.Reopen("operator", reason, now);
+            incident.Reopen(actor, reason, now);
         }
 
         incident.StartInvestigation(snapshotId, now);
@@ -224,11 +233,18 @@ internal static class LifecycleStaging
             }
 
             incidents.AddTimelineEntry(
-                IncidentTimelineEntry.FromDomainEvent(incidentEvent, SummaryFor(incidentEvent, incident)));
+                IncidentTimelineEntry.FromDomainEvent(incidentEvent, SummaryFor(incidentEvent, incident), ActorOf(incidentEvent)));
 
             publisher.Enqueue(incidentEvent, incident.Id.ToString());
         }
     }
+
+    private static string? ActorOf(IncidentDomainEvent domainEvent) => domainEvent switch
+    {
+        IncidentCancelled cancelled => cancelled.Actor,
+        IncidentReopened reopened => reopened.Actor,
+        _ => null,
+    };
 
     private static string SummaryFor(IncidentDomainEvent domainEvent, Incident incident) => domainEvent switch
     {

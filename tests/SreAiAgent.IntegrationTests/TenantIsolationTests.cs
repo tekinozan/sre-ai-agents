@@ -191,13 +191,13 @@ public sealed class TenantIsolationTests(PostgresFixture postgres)
             Clock);
 
         // Foreign tenant receives 404 IncidentNotFound
-        Result foreignResult = await handler.HandleAsync("globex", incident.Id, "investigation stalled", ct);
+        Result foreignResult = await handler.HandleAsync("globex", incident.Id, "operator", "investigation stalled", ct);
         foreignResult.IsFailure.ShouldBeTrue();
         foreignResult.Error.Code.ToString().ShouldBe(ApplicationErrorCodes.IncidentNotFound.ToString());
         ErrorCatalog.Describe(foreignResult.Error.Code).HttpStatusCode.ShouldBe(404);
 
         // Owning tenant succeeds
-        Result owningResult = await handler.HandleAsync("acme", incident.Id, "investigation stalled", ct);
+        Result owningResult = await handler.HandleAsync("acme", incident.Id, "operator", "investigation stalled", ct);
         owningResult.IsSuccess.ShouldBeTrue();
     }
 

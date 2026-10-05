@@ -21,8 +21,8 @@ Bir satır, komut çalıştırılıp kanıt yazıldıktan sonra güncellenir.
 | P1-1 | BUG-001: fingerprint yarışı ve "resolved" teslimatı | doğrulandı | D42, D43. Gate `--with-integration`: 454 + eval + 46 + 11 test yeşil. Compose: tek alert → `Resolved`/`Complete`; 8 eşzamanlı aynı alert → 1 incident, sayaç 8; bilinmeyen kimliğe resolved teslimat → 0 incident; tenant'sız zehirli mesaj 5 kez yeniden teslim edildi ve dead-letter'a gitti, arkasındaki alert işlendi; `sre_trace_attribute_rejected_total` 0 |
 | P1-2 | "Resolved" anlamının ayrılması: soruşturma bitti ≠ kesinti bitti | doğrulandı | D43 cooldown: Resolved incident'a pencere içinde gelen alert sayılır, yeniden soruşturulmaz (compose: sayaç 2, tek `investigation.requested`). Status adının değişmesi bilinçli olarak reddedildi; maliyeti D43'te |
 | P1-3 | BUG-002: `TenantWide` assignment'ı bırakmayan aktivasyonun reddi | doğrulandı | D44; `ModelControlPlaneTests` kapanış kanıtı (a) ve (b), Postgres integration |
-| P1-4 | Onay reddi veya süre aşımı RCA raporunu kaybetmez (V2 için gizli hata) | planlandı | — |
-| P1-5 | Reopen gerçek aktörü kaydeder | planlandı | — |
+| P1-4 | Onay reddi veya süre aşımı RCA raporunu kaybetmez (V2 için gizli hata) | doğrulandı | `InvestigationSequenceTests`: red ve süre aşımında `persist` + `complete`, diğer hatalar hâlâ `fail`. V1 bu dala girmediği için replay işaretçisi gerekmedi |
+| P1-5 | Reopen gerçek aktörü kaydeder | doğrulandı | Retry endpoint principal'ı geçirir; timeline girdisi aktörü taşır (`RetryInvestigationHandlerTests`) |
 | P2-1 | GitHub Actions CI: gate + integration | planlandı | — |
 | P2-2 | Container image build, zafiyet taraması | planlandı | — |
 | P3-1 | Servisler arası trace sürekliliği (production-readiness sign-off blokeri) | planlandı | — |
