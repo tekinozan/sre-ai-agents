@@ -100,6 +100,19 @@ Found in the TicketHub pilot's own database, six incidents for one outage (D43).
 
 ---
 
+**An update to an entity read without tracking.** The context defaults to
+`NoTrackingWithIdentityResolution`, so a row loaded by a plain query and then
+changed is saved by nothing: `SaveChanges` succeeds with no writes. A revised
+report verdict answered 200 with the new value and kept the old one; its test
+asserted on the response, which is built from the in-memory value. Load what
+you mean to change with `.AsTracking()`, and assert on a read-back, never on the
+write's echo.
+
+**`sre.incident.completed.v1` was declared and never written.** The aggregate
+raised `IncidentResolved` and `IncidentFailed`, nothing drained them, and every
+consumer of the topic — the notifier was the first — heard nothing. The
+activities now publish it through the outbox with the state change (D48).
+
 ## Serialization
 
 Four separate failures, all from the same root: a generated context only knows the
