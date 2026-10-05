@@ -1,7 +1,7 @@
 # Production readiness execution plan
 
 > **Status:** Phases 1–4 and local deployment follow-up complete; Phase 5 not started.
-> **Source of truth:** `PRODUCTION_READINESS_PLAN.md` (root) holds the detailed per-step specifications, code templates, and context.
+> **Source of truth:** this document. The root `PRODUCTION_READINESS_PLAN.md` it once pointed at was never committed and is lost; the per-step specifications that survive are the ones recorded below and in the commits that landed each phase.
 > **Scope:** This document governs execution phasing, ordering dependencies, affected files, acceptance criteria, open questions, and completion tracking.
 > **Last updated:** 2026-09-09.
 
