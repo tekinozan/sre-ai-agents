@@ -1,0 +1,55 @@
+﻿{
+  "schema_version": "sre-eval-baseline/v1",
+  "baseline_id": "scripted-smoke-2026.10.05-292c452b",
+  "candidate_hash": "ac417b4072fe7a26449840f29ccc45ae01daf89b667c7cfbb4c3baf5fb94a959",
+  "dataset_hash": "292c452bd34003c2a922d878ceb56f3d48db3881742e8d68dc307cf368017bf9",
+  "scorer_hash": "8ee5a4a53904d03a5a30f791d924426fa224bd181aa5b03847ea7233d9dd59bd",
+  "repeats": 2,
+  "aggregate": {
+    "attempt_count": 16,
+    "hard_failure_count": 0,
+    "error_rate": 0,
+    "latency_milliseconds": {
+      "median": 0,
+      "p95": 0
+    },
+    "input_tokens": {
+      "median": 6693,
+      "p95": 6800
+    },
+    "output_tokens": {
+      "median": 392,
+      "p95": 432
+    },
+    "total_tokens": {
+      "median": 7088,
+      "p95": 7217
+    },
+    "cost": {
+      "median": 0.026004,
+      "p95": 0.026835
+    },
+    "quality": {
+      "median": 1,
+      "p95": 1
+    },
+    "quality_dimensions": {
+      "diagnosis_correctness": {
+        "median": 1,
+        "p95": 1
+      },
+      "evidence_grounding": {
+        "median": 1,
+        "p95": 1
+      },
+      "uncertainty_calibration": {
+        "median": 1,
+        "p95": 1
+      },
+      "actionability": {
+        "median": 1,
+        "p95": 1
+      }
+    }
+  }
+}

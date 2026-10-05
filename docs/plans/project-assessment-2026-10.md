@@ -17,6 +17,7 @@ Bir satır, komut çalıştırılıp kanıt yazıldıktan sonra güncellenir.
 | Adım | İş | Durum | Kanıt |
 |---|---|---|---|
 | P0-1 | Plan doküman kayması: ADP ilerleme tablosu, eksik `PRODUCTION_READINESS_PLAN.md` referansı | uygulandı | ADP tablosu F1-1…F1-5 commit referanslarıyla; readiness kaynağı bu repodaki belgeye çevrildi (kök dosya hiç commit edilmemiş) |
+| P0-2 | Gate Linux'ta kırmızı: eval harness platforma bağlı | doğrulandı | Endpoint doğrulaması Unix'te `/v1/...`'i `file://` sayıyordu; scorer hash'i `Environment.NewLine`'lı girintili JSON'dan hesaplanıyordu. Canonical hash + Linux'ta kaydedilmiş `scripted-smoke-2026.10.05.json`; Evals 43/43 |
 | P1-1 | BUG-001: fingerprint yarışı ve "resolved" teslimatı | planlandı | — |
 | P1-2 | "Resolved" anlamının ayrılması: soruşturma bitti ≠ kesinti bitti | planlandı | — |
 | P1-3 | BUG-002: `TenantWide` assignment'ı bırakmayan aktivasyonun reddi | planlandı | — |
@@ -116,6 +117,19 @@ uygulanmaz. İş ihtiyacı "kiracıya plan/kota" ise karşılığı P5-1'dir.
 `adp-phased-execution-plan.md` ilerleme tablosunu commit'lerle hizala;
 `production-readiness.md` içindeki var olmayan `PRODUCTION_READINESS_PLAN.md`
 referansını düzelt. Kabul: tablo commit geçmişiyle çelişmez; kırık referans kalmaz.
+
+### P0-2 — Linux gate
+
+`bash eng/ci.sh` bu repoda Linux'ta hiç yeşil olmamıştı: proje Windows'ta
+geliştirildi ve eval harness iki yerde platforma bağlıydı. İkisi düzeltildi;
+eski baseline immutable olduğu için silinmedi, yenisi en güncel ad olarak seçilir.
+
+Açık kalan, bilinçli olarak bu adıma katılmayan: `AgentSession` ve
+`InvestigationActivities.Model` prompt'ları `StringBuilder.AppendLine` ile
+kuruyor, yani modele giden metin Windows'ta CRLF, Linux'ta LF taşıyor. Production
+container'ları Linux olduğu için davranış değişmiyor, ama aynı aday Windows'ta
+~5 token farklı ölçülüyor. P2-1 CI'ı Linux'ta koşacağı için baseline Linux'a
+göre kaydedildi.
 
 ### P1-1 — BUG-001
 
