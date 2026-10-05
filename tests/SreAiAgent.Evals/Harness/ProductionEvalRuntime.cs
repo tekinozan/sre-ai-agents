@@ -120,7 +120,7 @@ internal sealed class ProductionEvalRuntime : IAsyncDisposable
         AgentExecutor executor = new(renderer, gateway, fixtures, metrics, timeProvider, NullLogger<AgentExecutor>.Instance);
 
         InvestigationActivities activities = new(
-            stores, stores, stores, stores, router, executor, agents, prompts, tools, gateway, renderer, metrics, timeProvider, NullLogger<InvestigationActivities>.Instance);
+            stores, stores, stores, stores, stores, router, executor, agents, prompts, tools, gateway, renderer, metrics, timeProvider, NullLogger<InvestigationActivities>.Instance);
 
         IncidentId incidentId = new(DeterministicGuid(evalCase.CaseId));
         Incident incident = new Incident(

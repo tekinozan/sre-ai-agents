@@ -374,6 +374,14 @@ public sealed class RetentionOptions
     [Range(1, 365)]
     public int DeliveryAttemptRetentionDays { get; init; } = 7;
 
+    /// <summary>
+    /// Retention for notification delivery claims (D48). Must outlive the inbox
+    /// window, or a redelivered completion is announced again, and a calendar
+    /// month, or a monthly budget warning is repeated within its own period.
+    /// </summary>
+    [Range(32, 3650)]
+    public int NotificationClaimRetentionDays { get; init; } = 62;
+
     /// <summary>Rows deleted per statement, so one sweep cannot hold a long lock.</summary>
     [Range(100, 50000)]
     public int BatchSize { get; init; } = 1000;
@@ -415,4 +423,24 @@ public static class ObservabilityProviders
 
     /// <summary>Reads pods and events from the API server of the cluster it runs in.</summary>
     public const string InCluster = "incluster";
+}
+
+/// <summary>Slack and Teams notifications (gemini-budgets-notifications.md N).</summary>
+public sealed class NotificationOptions
+{
+    public const string SectionName = "Notifications";
+
+    /// <summary>Whether this host sends notifications. Off on hosts that only manage channels.</summary>
+    public bool Enabled { get; init; } = true;
+
+    /// <summary>How often budget thresholds are checked.</summary>
+    [Range(10, 3600)]
+    public int BudgetCheckIntervalSeconds { get; init; } = 60;
+
+    /// <summary>Per webhook call. A receiver slower than this is retried by redelivery.</summary>
+    [Range(1, 60)]
+    public int TimeoutSeconds { get; init; } = 10;
+
+    /// <summary>Webhook hosts allowed in production beyond Slack's and Teams' own.</summary>
+    public IReadOnlyList<string> AllowedWebhookHosts { get; init; } = [];
 }

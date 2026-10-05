@@ -129,9 +129,10 @@ The agents ran and produced nothing usable. Check `agent_runs.error_code`:
 
 - `LLM_STRUCTURED_OUTPUT_INVALID` — the model returned something the turn schema
   rejects. Compare the shape it returned against `AgentTurn`.
-- `BUDGET_EXCEEDED` — the agent ran out of iterations, tokens or time. Expected
-  under a tight budget; the outcome is `Partial` and the evidence collected so far
-  is still cited.
+- `BUDGET_EXCEEDED` — the agent ran out of iterations, tokens or time, or the
+  tenant's model budget is spent (below). Expected under a tight budget; the
+  report outcome is `BudgetExceeded` and the evidence collected so far is still
+  cited.
 - `TOOL_POLICY_DENIED` in `tool_calls` — the agent asked for something the policy
   release or its own allowlist forbids. That is the tool gateway working; the
   question is why the agent asked.
@@ -213,14 +214,40 @@ tracer provider (`WorkflowEngineTraceSources`). If every `RunActivity:*` span
 appears twice, a second `TracingInterceptor` was added to the worker; the
 client's is already applied to it.
 
-### An investigation failed with `BUDGET_EXCEEDED`
+### A report's outcome is `BudgetExceeded` and `llm_calls` shows `BUDGET_EXCEEDED` at zero cost
 
-The tenant's model budget is spent (D47); no model call was made. `GET
-/v1/budget` shows the limit, the period start and the spend. Either wait for the
-period to turn (monthly budgets reset on the first of the UTC month), raise the
-limit with `PUT /v1/budget`, or remove it with `DELETE /v1/budget`, then retry
-the incident. An agent run that hit the ceiling mid-investigation shows
-`BudgetExceeded` and the report outcome says so.
+The tenant's model budget is spent (D47); those calls never left the platform.
+The incident is still `Resolved`, not `Failed`: the report is kept with whatever
+evidence the tools gathered, and its outcome says the investigation was cut
+short. Notification channels hear it as `investigation_completed` with that
+outcome, and the `budget_threshold` notification at 100% will already have gone
+out (D48).
+
+`GET /v1/budget` shows the limit, the period start and the spend. Either wait for
+the period to turn (monthly budgets reset on the first of the UTC month), raise
+the limit with `PUT /v1/budget`, or remove it with `DELETE /v1/budget`, then
+retry the incident.
+
+### A notification channel stopped receiving messages
+
+The worker logs the channel id and the HTTP status, never the URL. Common causes:
+
+- `NOTIFICATION_DELIVERY_FAILED` on `/test` with a 4xx from the chat tool: the
+  webhook was revoked or its flow turned off. Create a new one and replace the
+  secret.
+- The test is refused before sending: in production the URL must be HTTPS to
+  Slack's or Teams' own hosts, or to a host in
+  `Notifications:AllowedWebhookHosts`, and never an IP address.
+- Nothing arrives for completions at all: check that the `notifier` consumer is
+  running in the worker (`Notifications:Enabled`) and look for its rows in
+  `consumer_delivery_attempts` and `outbox_messages` on
+  `sre.incident.completed.v1`. A send that keeps failing follows the usual
+  dead-letter path; channels that had already accepted the message are not sent
+  it again on replay.
+- A Teams channel subscribed only to `investigation_failed` hears nothing about
+  a report cut short by the tenant budget: that investigation is `Resolved` with
+  outcome `BudgetExceeded`, announced as `investigation_completed`, and the
+  `budget_threshold` message covers it.
 
 ### `sre_trace_attribute_rejected_total` is climbing
 
@@ -270,6 +297,30 @@ rather than continued, and the tokens already spent are spent again.
 The row keeps its payload. Reset `is_dead_lettered` and `next_attempt_at` once the
 cause is fixed, and the dispatcher picks it up on its next pass. Consumers are
 idempotent, so a replay of something that partly succeeded is safe.
+
+### Sending notifications to Slack or Teams
+
+Create the webhook in the chat tool (a Slack incoming webhook, or a Teams
+Workflows "post to a channel when a webhook request is received" flow), put its
+URL in a Secret, and mount it under `Llm:CredentialFileRoot`
+(`/var/run/secrets/sre-ai`) in the API and the investigation worker: the worker
+sends, the API sends the test message. A `file://` reference is relative to that
+root. Then register the channel by reference, never by URL (D48):
+
+```bash
+curl -X POST "$API/v1/notification-channels" -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{
+    "kind": "teams",
+    "display_name": "sre-oncall",
+    "webhook_ref": "file://teams-oncall",
+    "events": ["investigation_failed", "budget_threshold"]
+  }'
+curl -X POST "$API/v1/notification-channels/$ID/test" -H "Authorization: Bearer $TOKEN"
+```
+
+`events` defaults to all three. Managing channels needs the Operator or
+PlatformAdmin role. A webhook rotates like a `file://` provider key (table
+below); to change anything else about a channel, delete it and create it again.
 
 ### Backup and restore
 
@@ -324,6 +375,7 @@ lock. It removes only plumbing:
 | Processed inbox messages | `InboxRetentionDays`, 14 | — |
 | Dispatched outbox messages | `DispatchedOutboxRetentionDays`, 7 | Dead-lettered rows |
 | Settled delivery attempts | `DeliveryAttemptRetentionDays`, 7 | Unsettled attempts |
+| Notification delivery claims | `NotificationClaimRetentionDays`, 62 | — |
 
 Incidents, timeline, evidence, findings, reports, LLM and tool audit rows and the
 model control plane are never deleted by the platform. The inbox window must

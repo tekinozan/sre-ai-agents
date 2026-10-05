@@ -27,6 +27,7 @@ builder.Services
     .AddSreObservability(builder.Environment)
     .AddSreTools()
     .AddSrePersistence()
+    .AddSreNotifications(builder.Configuration)
     .AddSreApplication()
     .AddSreAlertIngestion()
     .AddSreOutboxDispatcher()
@@ -118,6 +119,7 @@ app.MapAlertEndpoints();
 app.MapApprovalEndpoints();
 app.MapModelProviderEndpoints();
 app.MapBudgetEndpoints();
+app.MapNotificationEndpoints();
 app.MapStreamEndpoints();
 
 await app.RunAsync().ConfigureAwait(false);

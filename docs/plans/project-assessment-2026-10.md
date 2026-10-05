@@ -32,8 +32,8 @@ Bir satır, komut çalıştırılıp kanıt yazıldıktan sonra güncellenir.
 | P4-3 | Kullanılmayan `tool_calling` gereksiniminin compatible sağlayıcıları elemesi | doğrulandı | D45; temiz volume'de bootstrap deployment'ları `required_capabilities = 3` (StructuredOutput, SystemMessage) ve soruşturma tamamlandı; mevcut volume'de bootstrap no-op |
 | P4-4 | Native Gemini adapter (ADP F3-7) | uygulandı | D46; `gemini-budgets-notifications.md` G-1. Canlı kanıt credential bekliyor |
 | P4-5 | Secret store credential resolver (Vault / ExternalSecrets) | planlandı | — |
-| P5-1 | Kiracı başına LLM bütçesi ve alert fırtınası koruması (ADP F3-4) | planlandı | Kullanıcı kararı: aylık veya belirlenmiş toplam maliyet limiti; `gemini-budgets-notifications.md` |
-| P5-2 | Bildirim çıkışı (Slack/Teams/PagerDuty) | planlandı | Kullanıcı kararı: Slack ve Teams; `gemini-budgets-notifications.md` |
+| P5-1 | Kiracı başına LLM bütçesi ve alert fırtınası koruması (ADP F3-4) | doğrulandı | D47; `gemini-budgets-notifications.md` B-1…B-3. Compose: farklı para birimi 409; limit dolunca sağlayıcıya çağrı yok (`llm_calls` 0 maliyetli `BUDGET_EXCEEDED`), soruşturma `Resolved`/`BudgetExceeded`. Fırtına için ayrı bir hız limiti eklenmedi: D43 tekilleştirme + bütçe tavanı maliyeti sınırlıyor |
+| P5-2 | Bildirim çıkışı (Slack/Teams/PagerDuty) | doğrulandı | D48; `gemini-budgets-notifications.md` N-1…N-3. PagerDuty kapsam dışı (kullanıcı kararı). Ön koşul olarak hiç yazılmayan `sre.incident.completed.v1` artık yayımlanıyor |
 | P5-3 | `GET /v1/incidents` listeleme ve filtreleme | planlandı | — |
 | P6-1 | RCA geri bildirim döngüsü | planlandı | — |
 | P6-2 | Eval tamamlamada görev ayrılığı ve artifact doğrulaması | planlandı | — |

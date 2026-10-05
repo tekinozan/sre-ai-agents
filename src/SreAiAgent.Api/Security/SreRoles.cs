@@ -49,4 +49,12 @@ public static class SrePolicies
     /// grant it to <see cref="SreRoles.Investigator"/> too.
     /// </remarks>
     public const string ManageModelProviders = "model-providers:manage";
+
+    /// <summary>Manage the tenant's Slack and Teams notification channels.</summary>
+    /// <remarks>
+    /// Operator-only for the same reason as <see cref="ManageModelProviders"/>:
+    /// the list carries credential references, and a channel is somewhere the
+    /// platform will post on the tenant's behalf.
+    /// </remarks>
+    public const string ManageNotifications = "notifications:manage";
 }

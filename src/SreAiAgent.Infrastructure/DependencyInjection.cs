@@ -50,6 +50,7 @@ public static class DependencyInjection
         services.AddOptionsWithValidation<DatabaseOptions>(DatabaseOptions.SectionName);
         services.AddOptionsWithValidation<KafkaOptions>(KafkaOptions.SectionName);
         services.AddOptionsWithValidation<LlmOptions>(LlmOptions.SectionName);
+        services.AddOptionsWithValidation<NotificationOptions>(NotificationOptions.SectionName);
         services.AddOptionsWithValidation<RegistryOptions>(RegistryOptions.SectionName);
         services.AddOptionsWithValidation<AgentRuntimeOptions>(AgentRuntimeOptions.SectionName);
         services.AddOptionsWithValidation<SecurityOptions>(SecurityOptions.SectionName);

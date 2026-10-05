@@ -948,3 +948,47 @@ activity finishes, so agents running in parallel can each make the calls their
 activity has not yet committed. The guard is not registered where there is no
 database (the eval harness), which runs unlimited. Cost is the platform's
 estimate from the deployment's prices, not the provider's invoice.
+
+A call refused for the tenant's budget ends the agent run as `BudgetExceeded`,
+the same status as an agent that spent its own iterations or tokens, so the
+report's outcome is `BudgetExceeded` and the incident is `Resolved` with what the
+tools gathered. Reported as an ordinary failure, it had made a capped
+investigation read as `Partial`, which is what a provider outage looks like.
+
+### D48 — Slack and Teams hear about investigations through webhooks named by secret reference
+
+Decided by the user: the channels are Slack and Teams. A tenant's channel holds
+a kind, a name, the events it wants (`investigation_completed`,
+`investigation_failed`, `budget_threshold`) and a `webhook_ref` in the same
+`env://` / `file://` form as provider credentials. A raw URL is refused by the
+API: an incoming-webhook URL is itself the credential, and a column of them is
+a list of ways to post into a company's chat.
+
+Completions arrive on `sre.incident.completed.v1`, which nothing had ever
+written to; `CompleteInvestigationAsync` and `FailInvestigationAsync` now
+publish it through the outbox in the same transaction as the state change. A
+`notifier` consumer reads it, and a poller in the worker reports 80% and 100%
+of a budget. The message body is built only from the platform's own fields
+(title, service, outcome, the report's summary cut to 600 characters), escaped
+for Slack's mrkdwn; nothing a provider returned verbatim reaches a chat.
+
+Each `(delivery_key, channel)` is claimed by an insert before it is sent, in a
+scope of its own so the claim never commits the consumer's inbox row early
+(D25). A failed send releases its claim and fails the handler, which D42
+retries. In production a webhook must be HTTPS to `hooks.slack.com`,
+`*.webhook.office.com`, `*.logic.azure.com` or
+`*.environment.api.powerplatform.com`, or to a host the installation allowed
+explicitly, and never to an IP address.
+
+**Rejected: at-least-once delivery.** It would mean sending before claiming,
+and a redelivered completion would post twice. A chat message about a report
+that is also in the API is worth less than not paging a channel twice.
+
+**Cost:** a crash between the claim and the send loses that one notification,
+and claims are pruned after `Retention:NotificationClaimRetentionDays` (62), so
+a fixed-period budget that stays spent is announced again after that long. Budget
+warnings lag by up to `Notifications:BudgetCheckIntervalSeconds`. A channel's
+webhook is resolved at every send, so a rotated secret takes effect without a
+restart but a broken reference only shows when something is sent; `POST
+/v1/notification-channels/{id}/test` is how an operator finds out first. The
+legacy Teams "Office 365 connector" webhooks are not supported, only Workflows.

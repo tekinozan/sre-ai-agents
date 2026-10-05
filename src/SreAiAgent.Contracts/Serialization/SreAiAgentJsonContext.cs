@@ -5,6 +5,7 @@ using SreAiAgent.Contracts.Budgets;
 using SreAiAgent.Contracts.Incidents;
 using SreAiAgent.Contracts.Messaging;
 using SreAiAgent.Contracts.ModelProviders;
+using SreAiAgent.Contracts.Notifications;
 using SreAiAgent.Contracts.Streaming;
 
 namespace SreAiAgent.Contracts.Serialization;
@@ -60,6 +61,9 @@ namespace SreAiAgent.Contracts.Serialization;
 [JsonSerializable(typeof(ModelAssignmentEvaluationResponse))]
 [JsonSerializable(typeof(SetBudgetRequest))]
 [JsonSerializable(typeof(BudgetResponse))]
+[JsonSerializable(typeof(CreateNotificationChannelRequest))]
+[JsonSerializable(typeof(NotificationChannelResponse))]
+[JsonSerializable(typeof(IReadOnlyList<NotificationChannelResponse>))]
 [JsonSerializable(typeof(InvestigationStreamEvent))]
 [JsonSerializable(typeof(EventEnvelope<CanonicalAlert>))]
 [JsonSerializable(typeof(EventEnvelope<IncidentCreatedPayload>))]

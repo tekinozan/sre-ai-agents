@@ -80,6 +80,9 @@ public static class ErrorCatalog
             [ApplicationErrorCodes.BudgetExceeded.Value] = new(Conflict, false),
             [ApplicationErrorCodes.BudgetCurrencyMismatch.Value] = new(Conflict, false),
             [ApplicationErrorCodes.BudgetNotFound.Value] = new(NotFound, false),
+            [ApplicationErrorCodes.NotificationChannelNotFound.Value] = new(NotFound, false),
+            [ApplicationErrorCodes.NotificationChannelConflict.Value] = new(Conflict, false),
+            [ApplicationErrorCodes.NotificationDeliveryFailed.Value] = new(ServiceUnavailable, true),
             [ApplicationErrorCodes.InsufficientAgentCapability.Value] = new(Conflict, false),
 
             [ApplicationErrorCodes.ApprovalRejected.Value] = new(Conflict, false),
@@ -102,6 +105,7 @@ public static class ErrorCatalog
             [DomainErrorCodes.ModelConfigurationInvalid.Value] = new(BadRequest, false),
             [DomainErrorCodes.TenantScopeInvalid.Value] = new(BadRequest, false),
             [DomainErrorCodes.BudgetInvalid.Value] = new(BadRequest, false),
+            [DomainErrorCodes.NotificationChannelInvalid.Value] = new(BadRequest, false),
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>

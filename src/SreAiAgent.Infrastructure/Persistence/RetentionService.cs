@@ -12,8 +12,8 @@ namespace SreAiAgent.Infrastructure.Persistence;
 /// </summary>
 /// <remarks>
 /// Sweeps inbox_messages, outbox_messages (dispatched only; dead letters are kept as evidence),
-/// idempotency_keys, and consumer_delivery_attempts (settled only; in-flight counters must
-/// never be reset mid-flight).
+/// idempotency_keys, consumer_delivery_attempts (settled only; in-flight counters must
+/// never be reset mid-flight) and notification_deliveries.
 ///
 /// Uses ctid subqueries with LIMIT because PostgreSQL does not support LIMIT on DELETE.
 /// Statements loop while the affected count equals BatchSize so large backlogs are chunked
@@ -59,6 +59,7 @@ internal sealed partial class RetentionService(
         DateTimeOffset inboxCutoff = now.AddDays(-_options.InboxRetentionDays);
         DateTimeOffset outboxCutoff = now.AddDays(-_options.DispatchedOutboxRetentionDays);
         DateTimeOffset attemptCutoff = now.AddDays(-_options.DeliveryAttemptRetentionDays);
+        DateTimeOffset claimCutoff = now.AddDays(-_options.NotificationClaimRetentionDays);
         int batchSize = _options.BatchSize;
 
         using IServiceScope scope = scopeFactory.CreateScope();
@@ -68,6 +69,7 @@ internal sealed partial class RetentionService(
         int totalOutbox = 0;
         int totalIdempotency = 0;
         int totalAttempts = 0;
+        int totalClaims = 0;
 
         try
         {
@@ -116,7 +118,18 @@ internal sealed partial class RetentionService(
                 totalAttempts += deleted;
             } while (deleted == batchSize && !cancellationToken.IsCancellationRequested);
 
-            LogRetentionSweepCompleted(logger, totalInbox, totalOutbox, totalIdempotency, totalAttempts);
+            // 5. notification claims: a claim only has to outlive the redelivery
+            // and the budget period that could repeat its notification.
+            do
+            {
+                deleted = await context.Database.ExecuteSqlInterpolatedAsync($"""
+                    DELETE FROM notification_deliveries WHERE ctid IN (
+                        SELECT ctid FROM notification_deliveries WHERE claimed_at < {claimCutoff} LIMIT {batchSize})
+                    """, cancellationToken).ConfigureAwait(false);
+                totalClaims += deleted;
+            } while (deleted == batchSize && !cancellationToken.IsCancellationRequested);
+
+            LogRetentionSweepCompleted(logger, totalInbox, totalOutbox, totalIdempotency, totalAttempts, totalClaims);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -127,9 +140,9 @@ internal sealed partial class RetentionService(
     [LoggerMessage(
         EventId = 7501,
         Level = LogLevel.Information,
-        Message = "Retention sweep completed: {InboxDeleted} inbox, {OutboxDeleted} outbox, {IdempotencyDeleted} idempotency, {AttemptsDeleted} delivery attempts deleted.")]
+        Message = "Retention sweep completed: {InboxDeleted} inbox, {OutboxDeleted} outbox, {IdempotencyDeleted} idempotency, {AttemptsDeleted} delivery attempts, {ClaimsDeleted} notification claims deleted.")]
     private static partial void LogRetentionSweepCompleted(
-        ILogger logger, int inboxDeleted, int outboxDeleted, int idempotencyDeleted, int attemptsDeleted);
+        ILogger logger, int inboxDeleted, int outboxDeleted, int idempotencyDeleted, int attemptsDeleted, int claimsDeleted);
 
     [LoggerMessage(
         EventId = 7502,

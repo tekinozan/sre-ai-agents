@@ -77,6 +77,8 @@ public sealed class SreDbContext : DbContext
     public DbSet<ModelAssignmentEvaluationEntity> ModelAssignmentEvaluations => Set<ModelAssignmentEvaluationEntity>();
     public DbSet<ModelControlPlaneAuditEntity> ModelControlPlaneAudits => Set<ModelControlPlaneAuditEntity>();
     public DbSet<TenantBudgetEntity> TenantBudgets => Set<TenantBudgetEntity>();
+    public DbSet<NotificationChannelEntity> NotificationChannels => Set<NotificationChannelEntity>();
+    public DbSet<NotificationDeliveryEntity> NotificationDeliveries => Set<NotificationDeliveryEntity>();
 
     /// <inheritdoc />
     /// <inheritdoc />

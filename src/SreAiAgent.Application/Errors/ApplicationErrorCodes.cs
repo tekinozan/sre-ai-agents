@@ -71,6 +71,13 @@ public static class ApplicationErrorCodes
     public static readonly ErrorCode BudgetCurrencyMismatch = new("BUDGET_CURRENCY_MISMATCH");
     public static readonly ErrorCode BudgetNotFound = new("BUDGET_NOT_FOUND");
 
+    // Notifications
+    public static readonly ErrorCode NotificationChannelNotFound = new("NOTIFICATION_CHANNEL_NOT_FOUND");
+    public static readonly ErrorCode NotificationChannelConflict = new("NOTIFICATION_CHANNEL_CONFLICT");
+
+    /// <summary>A webhook did not accept a notification. Retryable: the receiver is usually briefly unavailable.</summary>
+    public static readonly ErrorCode NotificationDeliveryFailed = new("NOTIFICATION_DELIVERY_FAILED");
+
     /// <summary>
     /// Routing found nobody able to investigate: every candidate was disabled,
     /// kill-switched or missing a required tool (ARCHITECTURE.md 24.3).

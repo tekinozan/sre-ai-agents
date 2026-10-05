@@ -1439,6 +1439,93 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                     b.ToTable("model_deployment_versions", (string)null);
                 });
 
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.NotificationChannelEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("display_name");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<int>("Events")
+                        .HasColumnType("integer")
+                        .HasColumnName("events");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Tenant")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant");
+
+                    b.Property<string>("WebhookRef")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("webhook_ref");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Tenant", "DisplayName")
+                        .IsUnique()
+                        .HasDatabaseName("ux_notification_channels_tenant_name");
+
+                    b.ToTable("notification_channels", (string)null);
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.NotificationDeliveryEntity", b =>
+                {
+                    b.Property<string>("DeliveryKey")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("delivery_key");
+
+                    b.Property<Guid>("ChannelId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("channel_id");
+
+                    b.Property<DateTimeOffset>("ClaimedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("claimed_at");
+
+                    b.Property<string>("Tenant")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant");
+
+                    b.HasKey("DeliveryKey", "ChannelId");
+
+                    b.HasIndex("ClaimedAt")
+                        .HasDatabaseName("ix_notification_deliveries_claimed_at");
+
+                    b.ToTable("notification_deliveries", (string)null);
+                });
+
             modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.OutboxMessageEntity", b =>
                 {
                     b.Property<Guid>("Id")

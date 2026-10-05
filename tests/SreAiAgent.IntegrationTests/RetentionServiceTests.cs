@@ -31,6 +31,7 @@ public sealed class RetentionServiceTests(PostgresFixture postgres)
             InboxRetentionDays = 14,
             DispatchedOutboxRetentionDays = 7,
             DeliveryAttemptRetentionDays = 7,
+            NotificationClaimRetentionDays = 62,
             BatchSize = 1000,
         };
 
@@ -49,6 +50,9 @@ public sealed class RetentionServiceTests(PostgresFixture postgres)
         long offsetSettledExpired = Random.Shared.NextInt64(1, 1_000_000_000);
         long offsetSettledActive = Random.Shared.NextInt64(1, 1_000_000_000);
         long offsetInFlightExpired = Random.Shared.NextInt64(1, 1_000_000_000);
+
+        string claimExpired = $"incident:expired:{runId}";
+        string claimActive = $"incident:active:{runId}";
 
         string topic = $"topic-{runId}";
         string consumer = $"consumer-{runId}";
@@ -193,6 +197,23 @@ public sealed class RetentionServiceTests(PostgresFixture postgres)
                     SettlementKind = null,
                 });
 
+            // Notification claims: expired (> 62 days) vs active (< 62 days)
+            context.NotificationDeliveries.AddRange(
+                new NotificationDeliveryEntity
+                {
+                    DeliveryKey = claimExpired,
+                    ChannelId = Guid.CreateVersion7(),
+                    Tenant = "acme",
+                    ClaimedAt = Now.AddDays(-63),
+                },
+                new NotificationDeliveryEntity
+                {
+                    DeliveryKey = claimActive,
+                    ChannelId = Guid.CreateVersion7(),
+                    Tenant = "acme",
+                    ClaimedAt = Now.AddDays(-30),
+                });
+
             await context.SaveChangesAsync(ct);
         }
 
@@ -227,6 +248,10 @@ public sealed class RetentionServiceTests(PostgresFixture postgres)
             // Idempotency assertions
             (await verifyContext.IdempotencyKeys.AnyAsync(k => k.Key == keyExpired, ct)).ShouldBeFalse();
             (await verifyContext.IdempotencyKeys.AnyAsync(k => k.Key == keyActive, ct)).ShouldBeTrue();
+
+            // Notification claim assertions
+            (await verifyContext.NotificationDeliveries.AnyAsync(d => d.DeliveryKey == claimExpired, ct)).ShouldBeFalse();
+            (await verifyContext.NotificationDeliveries.AnyAsync(d => d.DeliveryKey == claimActive, ct)).ShouldBeTrue();
 
             // Delivery attempts assertions
             (await verifyContext.ConsumerDeliveryAttempts.AnyAsync(
