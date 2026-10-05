@@ -12,3 +12,4 @@
 | [`llm-providers-resume.md`](llm-providers-resume.md) | Verified resume plan for the interrupted implementation | Complete |
 | [`production-readiness.md`](production-readiness.md) | Production readiness remediation, including completed local Compose PostgreSQL consolidation | Phases 1–4 and deployment follow-up complete; Phase 5 applied, full soak outstanding |
 | [`project-assessment-2026-10.md`](project-assessment-2026-10.md) | 2026-10 assessment of phase, provider flexibility, production readiness and business flow, with the prioritised remediation order | P0–P4-3 applied or verified; P4-4 onward planned; progress table inside |
+| [`gemini-budgets-notifications.md`](gemini-budgets-notifications.md) | Native Gemini adapter, tenant cost budgets, Slack and Teams notifications (assessment P4-4, P5-1, P5-2) | Planned |

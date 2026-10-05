@@ -30,10 +30,10 @@ Bir satır, komut çalıştırılıp kanıt yazıldıktan sonra güncellenir.
 | P4-1 | OpenAI: `max_completion_tokens`, reasoning modellerinde `temperature` | uygulandı | D45; `ProviderAdapterTests` gövde düzeyinde. Gerçek sağlayıcıya karşı canlı kanıt yok (credential yok, ADP F3-6 bloklu) |
 | P4-2 | OpenAI-compatible structured output lehçesi (`json_schema` / `json_object`) | uygulandı | D45; `json_object` modunda şema prompt'ta, doğrulama gateway'de. Canlı kanıt yok |
 | P4-3 | Kullanılmayan `tool_calling` gereksiniminin compatible sağlayıcıları elemesi | doğrulandı | D45; temiz volume'de bootstrap deployment'ları `required_capabilities = 3` (StructuredOutput, SystemMessage) ve soruşturma tamamlandı; mevcut volume'de bootstrap no-op |
-| P4-4 | Native Gemini adapter (ADP F3-7) | planlandı | — |
+| P4-4 | Native Gemini adapter (ADP F3-7) | planlandı | Kullanıcı kararı: native adapter; `gemini-budgets-notifications.md` |
 | P4-5 | Secret store credential resolver (Vault / ExternalSecrets) | planlandı | — |
-| P5-1 | Kiracı başına LLM bütçesi ve alert fırtınası koruması (ADP F3-4) | planlandı | — |
-| P5-2 | Bildirim çıkışı (Slack/Teams/PagerDuty) | planlandı | — |
+| P5-1 | Kiracı başına LLM bütçesi ve alert fırtınası koruması (ADP F3-4) | planlandı | Kullanıcı kararı: aylık veya belirlenmiş toplam maliyet limiti; `gemini-budgets-notifications.md` |
+| P5-2 | Bildirim çıkışı (Slack/Teams/PagerDuty) | planlandı | Kullanıcı kararı: Slack ve Teams; `gemini-budgets-notifications.md` |
 | P5-3 | `GET /v1/incidents` listeleme ve filtreleme | planlandı | — |
 | P6-1 | RCA geri bildirim döngüsü | planlandı | — |
 | P6-2 | Eval tamamlamada görev ayrılığı ve artifact doğrulaması | planlandı | — |
