@@ -856,3 +856,49 @@ resolves for an incident; until incidents carry a product it is configuration
 that only the control plane reads. There is no deactivation operation, so the
 guard cannot be bypassed by removing the tenant-wide assignment afterwards; if
 one is added, it needs the same check in reverse.
+
+### D45 — OpenAI-shaped servers differ per deployment, and the deployment says how
+
+The OpenAI-family adapters sent one request shape to every server: `max_tokens`,
+a `json_schema` response format with `strict: true`, and the deployment's
+temperature. OpenAI's own reasoning models reject `max_tokens` and any
+non-default temperature; DeepSeek rejects `json_schema` and accepts
+`json_object`; Groq, Qwen and Gemini's compatible endpoint vary by model. Each
+mismatch is a 400 that the gateway reports, correctly, as a permanent invalid
+request, so a whole class of providers the plan names could not be used.
+
+**Decided:** three allowlisted provider parameters on a model deployment
+version, beside `seed`, owned by `OpenAiDialect`:
+
+| Parameter | Values | Default |
+|---|---|---|
+| `max_tokens_field` | `max_tokens`, `max_completion_tokens` | `max_completion_tokens` for `openai`, `max_tokens` otherwise |
+| `response_format` | `json_schema`, `json_object` | `json_schema` |
+| `temperature` | `send`, `omit` | `send` |
+
+They are part of the deployment's immutable configuration hash, so they are
+pinned into incident snapshots like everything else about the candidate. A value
+outside the list, or a dialect parameter on a non-OpenAI-shaped adapter, is
+refused when the deployment is created. In `json_object` mode the schema is put
+in the system prompt; the gateway still validates every answer against it, so
+the structured-output guarantee stays the platform's.
+
+Separately, the bootstrapper no longer requires `ToolCalling` and
+`ParallelToolCalls` of a deployment because its profile allows tools. Agents ask
+for tools inside their structured answer and the gateway runs them; no request
+carries native tool definitions (llm-providers.md 8). Requiring the capability
+refused every OpenAI-compatible provider for the analytical slot and bought
+nothing.
+
+**Rejected: inferring the dialect from the model name.** It is what reference
+implementations such as oh-my-pi do with a curated model catalogue, and it is
+what ADP-302 rules out here: a name says nothing reliable about a self-hosted
+or proxied deployment, and a wrong guess fails at call time rather than at
+creation.
+
+**Cost:** an operator has to know which dialect a server speaks; the defaults
+suit OpenAI and the common compatible servers, and verification does not probe
+it. A server that needs something outside these three (reasoning-content
+replay, different tool-call shapes) still needs an adapter change. The model
+profile's `tool_calling` flags remain in the registry and are now descriptive
+only, until native tool calling exists.

@@ -577,11 +577,21 @@ internal sealed class ModelProviderControlPlane(
                 "A new deployment version must keep the prior logical name."));
         }
 
-        if (command.ProviderParameters.Keys.Any(static key => !string.Equals(key, "seed", StringComparison.Ordinal)))
+        if (command.ProviderParameters.Keys.Any(static key =>
+                !string.Equals(key, "seed", StringComparison.Ordinal) && !OpenAiDialect.Names.Contains(key)))
         {
             return Result<ModelDeploymentVersion>.Failure(Error.Permanent(
                 DomainErrorCodes.ModelConfigurationInvalid,
-                "Only the allowlisted provider parameter 'seed' is supported."));
+                "Only the allowlisted provider parameters 'seed', "
+                + string.Join(", ", OpenAiDialect.Names.Select(static name => $"'{name}'"))
+                + " are supported."));
+        }
+
+        if (OpenAiDialect.Validate(revision.AdapterKind, command.ProviderParameters) is { } dialectProblem)
+        {
+            return Result<ModelDeploymentVersion>.Failure(Error.Permanent(
+                DomainErrorCodes.ModelConfigurationInvalid,
+                dialectProblem));
         }
 
         if (command.ProviderParameters.TryGetValue("seed", out string? seedString))

@@ -35,13 +35,7 @@ internal sealed class AzureOpenAiProviderChatClient : OpenAiCompatibleProviderCh
                 "Azure OpenAI requires a pinned API version."));
         }
 
-        OpenAiChatRequest payload = new(
-            request.ProviderModel,
-            [new ProviderMessage("system", request.SystemPrompt), new ProviderMessage("user", request.UserPrompt)],
-            request.Temperature,
-            request.MaxOutputTokens,
-            new OpenAiResponseFormat("json_schema", new OpenAiJsonSchema("sre_response", true, request.JsonSchema)),
-            request.Seed);
+        OpenAiChatRequest payload = OpenAiDialect.Build(request, Revision.AdapterKind);
         string relative = $"openai/deployments/{Uri.EscapeDataString(request.ProviderModel)}/chat/completions"
             + $"?api-version={Uri.EscapeDataString(Revision.ApiVersion)}";
         using HttpRequestMessage message = new(HttpMethod.Post, BuildEndpoint(Revision.Endpoint, relative))

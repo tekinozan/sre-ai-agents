@@ -181,4 +181,97 @@ public sealed class ProviderAdapterTests
             sent.Headers.Authorization!.Parameter.ShouldBe("secret");
         }
     }
+
+    private static readonly JsonElement AnswerSchema = JsonDocument.Parse(
+        """{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}""").RootElement;
+
+    private static ProviderChatRequest DialectRequest(params (string Name, string Value)[] parameters) => new(
+        "system", "user", "model-1", AnswerSchema, 0f, 1000, null,
+        parameters.ToDictionary(static item => item.Name, static item => item.Value, StringComparer.Ordinal));
+
+    private static async Task<JsonElement> SentBodyAsync(ProviderAdapterKind kind, ProviderChatRequest request)
+    {
+        var handler = new StubHttpMessageHandler(SuccessBody(kind, "{}"));
+        var adapter = CreateAdapter(kind, handler, out _);
+
+        (await adapter.GetResponseAsync(request, TestContext.Current.CancellationToken)).IsSuccess.ShouldBeTrue();
+
+        return JsonDocument.Parse(handler.RequestBodies.Single()).RootElement;
+    }
+
+    [Fact]
+    public async Task OpenAiSendsTheTokenLimitAsMaxCompletionTokens()
+    {
+        // OpenAI deprecated max_tokens and its reasoning models reject it with a
+        // 400, which the gateway reports as a permanent invalid request (D45).
+        JsonElement body = await SentBodyAsync(ProviderAdapterKind.OpenAi, DialectRequest());
+
+        body.GetProperty("max_completion_tokens").GetInt32().ShouldBe(1000);
+        body.TryGetProperty("max_tokens", out _).ShouldBeFalse();
+        body.GetProperty("response_format").GetProperty("type").GetString().ShouldBe("json_schema");
+        body.GetProperty("response_format").GetProperty("json_schema").GetProperty("strict").GetBoolean().ShouldBeTrue();
+        body.GetProperty("temperature").GetSingle().ShouldBe(0f);
+    }
+
+    [Theory]
+    [InlineData(ProviderAdapterKind.OpenAiCompatible)]
+    [InlineData(ProviderAdapterKind.AzureOpenAi)]
+    public async Task CompatibleServersKeepMaxTokensUnlessTheDeploymentSaysOtherwise(ProviderAdapterKind kind)
+    {
+        JsonElement defaults = await SentBodyAsync(kind, DialectRequest());
+        defaults.GetProperty("max_tokens").GetInt32().ShouldBe(1000);
+        defaults.TryGetProperty("max_completion_tokens", out _).ShouldBeFalse();
+
+        JsonElement overridden = await SentBodyAsync(kind, DialectRequest(("max_tokens_field", "max_completion_tokens")));
+        overridden.GetProperty("max_completion_tokens").GetInt32().ShouldBe(1000);
+        overridden.TryGetProperty("max_tokens", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task JsonObjectModeCarriesTheSchemaInThePromptInsteadOfTheResponseFormat()
+    {
+        // DeepSeek, among others, accepts json_object and rejects json_schema.
+        JsonElement body = await SentBodyAsync(
+            ProviderAdapterKind.OpenAiCompatible, DialectRequest(("response_format", "json_object")));
+
+        JsonElement format = body.GetProperty("response_format");
+        format.GetProperty("type").GetString().ShouldBe("json_object");
+        format.TryGetProperty("json_schema", out _).ShouldBeFalse();
+
+        string system = body.GetProperty("messages")[0].GetProperty("content").GetString()!;
+        system.ShouldStartWith("system");
+        system.ShouldContain("JSON Schema");
+        system.ShouldContain("\"required\":[\"answer\"]");
+    }
+
+    [Fact]
+    public async Task ADeploymentCanOmitTheTemperature()
+    {
+        // Reasoning models accept only their default temperature.
+        JsonElement body = await SentBodyAsync(ProviderAdapterKind.OpenAi, DialectRequest(("temperature", "omit")));
+
+        body.TryGetProperty("temperature", out _).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData(ProviderAdapterKind.OpenAiCompatible, "response_format", "json_object", null)]
+    [InlineData(ProviderAdapterKind.OpenAi, "max_tokens_field", "max_completion_tokens", null)]
+    [InlineData(ProviderAdapterKind.OpenAiCompatible, "response_format", "yaml", "must be one of")]
+    [InlineData(ProviderAdapterKind.Anthropic, "response_format", "json_object", "only to OpenAI-compatible")]
+    [InlineData(ProviderAdapterKind.Scripted, "temperature", "omit", "only to OpenAI-compatible")]
+    public void DialectParametersAreCheckedAgainstTheAdapterWhenTheDeploymentIsCreated(
+        ProviderAdapterKind kind, string name, string value, string? problem)
+    {
+        string? result = OpenAiDialect.Validate(
+            kind, new Dictionary<string, string>(StringComparer.Ordinal) { [name] = value });
+
+        if (problem is null)
+        {
+            result.ShouldBeNull();
+        }
+        else
+        {
+            result.ShouldNotBeNull().ShouldContain(problem);
+        }
+    }
 }

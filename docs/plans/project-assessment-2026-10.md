@@ -27,9 +27,9 @@ Bir satır, komut çalıştırılıp kanıt yazıldıktan sonra güncellenir.
 | P2-2 | Container image build, zafiyet taraması | uygulandı | Üç image build (push yok: yayın hedefi henüz kararlaştırılmadı), Trivy commit SHA ile sabit, düzeltilebilir CRITICAL bulguda kırmızı. Yerel tarama: 0 bulgu |
 | P3-1 | Servisler arası trace sürekliliği (production-readiness sign-off blokeri) | doğrulandı | Kök neden Temporal sınırı: interceptor kaynakları tracer provider'a kayıtlı değildi; worker'daki ikinci interceptor span'leri ikiliyordu. Compose: tek alert → tek trace, kök `POST /v1/alerts/{source}`, 3 servis, her `RunActivity` bir kez; oran 0'da soruşturma `RunWorkflow:SreInvestigation` kökünde tam kalıyor |
 | P3-2 | Readiness Faz 5: workflow replay, k6, backup/DR runbook | planlandı | `production-readiness.md` |
-| P4-1 | OpenAI: `max_completion_tokens`, reasoning modellerinde `temperature` | planlandı | — |
-| P4-2 | OpenAI-compatible structured output lehçesi (`json_schema` / `json_object`) | planlandı | — |
-| P4-3 | Kullanılmayan `tool_calling` gereksiniminin compatible sağlayıcıları elemesi | planlandı | — |
+| P4-1 | OpenAI: `max_completion_tokens`, reasoning modellerinde `temperature` | uygulandı | D45; `ProviderAdapterTests` gövde düzeyinde. Gerçek sağlayıcıya karşı canlı kanıt yok (credential yok, ADP F3-6 bloklu) |
+| P4-2 | OpenAI-compatible structured output lehçesi (`json_schema` / `json_object`) | uygulandı | D45; `json_object` modunda şema prompt'ta, doğrulama gateway'de. Canlı kanıt yok |
+| P4-3 | Kullanılmayan `tool_calling` gereksiniminin compatible sağlayıcıları elemesi | doğrulandı | D45; temiz volume'de bootstrap deployment'ları `required_capabilities = 3` (StructuredOutput, SystemMessage) ve soruşturma tamamlandı; mevcut volume'de bootstrap no-op |
 | P4-4 | Native Gemini adapter (ADP F3-7) | planlandı | — |
 | P4-5 | Secret store credential resolver (Vault / ExternalSecrets) | planlandı | — |
 | P5-1 | Kiracı başına LLM bütçesi ve alert fırtınası koruması (ADP F3-4) | planlandı | — |

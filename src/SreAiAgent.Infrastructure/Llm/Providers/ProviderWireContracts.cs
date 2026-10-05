@@ -3,16 +3,20 @@ using System.Text.Json.Serialization;
 
 namespace SreAiAgent.Infrastructure.Llm.Providers;
 
+// Nullable fields are left out of the body when null (WhenWritingNull below),
+// which is how a deployment's dialect omits a field rather than sending a
+// default the server rejects (OpenAiDialect).
 internal sealed record OpenAiChatRequest(
     string Model,
     IReadOnlyList<ProviderMessage> Messages,
-    float Temperature,
-    int MaxTokens,
+    float? Temperature,
+    int? MaxTokens,
+    int? MaxCompletionTokens,
     OpenAiResponseFormat ResponseFormat,
     int? Seed);
 
 internal sealed record ProviderMessage(string Role, string Content);
-internal sealed record OpenAiResponseFormat(string Type, OpenAiJsonSchema JsonSchema);
+internal sealed record OpenAiResponseFormat(string Type, OpenAiJsonSchema? JsonSchema);
 internal sealed record OpenAiJsonSchema(string Name, bool Strict, JsonElement Schema);
 
 internal sealed record OpenAiChatResponse(
