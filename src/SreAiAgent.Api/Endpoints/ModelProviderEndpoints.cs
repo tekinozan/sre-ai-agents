@@ -506,6 +506,7 @@ public static class ModelProviderEndpoints
         ProviderAdapterKind.OpenAiCompatible => "openai_compatible",
         ProviderAdapterKind.AzureOpenAi => "azure_openai",
         ProviderAdapterKind.Anthropic => "anthropic",
+        ProviderAdapterKind.Gemini => "gemini",
         _ => throw new InvalidOperationException("The provider adapter kind is not registered."),
     };
 

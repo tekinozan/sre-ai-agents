@@ -902,3 +902,20 @@ it. A server that needs something outside these three (reasoning-content
 replay, different tool-call shapes) still needs an adapter change. The model
 profile's `tool_calling` flags remain in the registry and are now descriptive
 only, until native tool calling exists.
+
+### D46 — Gemini gets a native adapter beside its OpenAI-compatible path
+
+D45 made Gemini's OpenAI-compatible endpoint usable. A native `gemini` adapter
+kind is added anyway, on the user's decision and for what the native wire
+carries that the compatible one flattens: a JSON Schema the server enforces
+(`responseJsonSchema`), the system prompt as a first-class instruction, and
+thinking tokens reported apart from the answer. Those are billed as output and
+are counted as output; the budget in `gemini-budgets-notifications.md` depends
+on it. The key travels in `x-goog-api-key`, never in the `?key=` query string
+Google also accepts, because a URL is what proxies and access logs keep. In
+production the only host is `generativelanguage.googleapis.com`; the
+OpenAI-compatible custom-host allowlist does not widen it.
+
+**Cost:** a second way to reach the same models, so an operator has to pick one
+per deployment; the OpenAI dialect parameters are refused on it. Vertex AI
+(service-account auth, regional hosts) is not covered by either path.

@@ -10,7 +10,7 @@
 
 | Adım | İş | Durum | Kanıt |
 |---|---|---|---|
-| G-1 | `ProviderAdapterKind.Gemini`: adapter, wire contract, endpoint policy, verifier, API eşlemesi | planlandı | — |
+| G-1 | `ProviderAdapterKind.Gemini`: adapter, wire contract, endpoint policy, verifier, API eşlemesi | uygulandı | D46; `ProviderAdapterTests` (5 sözleşme testi + Gemini gövde/token/sürüm), `ProviderEndpointPolicyTests`. Canlı kanıt credential bekliyor |
 | B-1 | Kiracı bütçe politikası: şema, repository, API (`GET/PUT /v1/budget`) | planlandı | — |
 | B-2 | Gateway'de zorlama: limit dolunca dışarı çağrı yok, `BUDGET_EXCEEDED` | planlandı | — |
 | B-3 | Para birimi tutarlılığı: bütçe para birimi ile aktif deployment'ların para birimi | planlandı | — |

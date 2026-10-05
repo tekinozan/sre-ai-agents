@@ -57,6 +57,7 @@ internal sealed class ProviderRevisionVerifier(
         {
             ProviderAdapterKind.AzureOpenAi => "openai/models?api-version="
                 + Uri.EscapeDataString(revision.ApiVersion ?? string.Empty),
+            ProviderAdapterKind.Gemini => GeminiProviderChatClient.VersionOf(revision) + "/models",
             _ => "models",
         };
         using HttpRequestMessage request = new(
@@ -65,6 +66,10 @@ internal sealed class ProviderRevisionVerifier(
         if (revision.AdapterKind == ProviderAdapterKind.AzureOpenAi)
         {
             request.Headers.TryAddWithoutValidation("api-key", credential.Value.Value);
+        }
+        else if (revision.AdapterKind == ProviderAdapterKind.Gemini)
+        {
+            request.Headers.TryAddWithoutValidation(GeminiProviderChatClient.KeyHeader, credential.Value.Value);
         }
         else if (revision.AdapterKind == ProviderAdapterKind.Anthropic)
         {

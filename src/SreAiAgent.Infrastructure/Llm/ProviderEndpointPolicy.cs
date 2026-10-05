@@ -49,6 +49,7 @@ internal sealed class ProviderEndpointPolicy
         {
             ProviderAdapterKind.OpenAi => string.Equals(uri.Host, "api.openai.com", StringComparison.OrdinalIgnoreCase),
             ProviderAdapterKind.Anthropic => string.Equals(uri.Host, "api.anthropic.com", StringComparison.OrdinalIgnoreCase),
+            ProviderAdapterKind.Gemini => string.Equals(uri.Host, "generativelanguage.googleapis.com", StringComparison.OrdinalIgnoreCase),
             ProviderAdapterKind.AzureOpenAi => uri.Host.EndsWith(".openai.azure.com", StringComparison.OrdinalIgnoreCase),
             ProviderAdapterKind.OpenAiCompatible => _customHosts.Contains(uri.Host),
             ProviderAdapterKind.Scripted => false,

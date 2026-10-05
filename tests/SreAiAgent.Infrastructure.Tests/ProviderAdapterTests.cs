@@ -21,7 +21,8 @@ public sealed class ProviderAdapterTests
         ProviderAdapterKind.OpenAi,
         ProviderAdapterKind.OpenAiCompatible,
         ProviderAdapterKind.AzureOpenAi,
-        ProviderAdapterKind.Anthropic
+        ProviderAdapterKind.Anthropic,
+        ProviderAdapterKind.Gemini
     };
 
     private static IProviderChatClient CreateAdapter(ProviderAdapterKind kind, HttpMessageHandler handler, out ProviderConnectionRevision revision)
@@ -42,12 +43,25 @@ public sealed class ProviderAdapterTests
             ProviderAdapterKind.OpenAiCompatible => new OpenAiCompatibleProviderChatClient(clients, credentials, revision),
             ProviderAdapterKind.AzureOpenAi => new AzureOpenAiProviderChatClient(clients, credentials, revision),
             ProviderAdapterKind.Anthropic => new AnthropicProviderChatClient(clients, credentials, revision),
+            ProviderAdapterKind.Gemini => new GeminiProviderChatClient(clients, credentials, revision),
             _ => throw new UnreachableException()
         };
     }
 
     private static string SuccessBody(ProviderAdapterKind kind, string text)
     {
+        if (kind == ProviderAdapterKind.Gemini)
+        {
+            return $$"""
+            {
+                "responseId": "req-1",
+                "modelVersion": "gemini-2.5-pro",
+                "candidates": [{"content": {"role": "model", "parts": [{"text": {{JsonSerializer.Serialize(text)}}}]}, "finishReason": "STOP"}],
+                "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 20}
+            }
+            """;
+        }
+
         if (kind == ProviderAdapterKind.Anthropic)
         {
             return $$"""
@@ -87,8 +101,18 @@ public sealed class ProviderAdapterTests
         response.InputTokens.ShouldBe(10);
         response.OutputTokens.ShouldBe(20);
         response.RequestId.ShouldBe("req-1");
-        response.ObservedModel.ShouldBe(kind == ProviderAdapterKind.Anthropic ? "claude-3-haiku" : "gpt-4");
-        response.FinishReason.ShouldBe(kind == ProviderAdapterKind.Anthropic ? "end_turn" : "stop");
+        response.ObservedModel.ShouldBe(kind switch
+        {
+            ProviderAdapterKind.Anthropic => "claude-3-haiku",
+            ProviderAdapterKind.Gemini => "gemini-2.5-pro",
+            _ => "gpt-4",
+        });
+        response.FinishReason.ShouldBe(kind switch
+        {
+            ProviderAdapterKind.Anthropic => "end_turn",
+            ProviderAdapterKind.Gemini => "STOP",
+            _ => "stop",
+        });
     }
 
     [Theory]
@@ -119,7 +143,16 @@ public sealed class ProviderAdapterTests
     [MemberData(nameof(HttpAdapters))]
     public async Task A200WithNullContentYieldsEmptyTextWithUsagePreserved(ProviderAdapterKind kind)
     {
-        string body = kind == ProviderAdapterKind.Anthropic
+        string body = kind == ProviderAdapterKind.Gemini
+            ? """
+              {
+                  "responseId": "req-1",
+                  "modelVersion": "gemini",
+                  "candidates": [{"content": {"parts": []}, "finishReason": "STOP"}],
+                  "usageMetadata": {"promptTokenCount": 5, "candidatesTokenCount": 0}
+              }
+              """
+            : kind == ProviderAdapterKind.Anthropic
             ? """
               {
                   "id": "req-1",
@@ -175,6 +208,12 @@ public sealed class ProviderAdapterTests
         else if (kind == ProviderAdapterKind.Anthropic)
         {
             sent.Headers.GetValues("x-api-key").Single().ShouldBe("secret");
+        }
+        else if (kind == ProviderAdapterKind.Gemini)
+        {
+            // In a header, never as the ?key= query parameter Google also
+            // accepts: a URL is what proxies and access logs keep.
+            sent.Headers.GetValues("x-goog-api-key").Single().ShouldBe("secret");
         }
         else
         {
@@ -273,5 +312,77 @@ public sealed class ProviderAdapterTests
         {
             result.ShouldNotBeNull().ShouldContain(problem);
         }
+    }
+
+    [Fact]
+    public async Task GeminiSendsItsOwnShapeAndCountsThinkingTokensAsOutput()
+    {
+        var handler = new StubHttpMessageHandler("""
+            {
+                "responseId": "resp-9",
+                "modelVersion": "gemini-2.5-pro-002",
+                "candidates": [{"content": {"parts": [{"text": "{\"answer\":"}, {"text": "\"ok\"}"}]}, "finishReason": "STOP"}],
+                "usageMetadata": {"promptTokenCount": 100, "candidatesTokenCount": 40, "thoughtsTokenCount": 60}
+            }
+            """);
+        var adapter = CreateAdapter(ProviderAdapterKind.Gemini, handler, out _);
+
+        var result = await adapter.GetResponseAsync(DialectRequest(), TestContext.Current.CancellationToken);
+
+        // Thinking tokens are billed as output; leaving them out under-reported
+        // every thinking model's cost and therefore every budget (B).
+        result.Value.Text.ShouldBe("{\"answer\":\"ok\"}");
+        result.Value.InputTokens.ShouldBe(100);
+        result.Value.OutputTokens.ShouldBe(100);
+        result.Value.ObservedProvider.ShouldBe("gemini");
+
+        HttpRequestMessage sent = handler.RequestsMessage.Single();
+        // The revision pins the API version; the shared test revision pins 2024-01-01.
+        sent.RequestUri!.AbsolutePath.ShouldEndWith("/2024-01-01/models/model-1:generateContent");
+        sent.RequestUri.Query.ShouldBeEmpty();
+
+        JsonElement body = JsonDocument.Parse(handler.RequestBodies.Single()).RootElement;
+        body.GetProperty("systemInstruction").GetProperty("parts")[0].GetProperty("text").GetString().ShouldBe("system");
+        body.GetProperty("contents")[0].GetProperty("role").GetString().ShouldBe("user");
+        JsonElement config = body.GetProperty("generationConfig");
+        config.GetProperty("responseMimeType").GetString().ShouldBe("application/json");
+        config.GetProperty("responseJsonSchema").GetProperty("required")[0].GetString().ShouldBe("answer");
+        config.GetProperty("maxOutputTokens").GetInt32().ShouldBe(1000);
+        config.TryGetProperty("seed", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task AGeminiResponseCutAtTheTokenLimitReportsAFinishReasonTheGatewayTreatsAsTruncation()
+    {
+        var handler = new StubHttpMessageHandler("""
+            {"candidates": [{"content": {"parts": [{"text": "{"}]}, "finishReason": "MAX_TOKENS"}],
+             "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1}}
+            """);
+        var adapter = CreateAdapter(ProviderAdapterKind.Gemini, handler, out _);
+
+        var result = await adapter.GetResponseAsync(Request(), TestContext.Current.CancellationToken);
+
+        // LlmGateway matches "max_tokens" ignoring case.
+        result.Value.FinishReason.ShouldBe("MAX_TOKENS", StringCompareShould.IgnoreCase);
+        string.Equals(result.Value.FinishReason, "max_tokens", StringComparison.OrdinalIgnoreCase).ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("response_format", "json_object")]
+    [InlineData("max_tokens_field", "max_tokens")]
+    public void TheOpenAiDialectIsRefusedOnGemini(string name, string value)
+        => OpenAiDialect.Validate(
+                ProviderAdapterKind.Gemini, new Dictionary<string, string>(StringComparer.Ordinal) { [name] = value })
+            .ShouldNotBeNull();
+
+    [Fact]
+    public void AGeminiRevisionWithoutAPinnedVersionUsesV1Beta()
+    {
+        ProviderConnectionRevision unpinned = ProviderConnectionRevision.Restore(
+            ProviderConnectionRevisionId.New(), ProviderConnectionId.New(), "tenant", 1, ProviderAdapterKind.Gemini,
+            "https://generativelanguage.googleapis.com", null, null, null, "cred-1", ModelCapability.None,
+            "hash", DateTimeOffset.UnixEpoch, "actor");
+
+        GeminiProviderChatClient.VersionOf(unpinned).ShouldBe("v1beta");
     }
 }

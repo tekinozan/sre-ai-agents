@@ -74,4 +74,19 @@ public sealed class ProviderEndpointPolicyTests
         var loopback = development.Validate(ProviderAdapterKind.OpenAi, "http://localhost:8080");
         loopback.Host.ShouldBe("localhost");
     }
+
+    [Fact]
+    public void GeminiIsAllowedOnlyOnGooglesOwnHostInProduction()
+    {
+        var policy = Create(production: true, "generativelanguage.googleapis.com.evil.example");
+
+        policy.Validate(ProviderAdapterKind.Gemini, "https://generativelanguage.googleapis.com").Host
+            .ShouldBe("generativelanguage.googleapis.com");
+
+        // The custom-host allowlist belongs to OpenAiCompatible; it does not
+        // widen a native adapter's fixed host.
+        Should.Throw<InvalidOperationException>(() =>
+                policy.Validate(ProviderAdapterKind.Gemini, "https://generativelanguage.googleapis.com.evil.example"))
+            .Message.ShouldBe("The provider endpoint host is not allowed in production.");
+    }
 }

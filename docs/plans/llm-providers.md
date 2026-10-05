@@ -45,7 +45,7 @@ ProviderConnection
 
 ProviderConnectionRevision (immutable)
 - id, provider_connection_id, revision
-- adapter_kind: openai | openai_compatible | azure_openai | anthropic
+- adapter_kind: openai | openai_compatible | azure_openai | anthropic | gemini (gemini: 2026-10, gemini-budgets-notifications.md G-1)
 - endpoint, region?, api_version?, organization?
 - credential_ref
 - declared/verified capabilities
