@@ -14,6 +14,14 @@ public static class SreSpanNames
     /// <summary>The root span of an investigation.</summary>
     public const string Investigation = "incident.investigation";
 
+    /// <summary>
+    /// The span the durable engine opens around an investigation: Temporal's
+    /// tracing interceptor names it after the workflow type, not this
+    /// repository's convention. It plays the role of <see cref="Investigation"/>
+    /// on that engine, so the sampler has to recognise it too.
+    /// </summary>
+    public const string DurableInvestigation = "RunWorkflow:SreInvestigation";
+
     public const string Classify = "classify";
     public const string Route = "route";
     public const string AgentExecute = "agent.execute";

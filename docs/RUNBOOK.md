@@ -199,11 +199,19 @@ claim. The claim is now thirty seconds (docs/DECISIONS.md D24).
 
 ### Investigations are missing from Jaeger
 
-`incident.investigation` is always sampled regardless of the ingress ratio. If it
-is missing, either the OTLP endpoint is wrong or the sampler was changed. Check
-`Telemetry:OtlpEndpoint`, then that `InvestigationAwareSampler` is still the
-top-level sampler rather than wrapped in a `ParentBasedSampler` — wrapping it
-means it is only consulted for root spans, and an investigation never is one.
+The investigation span is always sampled regardless of the ingress ratio: on
+the Temporal engine it is `RunWorkflow:SreInvestigation`, inline it is
+`incident.investigation`. If it is missing, either the OTLP endpoint is wrong or
+the sampler was changed. Check `Telemetry:OtlpEndpoint`, then that
+`InvestigationAwareSampler` is still the top-level sampler rather than wrapped in
+a `ParentBasedSampler` — wrapping it means it is only consulted for root spans,
+and an investigation never is one.
+
+If `classify`, `route`, each `agent.execute` and `correlate` appear as separate
+one-span traces, the Temporal interceptor's sources are not registered with the
+tracer provider (`WorkflowEngineTraceSources`). If every `RunActivity:*` span
+appears twice, a second `TracingInterceptor` was added to the worker; the
+client's is already applied to it.
 
 ### `sre_trace_attribute_rejected_total` is climbing
 

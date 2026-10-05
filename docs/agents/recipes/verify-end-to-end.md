@@ -151,9 +151,12 @@ Roughly ten seconds from alert to report.
   `/evidence`, and the ranked hypotheses are ordered
 - `agent_runs` shows non-zero `llm_call_count` and `tool_call_count` — zeroes here
   meant the counters were not persisted, which happened once
-- One Jaeger trace spans all three services: `incident.investigation` →
-  `classify` → `route` → `agent.execute` → `llm.call` → `tool.execute` →
-  `correlate`. Not three separate traces
+- One Jaeger trace spans all three services, rooted at
+  `POST /v1/alerts/{source}`: the two Kafka `receive` spans →
+  `StartWorkflow:SreInvestigation` → `RunWorkflow:SreInvestigation` → one
+  `RunActivity:*` per step, under which `classify`, `route`, `agent.execute`,
+  `llm.call`, `tool.execute` and `correlate`. Not one trace per step, and no
+  `RunActivity:*` twice
 - No span carries a prompt, a token or a credential
 - `sre_incident_started_total` incremented and `sre_trace_attribute_rejected_total`
   still `0`. The incident counters are emitted by the workers, which export over

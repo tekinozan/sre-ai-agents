@@ -86,6 +86,14 @@ alert without a count or an escalation (BUG-001, D42). A substitute
 `PostgresException` in a unit test can claim any table; the integration suite
 proves the real server reports it.
 
+**Temporal's tracing interceptor was installed and did nothing.** It emits from
+its own activity sources, and the tracer provider listened only to the
+platform's, so no workflow or activity span was ever created; every
+investigation step became a one-span trace of its own. Adding a second
+interceptor to the worker would have hidden this behind duplicates, because the
+client's interceptor already applies to workers built from it. Both are now
+covered by tests that compare names with the library's own (P3-1).
+
 **A resolved delivery opened an incident nobody investigated,** and because that
 incident then counted as active, the real alerts that followed were only counted.
 Found in the TicketHub pilot's own database, six incidents for one outage (D43).

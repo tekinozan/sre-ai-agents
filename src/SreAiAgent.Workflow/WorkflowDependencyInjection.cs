@@ -87,9 +87,12 @@ public static class WorkflowDependencyInjection
             return services;
         }
 
+        // No interceptor of its own. The worker runs on the client registered
+        // above, and Temporal hands a client's worker interceptors to every
+        // worker built from it; a second TracingInterceptor here recorded every
+        // workflow and activity span twice.
         services
             .AddHostedTemporalWorker(configuration["Workflow:TaskQueue"] ?? "sre-investigation")
-            .ConfigureOptions(options => options.Interceptors = [new TracingInterceptor()])
             .AddScopedActivities<InvestigationActivityShims>()
             .AddWorkflow<TemporalInvestigationWorkflow>();
 
