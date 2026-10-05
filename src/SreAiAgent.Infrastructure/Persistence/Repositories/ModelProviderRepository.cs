@@ -360,6 +360,15 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
     }
 
     /// <summary>
+    /// Whether anything is activated at exactly <paramref name="scope"/>, with
+    /// the same no-fallback rule as <see cref="GetActiveSnapshotAsync"/>.
+    /// </summary>
+    public Task<bool> HasActiveAssignmentAsync(TenantScope scope, CancellationToken cancellationToken)
+        => context.TenantActiveModelAssignments.AnyAsync(
+            item => item.Tenant == scope.Tenant && item.Product == scope.Product && item.Environment == scope.Environment,
+            cancellationToken);
+
+    /// <summary>
     /// The active assignment for exactly <paramref name="scope"/> (D41). Never
     /// falls back to a broader kind: a lookup for a scope with nothing
     /// activated at that exact scope returns <c>null</c>, the same as if the

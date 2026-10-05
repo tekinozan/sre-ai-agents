@@ -447,6 +447,20 @@ internal sealed class ModelProviderControlPlane(
                 return NotFound<ModelAssignmentRelease>(ApplicationErrorCodes.ModelAssignmentNotFound, "No such model assignment release.");
             }
 
+            // Incidents carry no product, so the pinner can only ever ask for the
+            // tenant-wide assignment (D41). A narrower activation on a tenant
+            // without one succeeded and left every incident for that tenant
+            // unable to pin, with nothing telling the operator (BUG-002).
+            if (scope.Kind != TenantScopeKind.TenantWide
+                && !await providers.HasActiveAssignmentAsync(TenantScope.TenantWide(scope.Tenant), cancellationToken)
+                    .ConfigureAwait(false))
+            {
+                return Result<ModelAssignmentRelease>.Failure(Error.Permanent(
+                    ApplicationErrorCodes.ModelAssignmentScopeUnreachable,
+                    "Incidents resolve only the tenant-wide assignment, and this tenant has none active. "
+                    + "Activate a tenant-wide release before a product or environment release."));
+            }
+
             if (_options.RequireEvaluationForActivation
                 && !await providers.HasPassedEvaluationAsync(scope, releaseId, cancellationToken).ConfigureAwait(false))
             {

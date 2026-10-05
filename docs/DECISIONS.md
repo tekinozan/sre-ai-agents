@@ -831,3 +831,28 @@ absorbs recurrences inside the window without retrying, so a fix to whatever
 made it fail needs an operator retry or an hour of quiet. An operator who
 reopens a resolved incident while another incident for the same alert is
 active is refused by the unique index rather than by a friendly error.
+
+### D44 — A narrower activation needs a tenant-wide assignment already active
+
+D41's cost paragraph named a trap: activating a `ProductWide` or `Full` release
+on a tenant with no active `TenantWide` assignment succeeded, and from then on
+every incident for that tenant failed to pin, because incidents carry no product
+and the pinner can only ask for the tenant-wide scope (BUG-002). D41 left two
+ways out: give incidents a product dimension, or refuse the activation.
+
+**Decided: refuse it.** `ActivateAsync` returns
+`MODEL_ASSIGNMENT_SCOPE_UNREACHABLE` (409) for a narrower-than-tenant activation
+when nothing is active at the tenant-wide scope, before any verification or
+evaluation check, and writes nothing.
+
+**Rejected for now: a product dimension on incidents.** It is the change that
+would make narrower releases do anything at all, but it reaches the alert
+contract, every adapter's label mapping, the incident schema and D41's
+resolution rule, and no pilot has asked for per-product models yet. Refusing the
+activation closes the outage without deciding that design early.
+
+**Cost:** a product or environment release can be activated but still never
+resolves for an incident; until incidents carry a product it is configuration
+that only the control plane reads. There is no deactivation operation, so the
+guard cannot be bypassed by removing the tenant-wide assignment afterwards; if
+one is added, it needs the same check in reverse.

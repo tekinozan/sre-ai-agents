@@ -27,6 +27,12 @@ public static class ApplicationErrorCodes
     public static readonly ErrorCode ModelAssignmentNotFound = new("MODEL_ASSIGNMENT_NOT_FOUND");
     public static readonly ErrorCode ModelAssignmentSlotMissing = new("MODEL_ASSIGNMENT_SLOT_MISSING");
     public static readonly ErrorCode ModelAssignmentEvaluationRequired = new("MODEL_ASSIGNMENT_EVALUATION_REQUIRED");
+
+    /// <summary>
+    /// A narrower-than-tenant activation would leave the tenant with no
+    /// assignment its incidents can resolve (docs/DECISIONS.md D41, BUG-002).
+    /// </summary>
+    public static readonly ErrorCode ModelAssignmentScopeUnreachable = new("MODEL_ASSIGNMENT_SCOPE_UNREACHABLE");
     public static readonly ErrorCode CredentialUnavailable = new("CREDENTIAL_UNAVAILABLE");
     public static readonly ErrorCode ModelResourceConflict = new("MODEL_RESOURCE_CONFLICT");
 

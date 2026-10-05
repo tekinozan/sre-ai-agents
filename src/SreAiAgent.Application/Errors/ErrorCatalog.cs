@@ -47,6 +47,7 @@ public static class ErrorCatalog
             [ApplicationErrorCodes.ModelAssignmentNotFound.Value] = new(NotFound, false),
             [ApplicationErrorCodes.ModelAssignmentSlotMissing.Value] = new(Conflict, false),
             [ApplicationErrorCodes.ModelAssignmentEvaluationRequired.Value] = new(Conflict, false),
+            [ApplicationErrorCodes.ModelAssignmentScopeUnreachable.Value] = new(Conflict, false),
             [ApplicationErrorCodes.CredentialUnavailable.Value] = new(ServiceUnavailable, false),
             [ApplicationErrorCodes.ModelResourceConflict.Value] = new(Conflict, false),
 

@@ -421,6 +421,11 @@ eklenti değil) girsin, ya da fazlardan sonra ayrı bir iş olarak yapılsın.
 
 ---
 
+> **Durum (2026-10-05): kapandı.** Seçenek 2 uygulandı (`DECISIONS.md` D44);
+> kapanış kanıtı (a) ve (b) `ModelControlPlaneTests` içinde. Silme/geri çekme
+> işlemi olmadığı için (b)'nin "geri çekilme" hali yerine "hiç TenantWide yokken
+> dar aktivasyon reddedilir" kanıtlandı.
+
 **BUG-002 — Bir operatör `TenantWide` seviyesinde aktif bir assignment bırakmadan bir `ProductWide` veya `Full` release'i aktive ederse, o tenant'ın **bütün** incident'ları sessizce soruşturulamaz hale geliyor; ne şema ne de `ActivateAsync`'in başarılı yanıtı bunu uyarıyor.**
 
 **Kaynak — D41 (`DECISIONS.md`), kod okumasıyla doğrulandı, hipotez değil.**

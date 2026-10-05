@@ -356,6 +356,112 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
         (await repository.GetActiveSnapshotAsync(full, ct)).ShouldBeNull();
     }
 
+    [Fact]
+    public async Task AProductReleaseCannotBeActivatedOnATenantWithNoTenantWideAssignment()
+    {
+        // BUG-002 (b): incidents carry no product, so they only ever resolve
+        // the tenant-wide assignment (D41). This activation used to succeed and
+        // leave every incident for the tenant unable to pin, silently.
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        string tenant = "unreachable-" + Guid.NewGuid();
+        TenantScope checkout = TenantScope.ProductWide(tenant, "checkout");
+
+        ModelAssignmentReleaseId release = await CreateVerifiedEvaluatedReleaseAsync(checkout, ct);
+
+        var activated = await Plane.ActivateAsync(checkout, release, "actor", ct);
+
+        activated.IsSuccess.ShouldBeFalse();
+        activated.Error.Code.ShouldBe(ApplicationErrorCodes.ModelAssignmentScopeUnreachable);
+        ErrorCatalog.Describe(activated.Error.Code).HttpStatusCode.ShouldBe(409);
+
+        ModelProviderRepository repository = _scope.ServiceProvider.GetRequiredService<ModelProviderRepository>();
+        (await repository.GetActiveSnapshotAsync(checkout, ct)).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task AProductReleaseActivatedBesideATenantWideOneLeavesTheTenantsIncidentsPinnable()
+    {
+        // BUG-002 (a): with a tenant-wide assignment active, narrowing one
+        // product is allowed, and a new incident for the tenant still pins.
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        string tenant = "reachable-" + Guid.NewGuid();
+        TenantScope tenantWide = TenantScope.TenantWide(tenant);
+        TenantScope checkout = TenantScope.ProductWide(tenant, "checkout");
+
+        ModelAssignmentReleaseId tenantWideRelease = await CreateAndActivateMinimalReleaseAsync(tenantWide, ct);
+        ModelAssignmentReleaseId productRelease = await CreateVerifiedEvaluatedReleaseAsync(checkout, ct);
+
+        var activated = await Plane.ActivateAsync(checkout, productRelease, "actor", ct);
+        activated.IsSuccess.ShouldBeTrue();
+
+        // The lookup ConfigurationPinner makes for every incident: the
+        // tenant-wide scope, exactly (D41). It still resolves, and the product
+        // release sits beside it rather than replacing it.
+        ModelProviderRepository repository = _scope.ServiceProvider.GetRequiredService<ModelProviderRepository>();
+        (await repository.GetActiveSnapshotAsync(tenantWide, ct)).ShouldNotBeNull().ReleaseId.ShouldBe(tenantWideRelease);
+        (await repository.GetActiveSnapshotAsync(checkout, ct)).ShouldNotBeNull().ReleaseId.ShouldBe(productRelease);
+    }
+
+    /// <summary>
+    /// Takes a release through the control plane's own pipeline, verification
+    /// and a passing evaluation included, so that the only thing left to decide
+    /// activation is the rule under test.
+    /// </summary>
+    private async Task<ModelAssignmentReleaseId> CreateVerifiedEvaluatedReleaseAsync(TenantScope scope, CancellationToken ct)
+    {
+        var connection = await Plane.CreateConnectionAsync(scope, "connection-" + Guid.NewGuid(), "actor", ct);
+        connection.IsSuccess.ShouldBeTrue();
+
+        var revision = await Plane.CreateRevisionAsync(
+            scope,
+            connection.Value.Id,
+            new CreateProviderRevisionCommand(
+                ProviderAdapterKind.Scripted, "https://test", null, null, null, "env://TEST_KEY", ModelCapability.None),
+            "actor",
+            ct);
+        revision.IsSuccess.ShouldBeTrue();
+
+        var verified = await Plane.VerifyRevisionAsync(scope, connection.Value.Id, revision.Value.Revision, "actor", ct);
+        verified.IsSuccess.ShouldBeTrue();
+
+        var deployment = await Plane.CreateDeploymentVersionAsync(
+            scope,
+            new CreateModelDeploymentVersionCommand(
+                "model-" + Guid.NewGuid(),
+                revision.Value.Id,
+                "model-1",
+                ModelCapability.None,
+                0f,
+                1000,
+                TimeSpan.FromSeconds(30),
+                0m,
+                0m,
+                "USD",
+                new Dictionary<string, string>()),
+            "actor",
+            ct);
+        deployment.IsSuccess.ShouldBeTrue();
+
+        var release = await Plane.CreateAssignmentReleaseAsync(
+            scope,
+            new CreateModelAssignmentReleaseCommand(
+                "release-" + Guid.NewGuid(),
+                deployment.Value.Id,
+                deployment.Value.Id,
+                new Dictionary<string, ModelDeploymentVersionId> { ["test-expert"] = deployment.Value.Id }),
+            "actor",
+            ct);
+        release.IsSuccess.ShouldBeTrue();
+
+        var requested = await Plane.RequestEvaluationAsync(scope, release.Value.Id, "dataset", "baseline", "actor", ct);
+        requested.IsSuccess.ShouldBeTrue();
+        var completed = await Plane.CompleteEvaluationAsync(
+            scope, requested.Value.EvaluationId, passed: true, new string('a', 64), "actor", ct);
+        completed.IsSuccess.ShouldBeTrue();
+
+        return release.Value.Id;
+    }
+
     /// <summary>
     /// Builds and activates the smallest possible release directly through
     /// EF, bypassing <see cref="IModelProviderControlPlane"/>'s evaluation and
