@@ -90,7 +90,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [SreAiAgent.Api, SreAiAgent.AlertWorker, SreAiAgent.InvestigationWorker]
+        # Docker repository names must be lowercase, so the project name cannot
+        # double as the image name; these match the chart's component images.
+        include:
+          - project: SreAiAgent.Api
+            image: api
+          - project: SreAiAgent.AlertWorker
+            image: alert-worker
+          - project: SreAiAgent.InvestigationWorker
+            image: investigation-worker
     steps:
       - uses: actions/checkout@v4
 
@@ -101,7 +109,7 @@ jobs:
           docker build
           --file deploy/docker/Dockerfile
           --build-arg PROJECT=${{ matrix.project }}
-          --tag sre-ai-agent/${{ matrix.project }}:${{ github.sha }}
+          --tag sre-ai-agent/${{ matrix.image }}:${{ github.sha }}
           .
 
       # Critical findings with a fix available fail the job; unfixed ones are
@@ -110,7 +118,7 @@ jobs:
       - name: Scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: sre-ai-agent/${{ matrix.project }}:${{ github.sha }}
+          image-ref: sre-ai-agent/${{ matrix.image }}:${{ github.sha }}
           severity: CRITICAL
           ignore-unfixed: true
           exit-code: "1"
