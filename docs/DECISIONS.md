@@ -919,3 +919,32 @@ OpenAI-compatible custom-host allowlist does not widen it.
 **Cost:** a second way to reach the same models, so an operator has to pick one
 per deployment; the OpenAI dialect parameters are refused on it. Vertex AI
 (service-account auth, regional hosts) is not covered by either path.
+
+### D47 — A tenant budget is a ceiling on estimated model cost, checked before every call
+
+Decided by the user: a tenant's limit is either monthly or a fixed total.
+`tenant_budgets` holds one row per tenant (`limit`, `currency`, `period`
+`monthly` | `fixed`, `starts_at`); no row means no ceiling. `LlmGateway` asks
+`ITenantBudgetGuard` before resolving a provider client, so an exhausted budget
+makes no outbound call at all and is audited as a failed call at zero cost with
+`BUDGET_EXCEEDED`, which is permanent: retrying cannot help until the period
+turns or someone raises the limit.
+
+Spend is the sum of `llm_calls.estimated_cost` since the period start, failed
+calls included, because a provider charges for a truncated or schema-invalid
+answer exactly as for a good one. Monthly periods follow the UTC calendar month.
+
+A budget counts one currency. Setting a budget whose currency differs from the
+active tenant-wide assignment, or activating a release priced in another
+currency than the budget, is refused with `BUDGET_CURRENCY_MISMATCH`; the
+alternative was spend that could never approach the limit.
+
+**Rejected: a locked per-tenant counter updated by each call.** It would make
+the ceiling exact at the price of serialising every model call of a tenant on
+one row. Reading committed spend costs one indexed sum per call.
+
+**Cost:** the ceiling is soft by a bounded amount. Audit rows commit when an
+activity finishes, so agents running in parallel can each make the calls their
+activity has not yet committed. The guard is not registered where there is no
+database (the eval harness), which runs unlimited. Cost is the platform's
+estimate from the deployment's prices, not the provider's invoice.

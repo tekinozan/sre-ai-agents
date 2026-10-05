@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using SreAiAgent.Contracts.Alerts;
 using SreAiAgent.Contracts.Approvals;
+using SreAiAgent.Contracts.Budgets;
 using SreAiAgent.Contracts.Incidents;
 using SreAiAgent.Contracts.Messaging;
 using SreAiAgent.Contracts.ModelProviders;
@@ -57,6 +58,8 @@ namespace SreAiAgent.Contracts.Serialization;
 [JsonSerializable(typeof(RequestEvaluationRequest))]
 [JsonSerializable(typeof(CompleteEvaluationRequest))]
 [JsonSerializable(typeof(ModelAssignmentEvaluationResponse))]
+[JsonSerializable(typeof(SetBudgetRequest))]
+[JsonSerializable(typeof(BudgetResponse))]
 [JsonSerializable(typeof(InvestigationStreamEvent))]
 [JsonSerializable(typeof(EventEnvelope<CanonicalAlert>))]
 [JsonSerializable(typeof(EventEnvelope<IncidentCreatedPayload>))]

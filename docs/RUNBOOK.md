@@ -213,6 +213,15 @@ tracer provider (`WorkflowEngineTraceSources`). If every `RunActivity:*` span
 appears twice, a second `TracingInterceptor` was added to the worker; the
 client's is already applied to it.
 
+### An investigation failed with `BUDGET_EXCEEDED`
+
+The tenant's model budget is spent (D47); no model call was made. `GET
+/v1/budget` shows the limit, the period start and the spend. Either wait for the
+period to turn (monthly budgets reset on the first of the UTC month), raise the
+limit with `PUT /v1/budget`, or remove it with `DELETE /v1/budget`, then retry
+the incident. An agent run that hit the ceiling mid-investigation shows
+`BudgetExceeded` and the report outcome says so.
+
 ### `sre_trace_attribute_rejected_total` is climbing
 
 Something is trying to put a non-allowlisted key on a span. The value is dropped,

@@ -182,6 +182,10 @@ public static class DependencyInjection
         // it describes.
         services.TryAddScoped<ILlmGateway, LlmGateway>();
 
+        // No ceiling unless persistence registers the real guard, which it adds
+        // rather than tries, so it wins in either registration order.
+        services.TryAddScoped<ITenantBudgetGuard, UnlimitedBudgetGuard>();
+
         return services;
     }
 

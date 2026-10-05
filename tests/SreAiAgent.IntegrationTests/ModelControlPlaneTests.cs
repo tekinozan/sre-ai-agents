@@ -11,6 +11,7 @@ using SreAiAgent.Application.Abstractions.Llm;
 using SreAiAgent.Application.Abstractions.Persistence;
 using SreAiAgent.Application.Agents;
 using SreAiAgent.Application.Errors;
+using SreAiAgent.Domain.Budgets;
 using SreAiAgent.Domain.ModelProviders;
 using SreAiAgent.Domain.Shared;
 using SreAiAgent.Infrastructure;
@@ -402,12 +403,112 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
         (await repository.GetActiveSnapshotAsync(checkout, ct)).ShouldNotBeNull().ReleaseId.ShouldBe(productRelease);
     }
 
+    [Fact]
+    public async Task AMonthlyBudgetCountsThisMonthsSpendAndRefusesOnceItIsReached()
+    {
+        // gemini-budgets-notifications.md B: spend is llm_calls.estimated_cost
+        // since the period began, failed calls included; last month's does not
+        // count against a monthly budget.
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        string tenant = "budget-monthly-" + Guid.NewGuid();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        DateTimeOffset monthStart = new(now.Year, now.Month, 1, 0, 0, 0, TimeSpan.Zero);
+
+        TenantBudgetService budgets = _scope.ServiceProvider.GetRequiredService<TenantBudgetService>();
+        (await budgets.CheckAsync(tenant, ct)).IsSuccess.ShouldBeTrue("No budget means no ceiling.");
+
+        (await budgets.SetAsync(tenant, 1.00m, "usd", BudgetPeriod.Monthly, null, "alice", ct)).IsSuccess.ShouldBeTrue();
+
+        await RecordSpendAsync(tenant, monthStart.AddDays(-3), 5.00m, "succeeded", ct);
+        await RecordSpendAsync(tenant, monthStart.AddMinutes(1), 0.60m, "failed", ct);
+
+        TenantBudgetStatus? status = await budgets.GetAsync(tenant, ct);
+        status.ShouldNotBeNull();
+        status.PeriodStartedAt.ShouldBe(monthStart);
+        status.Spent.ShouldBe(0.60m);
+        status.Remaining.ShouldBe(0.40m);
+        (await budgets.CheckAsync(tenant, ct)).IsSuccess.ShouldBeTrue();
+
+        await RecordSpendAsync(tenant, monthStart.AddMinutes(2), 0.40m, "succeeded", ct);
+
+        Result refused = await budgets.CheckAsync(tenant, ct);
+        refused.IsFailure.ShouldBeTrue();
+        refused.Error.Code.ShouldBe(ApplicationErrorCodes.BudgetExceeded);
+        ErrorCatalog.Describe(refused.Error.Code).IsRetryable.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task AFixedBudgetCountsEverythingSinceItsStartAcrossMonths()
+    {
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        string tenant = "budget-fixed-" + Guid.NewGuid();
+        // Whole seconds: PostgreSQL keeps microseconds, .NET keeps 100 ns ticks.
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        DateTimeOffset start = new DateTimeOffset(now.Year, now.Month, now.Day, now.Hour, now.Minute, now.Second, TimeSpan.Zero)
+            .AddDays(-45);
+
+        TenantBudgetService budgets = _scope.ServiceProvider.GetRequiredService<TenantBudgetService>();
+        (await budgets.SetAsync(tenant, 10m, "USD", BudgetPeriod.Fixed, start, "alice", ct)).IsSuccess.ShouldBeTrue();
+
+        await RecordSpendAsync(tenant, start.AddDays(-1), 100m, "succeeded", ct);
+        await RecordSpendAsync(tenant, start.AddDays(1), 4m, "succeeded", ct);
+        await RecordSpendAsync(tenant, DateTimeOffset.UtcNow.AddMinutes(-1), 5m, "succeeded", ct);
+
+        TenantBudgetStatus? status = await budgets.GetAsync(tenant, ct);
+        status.ShouldNotBeNull().Spent.ShouldBe(9m);
+        status.PeriodStartedAt.ShouldBe(start.ToUniversalTime());
+    }
+
+    [Fact]
+    public async Task ABudgetAndTheModelsItCountsMustShareACurrency()
+    {
+        // D47: spend priced in USD can never approach a limit in EUR, so the
+        // pair is refused from either side instead of going uncounted.
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        string tenant = "budget-currency-" + Guid.NewGuid();
+        TenantScope tenantWide = TenantScope.TenantWide(tenant);
+        await CreateAndActivateMinimalReleaseAsync(tenantWide, ct);
+
+        TenantBudgetService budgets = _scope.ServiceProvider.GetRequiredService<TenantBudgetService>();
+        Result<TenantBudgetStatus> euro = await budgets.SetAsync(tenant, 10m, "EUR", BudgetPeriod.Monthly, null, "alice", ct);
+        euro.IsFailure.ShouldBeTrue();
+        euro.Error.Code.ShouldBe(ApplicationErrorCodes.BudgetCurrencyMismatch);
+
+        (await budgets.SetAsync(tenant, 10m, "USD", BudgetPeriod.Monthly, null, "alice", ct)).IsSuccess.ShouldBeTrue();
+
+        TenantScope checkout = TenantScope.ProductWide(tenant, "checkout");
+        ModelAssignmentReleaseId release = await CreateVerifiedEvaluatedReleaseAsync(checkout, ct, currency: "EUR");
+        var activated = await Plane.ActivateAsync(checkout, release, "actor", ct);
+        activated.IsFailure.ShouldBeTrue();
+        activated.Error.Code.ShouldBe(ApplicationErrorCodes.BudgetCurrencyMismatch);
+    }
+
+    private async Task RecordSpendAsync(string tenant, DateTimeOffset calledAt, decimal cost, string outcome, CancellationToken ct)
+    {
+        await using SreDbContext context = _postgres.CreateContext();
+        context.LlmCalls.Add(new LlmCallEntity
+        {
+            Id = Guid.CreateVersion7(),
+            IncidentId = Guid.CreateVersion7(),
+            Tenant = tenant,
+            AgentName = "classifier",
+            PromptName = "classify",
+            PromptVersion = "1",
+            PromptHash = "hash",
+            Outcome = outcome,
+            EstimatedCost = cost,
+            CalledAt = calledAt,
+        });
+        await context.SaveChangesAsync(ct);
+    }
+
     /// <summary>
     /// Takes a release through the control plane's own pipeline, verification
     /// and a passing evaluation included, so that the only thing left to decide
     /// activation is the rule under test.
     /// </summary>
-    private async Task<ModelAssignmentReleaseId> CreateVerifiedEvaluatedReleaseAsync(TenantScope scope, CancellationToken ct)
+    private async Task<ModelAssignmentReleaseId> CreateVerifiedEvaluatedReleaseAsync(
+        TenantScope scope, CancellationToken ct, string currency = "USD")
     {
         var connection = await Plane.CreateConnectionAsync(scope, "connection-" + Guid.NewGuid(), "actor", ct);
         connection.IsSuccess.ShouldBeTrue();
@@ -436,7 +537,7 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
                 TimeSpan.FromSeconds(30),
                 0m,
                 0m,
-                "USD",
+                currency,
                 new Dictionary<string, string>()),
             "actor",
             ct);

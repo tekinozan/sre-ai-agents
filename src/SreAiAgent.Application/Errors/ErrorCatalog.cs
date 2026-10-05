@@ -78,6 +78,8 @@ public static class ErrorCatalog
             [ApplicationErrorCodes.WorkflowCancelled.Value] = new(Conflict, false),
             [ApplicationErrorCodes.WorkflowAlreadyRunning.Value] = new(Conflict, false),
             [ApplicationErrorCodes.BudgetExceeded.Value] = new(Conflict, false),
+            [ApplicationErrorCodes.BudgetCurrencyMismatch.Value] = new(Conflict, false),
+            [ApplicationErrorCodes.BudgetNotFound.Value] = new(NotFound, false),
             [ApplicationErrorCodes.InsufficientAgentCapability.Value] = new(Conflict, false),
 
             [ApplicationErrorCodes.ApprovalRejected.Value] = new(Conflict, false),
@@ -99,6 +101,7 @@ public static class ErrorCatalog
             [DomainErrorCodes.ReportVersionConflict.Value] = new(Conflict, false),
             [DomainErrorCodes.ModelConfigurationInvalid.Value] = new(BadRequest, false),
             [DomainErrorCodes.TenantScopeInvalid.Value] = new(BadRequest, false),
+            [DomainErrorCodes.BudgetInvalid.Value] = new(BadRequest, false),
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>

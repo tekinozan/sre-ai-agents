@@ -65,6 +65,13 @@ public static class ApplicationErrorCodes
     public static readonly ErrorCode BudgetExceeded = new("BUDGET_EXCEEDED");
 
     /// <summary>
+    /// Spend priced in one currency cannot be counted against a limit in
+    /// another, so the pair is refused rather than silently left uncounted.
+    /// </summary>
+    public static readonly ErrorCode BudgetCurrencyMismatch = new("BUDGET_CURRENCY_MISMATCH");
+    public static readonly ErrorCode BudgetNotFound = new("BUDGET_NOT_FOUND");
+
+    /// <summary>
     /// Routing found nobody able to investigate: every candidate was disabled,
     /// kill-switched or missing a required tool (ARCHITECTURE.md 24.3).
     /// </summary>

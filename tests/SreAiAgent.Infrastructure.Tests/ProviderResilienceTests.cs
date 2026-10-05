@@ -426,6 +426,47 @@ public sealed class ProviderResilienceTests
     }
 
     [Fact]
+    public async Task LlmGatewayMakesNoOutboundCallOnceTheTenantBudgetIsSpent()
+    {
+        // gemini-budgets-notifications.md B: an exhausted budget means no call
+        // reaches the provider at all, and the refusal is still audited.
+        IChatClientResolver resolver = Substitute.For<IChatClientResolver>();
+        IAuditSink audit = Substitute.For<IAuditSink>();
+        ITenantBudgetGuard spent = Substitute.For<ITenantBudgetGuard>();
+        spent.CheckAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Failure(Error.Permanent(ApplicationErrorCodes.BudgetExceeded, "Spent.")));
+
+        IMeterFactory meterFactory = Substitute.For<IMeterFactory>();
+        meterFactory.Create(Arg.Any<MeterOptions>()).Returns(new Meter("test"));
+        LlmGateway gateway = new(
+            resolver,
+            new StructuredOutputValidator(),
+            new SreMetrics(meterFactory),
+            Microsoft.Extensions.Options.Options.Create(new LlmOptions { MaxRetries = 2, RequestTimeoutSeconds = 5 }),
+            audit,
+            spent,
+            TimeProvider.System,
+            NullLogger<LlmGateway>.Instance);
+
+        Result<LlmResult<ClassificationPayload>> result = await gateway.GenerateStructuredAsync(
+            new LlmRequest<ClassificationPayload>
+            {
+                Candidate = CreateCandidate("test-tenant", "classifier"),
+                ResponseSchemaName = StructuredOutputValidator.ClassificationSchemaName,
+                SystemPrompt = "system prompt",
+                UserPrompt = "user prompt",
+                Timeout = TimeSpan.FromSeconds(5),
+                Metadata = CreateMetadata(),
+            },
+            TestContext.Current.CancellationToken);
+
+        result.Error.Code.ShouldBe(ApplicationErrorCodes.BudgetExceeded);
+        await resolver.DidNotReceive().ResolveAsync(Arg.Any<PinnedModelCandidate>(), Arg.Any<CancellationToken>());
+        audit.Received(1).RecordLlmCall(Arg.Is<LlmCallAudit>(call =>
+            call.ErrorCode == ApplicationErrorCodes.BudgetExceeded && call.EstimatedCost == 0m));
+    }
+
+    [Fact]
     public async Task LlmGatewayDoesNotRetryTransportErrorsReturnedByClient()
     {
         int callCount = 0;
@@ -454,6 +495,7 @@ public sealed class ProviderResilienceTests
             metrics,
             Microsoft.Extensions.Options.Options.Create(new LlmOptions { MaxRetries = 2, RequestTimeoutSeconds = 5 }),
             audit,
+            new UnlimitedBudgetGuard(),
             TimeProvider.System,
             NullLogger<LlmGateway>.Instance);
 
@@ -512,6 +554,7 @@ public sealed class ProviderResilienceTests
             metrics,
             Microsoft.Extensions.Options.Options.Create(new LlmOptions { MaxRetries = 2, RequestTimeoutSeconds = 5 }),
             audit,
+            new UnlimitedBudgetGuard(),
             TimeProvider.System,
             NullLogger<LlmGateway>.Instance);
 
@@ -650,6 +693,7 @@ public sealed class ProviderResilienceTests
             metrics,
             Microsoft.Extensions.Options.Options.Create(new LlmOptions { MaxRetries = 2, RequestTimeoutSeconds = 5 }),
             audit,
+            new UnlimitedBudgetGuard(),
             TimeProvider.System,
             NullLogger<LlmGateway>.Instance);
 

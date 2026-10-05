@@ -117,6 +117,7 @@ app.MapIncidentEndpoints();
 app.MapAlertEndpoints();
 app.MapApprovalEndpoints();
 app.MapModelProviderEndpoints();
+app.MapBudgetEndpoints();
 app.MapStreamEndpoints();
 
 await app.RunAsync().ConfigureAwait(false);

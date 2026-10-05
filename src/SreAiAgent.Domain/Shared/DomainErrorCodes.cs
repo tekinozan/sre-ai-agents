@@ -19,4 +19,5 @@ public static class DomainErrorCodes
     public static readonly ErrorCode ReportVersionConflict = new("REPORT_VERSION_CONFLICT");
     public static readonly ErrorCode ModelConfigurationInvalid = new("MODEL_CONFIGURATION_INVALID");
     public static readonly ErrorCode TenantScopeInvalid = new("TENANT_SCOPE_INVALID");
+    public static readonly ErrorCode BudgetInvalid = new("BUDGET_INVALID");
 }

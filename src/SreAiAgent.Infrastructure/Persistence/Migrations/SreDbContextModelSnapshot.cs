@@ -1075,6 +1075,9 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                     b.HasIndex("PromptName", "PromptVersion")
                         .HasDatabaseName("ix_llm_calls_prompt");
 
+                    b.HasIndex("Tenant", "CalledAt")
+                        .HasDatabaseName("ix_llm_calls_tenant_called_at");
+
                     b.ToTable("llm_calls", (string)null);
                 });
 
@@ -1772,6 +1775,49 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                     b.HasIndex("Tenant", "Product", "Environment", "AssignmentReleaseId");
 
                     b.ToTable("tenant_active_model_assignments", (string)null);
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.TenantBudgetEntity", b =>
+                {
+                    b.Property<string>("Tenant")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)")
+                        .HasColumnName("currency");
+
+                    b.Property<decimal>("LimitAmount")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("limit_amount");
+
+                    b.Property<string>("Period")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("period");
+
+                    b.Property<DateTimeOffset>("StartsAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("starts_at");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Tenant");
+
+                    b.ToTable("tenant_budgets", (string)null);
                 });
 
             modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ToolCallEntity", b =>

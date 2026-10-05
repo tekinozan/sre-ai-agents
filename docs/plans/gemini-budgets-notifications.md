@@ -11,9 +11,9 @@
 | Adım | İş | Durum | Kanıt |
 |---|---|---|---|
 | G-1 | `ProviderAdapterKind.Gemini`: adapter, wire contract, endpoint policy, verifier, API eşlemesi | uygulandı | D46; `ProviderAdapterTests` (5 sözleşme testi + Gemini gövde/token/sürüm), `ProviderEndpointPolicyTests`. Canlı kanıt credential bekliyor |
-| B-1 | Kiracı bütçe politikası: şema, repository, API (`GET/PUT /v1/budget`) | planlandı | — |
-| B-2 | Gateway'de zorlama: limit dolunca dışarı çağrı yok, `BUDGET_EXCEEDED` | planlandı | — |
-| B-3 | Para birimi tutarlılığı: bütçe para birimi ile aktif deployment'ların para birimi | planlandı | — |
+| B-1 | Kiracı bütçe politikası: şema, repository, API (`GET/PUT /v1/budget`) | uygulandı | D47; `tenant_budgets` + migration, `GET/PUT/DELETE /v1/budget`; Postgres integration (aylık/fixed dönem). Compose doğrulaması N ile birlikte |
+| B-2 | Gateway'de zorlama: limit dolunca dışarı çağrı yok, `BUDGET_EXCEEDED` | uygulandı | `LlmGateway` sağlayıcıya gitmeden reddeder (birim testi: resolver hiç çağrılmıyor, audit 0 maliyet). Compose doğrulaması N ile birlikte |
+| B-3 | Para birimi tutarlılığı: bütçe para birimi ile aktif deployment'ların para birimi | uygulandı | Bütçe kurulurken ve aktivasyonda reddedilir (integration). Compose doğrulaması N ile birlikte |
 | N-1 | Bildirim kanalları: şema, repository, API; webhook adresi `credential_ref` olarak | planlandı | — |
 | N-2 | Slack ve Teams gönderim adapter'ları, endpoint policy | planlandı | — |
 | N-3 | Olay tüketicisi: rapor tamamlandı, soruşturma başarısız, bütçe eşiği | planlandı | — |

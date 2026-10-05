@@ -21,6 +21,7 @@ internal sealed partial class LlmGateway : ILlmGateway
     private readonly LlmOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly IAuditSink _audit;
+    private readonly ITenantBudgetGuard _budget;
     private readonly ILogger<LlmGateway> _logger;
 
     public LlmGateway(
@@ -29,6 +30,7 @@ internal sealed partial class LlmGateway : ILlmGateway
         SreMetrics metrics,
         IOptions<LlmOptions> options,
         IAuditSink audit,
+        ITenantBudgetGuard budget,
         TimeProvider timeProvider,
         ILogger<LlmGateway> logger)
     {
@@ -37,6 +39,7 @@ internal sealed partial class LlmGateway : ILlmGateway
         _metrics = metrics;
         _options = options.Value;
         _audit = audit;
+        _budget = budget;
         _timeProvider = timeProvider;
         _logger = logger;
     }
@@ -65,6 +68,15 @@ internal sealed partial class LlmGateway : ILlmGateway
         if (schema.IsFailure)
         {
             return Fail(request, activity, Elapsed(startTimestamp), schema.Error, Accounting.Empty);
+        }
+
+        // Before anything that could reach the provider: an exhausted budget
+        // means no outbound call at all, not a call whose cost is regretted
+        // afterwards. The refusal is audited like any failure, at zero cost.
+        Result budget = await _budget.CheckAsync(request.Metadata.Tenant, cancellationToken).ConfigureAwait(false);
+        if (budget.IsFailure)
+        {
+            return Fail(request, activity, Elapsed(startTimestamp), budget.Error, Accounting.Empty);
         }
 
         Result<IProviderChatClient> resolved = await _resolver

@@ -461,6 +461,17 @@ internal sealed class ModelProviderControlPlane(
                     + "Activate a tenant-wide release before a product or environment release."));
             }
 
+            // A budget counts spend in one currency. A release priced in another
+            // would spend without ever approaching the limit (D47).
+            TenantBudgetEntity? budget = await providers.FindBudgetAsync(scope.Tenant, cancellationToken)
+                .ConfigureAwait(false);
+            if (budget is not null && TenantBudgetService.ForeignCurrency(snapshot, budget.Currency) is { } foreign)
+            {
+                return Result<ModelAssignmentRelease>.Failure(Error.Permanent(
+                    ApplicationErrorCodes.BudgetCurrencyMismatch,
+                    $"The release is priced in {foreign}, but the tenant's budget is in {budget.Currency}."));
+            }
+
             if (_options.RequireEvaluationForActivation
                 && !await providers.HasPassedEvaluationAsync(scope, releaseId, cancellationToken).ConfigureAwait(false))
             {

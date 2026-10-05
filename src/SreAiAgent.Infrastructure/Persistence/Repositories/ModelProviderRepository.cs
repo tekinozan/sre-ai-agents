@@ -482,6 +482,10 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
         };
     }
 
+    /// <summary>The tenant's budget row, if it has one (D47).</summary>
+    public Task<TenantBudgetEntity?> FindBudgetAsync(string tenant, CancellationToken cancellationToken)
+        => context.TenantBudgets.AsNoTracking().SingleOrDefaultAsync(budget => budget.Tenant == tenant, cancellationToken);
+
     public void AddAudit(
         string tenant,
         string actor,

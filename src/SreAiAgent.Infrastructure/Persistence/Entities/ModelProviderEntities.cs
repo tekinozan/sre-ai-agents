@@ -138,3 +138,15 @@ public sealed class ModelControlPlaneAuditEntity
     public string ConfigurationHash { get; set; } = string.Empty;
     public DateTimeOffset OccurredAt { get; set; }
 }
+
+/// <summary>A tenant's model-cost budget (gemini-budgets-notifications.md B).</summary>
+public sealed class TenantBudgetEntity
+{
+    public string Tenant { get; set; } = string.Empty;
+    public decimal LimitAmount { get; set; }
+    public string Currency { get; set; } = string.Empty;
+    public string Period { get; set; } = string.Empty;
+    public DateTimeOffset StartsAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+    public string UpdatedBy { get; set; } = string.Empty;
+}
