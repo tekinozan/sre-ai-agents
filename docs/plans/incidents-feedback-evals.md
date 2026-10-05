@@ -8,7 +8,7 @@
 
 | Adım | İş | Durum | Kanıt |
 |---|---|---|---|
-| L | `GET /v1/incidents`: filtreler, keyset sayfalama, son rapor sonucu | planlandı | — |
+| L | `GET /v1/incidents`: filtreler, keyset sayfalama, son rapor sonucu | uygulandı | `IncidentListingTests` (Postgres, HTTP): 7 incident 3 sayfada eksiksiz ve tekrarsız, eşit `detected_at` id ile ayrılıyor, başka kiracı görünmüyor; her filtre; son raporun sonucu; 7 bozuk girdi 400. Compose doğrulaması V'de |
 | F | RCA geri bildirimi: rapor sürümüne operatör hükmü, liste, metrik, eval'e dönüş prosedürü | planlandı | — |
 | E-1 | Eval tamamlamada görev ayrılığı ve artifact doğrulaması | planlandı | — |
 | E-2 | Promotion kapısı: aktivasyon yalnız aynı release hash'ine ait, platformun doğruladığı geçen eval ile | planlandı | — |

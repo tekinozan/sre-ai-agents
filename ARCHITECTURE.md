@@ -986,6 +986,7 @@ sonucu üretir; sonsuz LLM/tool döngüsü yoktur.
 
 ```text
 POST /v1/incidents
+GET  /v1/incidents?status=&severity=&service=&environment=&source=&detected_from=&detected_to=&cursor=&limit=
 GET  /v1/incidents/{incidentId}
 GET  /v1/incidents/{incidentId}/timeline
 GET  /v1/incidents/{incidentId}/evidence
@@ -999,6 +1000,11 @@ GET  /v1/approvals/{approvalId}
 POST /v1/approvals/{approvalId}/approve
 POST /v1/approvals/{approvalId}/reject
 POST /v1/approvals/{approvalId}/edit
+
+GET|PUT|DELETE /v1/budget
+GET|POST       /v1/notification-channels
+DELETE         /v1/notification-channels/{channelId}
+POST           /v1/notification-channels/{channelId}/test
 
 GET /health/live
 GET /health/ready

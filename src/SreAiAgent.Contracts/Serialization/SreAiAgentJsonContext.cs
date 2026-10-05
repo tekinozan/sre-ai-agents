@@ -34,6 +34,7 @@ namespace SreAiAgent.Contracts.Serialization;
 [JsonSerializable(typeof(CreateIncidentRequest))]
 [JsonSerializable(typeof(IncidentAcceptedResponse))]
 [JsonSerializable(typeof(IncidentResponse))]
+[JsonSerializable(typeof(IncidentListResponse))]
 [JsonSerializable(typeof(IncidentActionRequest))]
 [JsonSerializable(typeof(IReadOnlyList<IncidentTimelineEntryResponse>))]
 [JsonSerializable(typeof(IReadOnlyList<EvidenceResponse>))]

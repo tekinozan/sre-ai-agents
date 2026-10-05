@@ -66,6 +66,10 @@ internal sealed class IncidentConfiguration : IEntityTypeConfiguration<Incident>
         builder.HasIndex(incident => new { incident.Tenant, incident.Status, incident.DetectedAt })
             .HasDatabaseName("ix_incidents_tenant_status_detected");
 
+        // GET /v1/incidents pages by (detected_at, id) within a tenant.
+        builder.HasIndex(incident => new { incident.Tenant, incident.DetectedAt, incident.Id })
+            .HasDatabaseName("ix_incidents_tenant_detected_id");
+
     }
 }
 

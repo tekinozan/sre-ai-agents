@@ -1,3 +1,4 @@
+using SreAiAgent.Domain.Findings;
 using SreAiAgent.Domain.Incidents;
 using SreAiAgent.Domain.Shared;
 
@@ -127,3 +128,49 @@ public sealed record IncidentTimelineEntryResponse(
 
 /// <summary>Body of the retry and cancel endpoints.</summary>
 public sealed record IncidentActionRequest(string Reason);
+
+/// <summary>One row of <c>GET /v1/incidents</c>.</summary>
+/// <remarks>
+/// Deliberately narrower than <see cref="IncidentResponse"/>: no description,
+/// labels or failure text, which are the large or sensitive columns. A list is
+/// for finding the incident; the detail endpoint is for reading it.
+/// </remarks>
+public sealed record IncidentSummaryResponse
+{
+    public required IncidentId IncidentId { get; init; }
+
+    public required string Source { get; init; }
+
+    public required string Title { get; init; }
+
+    public required string Service { get; init; }
+
+    public required string Environment { get; init; }
+
+    public required IncidentSeverity Severity { get; init; }
+
+    public required IncidentStatus Status { get; init; }
+
+    public required int AlertCount { get; init; }
+
+    public required DateTimeOffset DetectedAt { get; init; }
+
+    public required DateTimeOffset UpdatedAt { get; init; }
+
+    public DateTimeOffset? ResolvedAt { get; init; }
+
+    /// <summary>The latest report's outcome; null until a report exists.</summary>
+    public InvestigationOutcome? Outcome { get; init; }
+}
+
+/// <summary>A page of <c>GET /v1/incidents</c>.</summary>
+/// <remarks>
+/// <see cref="NextCursor"/> is opaque and present only when another page may
+/// follow. Pass it back unchanged with the same filters.
+/// </remarks>
+public sealed record IncidentListResponse
+{
+    public required IReadOnlyList<IncidentSummaryResponse> Items { get; init; }
+
+    public string? NextCursor { get; init; }
+}

@@ -484,6 +484,9 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Tenant", "DetectedAt", "Id")
+                        .HasDatabaseName("ix_incidents_tenant_detected_id");
+
                     b.HasIndex("Tenant", "Source", "Fingerprint")
                         .IsUnique()
                         .HasDatabaseName("ix_incidents_active_fingerprint")
