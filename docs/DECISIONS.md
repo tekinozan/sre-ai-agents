@@ -992,3 +992,32 @@ webhook is resolved at every send, so a rotated secret takes effect without a
 restart but a broken reference only shows when something is sent; `POST
 /v1/notification-channels/{id}/test` is how an operator finds out first. The
 legacy Teams "Office 365 connector" webhooks are not supported, only Workflows.
+
+### D49 — A report verdict is one person's current opinion of one report version
+
+`POST /v1/incidents/{id}/report/feedback` records `Confirmed`,
+`PartiallyCorrect` or `Incorrect` against an explicit report version, with an
+optional actual cause and comment. A second submission by the same person on
+the same version revises theirs (unique on incident, version, person); the
+first submission time is kept and orders the tenant-wide list, so revisions do
+not reshuffle pages. The report's outcome is copied onto the row so verdicts can
+be read per outcome without a join, and counted in
+`sre_report_feedback_total{tenant, verdict, outcome}`.
+
+Writing needs `WriteIncidents`, the capability of the people who work an
+incident; a viewer reads verdicts but cannot cast one. The free text never
+reaches a model, a span, a log line or the timeline, which only says that a
+version was judged and how.
+
+**Rejected: turning `Incorrect` verdicts into eval cases automatically.** A case
+carries tool results from a real incident; only a person can redact them, and a
+case that leaked a hostname into the repository is worse than no case. The
+RUNBOOK gives the procedure instead.
+
+**Cost:** the verdict text is stored unredacted and is readable by every incident
+reader of the tenant. Nothing links a verdict to the agents that contributed to
+the report beyond the report itself, so per-agent accuracy needs a query, not a
+metric. A verdict on a report that is later superseded by a retry stays on the
+old version, which is the honest place for it but means the newest report starts
+with none.
+

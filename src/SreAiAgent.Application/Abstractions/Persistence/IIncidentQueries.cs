@@ -1,5 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
-using System.Text;
 using SreAiAgent.Contracts.Incidents;
 using SreAiAgent.Domain.Incidents;
 using SreAiAgent.Domain.Shared;
@@ -109,59 +107,7 @@ public sealed record IncidentListQuery
 
     public DateTimeOffset? DetectedTo { get; init; }
 
-    public IncidentListCursor? After { get; init; }
+    public PageCursor? After { get; init; }
 
     public required int Limit { get; init; }
-}
-
-/// <summary>The position after which the next page of incidents starts.</summary>
-/// <remarks>
-/// Opaque to callers. The encoding carries the instant as UTC ticks so the
-/// round trip is exact; a formatted timestamp would lose the sub-millisecond
-/// part PostgreSQL stores and skip or repeat rows that share a millisecond.
-/// </remarks>
-public sealed record IncidentListCursor(DateTimeOffset DetectedAt, IncidentId IncidentId)
-{
-    public string Encode()
-    {
-        string raw = string.Create(
-            CultureInfo.InvariantCulture,
-            $"{DetectedAt.UtcTicks}:{IncidentId.Value:N}");
-        return Convert.ToBase64String(Encoding.ASCII.GetBytes(raw))
-            .TrimEnd('=')
-            .Replace('+', '-')
-            .Replace('/', '_');
-    }
-
-    public static bool TryDecode(string? value, [NotNullWhen(true)] out IncidentListCursor? cursor)
-    {
-        cursor = null;
-        if (string.IsNullOrWhiteSpace(value) || value.Length > 128)
-        {
-            return false;
-        }
-
-        string padded = value.Replace('-', '+').Replace('_', '/');
-        padded = padded.PadRight(padded.Length + ((4 - (padded.Length % 4)) % 4), '=');
-
-        Span<byte> bytes = stackalloc byte[96];
-        if (!Convert.TryFromBase64String(padded, bytes, out int written))
-        {
-            return false;
-        }
-
-        string raw = Encoding.ASCII.GetString(bytes[..written]);
-        int separator = raw.IndexOf(':', StringComparison.Ordinal);
-        if (separator <= 0
-            || !long.TryParse(raw.AsSpan(0, separator), NumberStyles.None, CultureInfo.InvariantCulture, out long ticks)
-            || ticks < DateTimeOffset.MinValue.UtcTicks
-            || ticks > DateTimeOffset.MaxValue.UtcTicks
-            || !Guid.TryParseExact(raw.AsSpan(separator + 1), "N", out Guid id))
-        {
-            return false;
-        }
-
-        cursor = new IncidentListCursor(new DateTimeOffset(ticks, TimeSpan.Zero), IncidentId.From(id));
-        return true;
-    }
 }

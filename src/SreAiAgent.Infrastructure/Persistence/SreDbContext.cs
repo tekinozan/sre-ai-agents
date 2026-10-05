@@ -79,6 +79,7 @@ public sealed class SreDbContext : DbContext
     public DbSet<TenantBudgetEntity> TenantBudgets => Set<TenantBudgetEntity>();
     public DbSet<NotificationChannelEntity> NotificationChannels => Set<NotificationChannelEntity>();
     public DbSet<NotificationDeliveryEntity> NotificationDeliveries => Set<NotificationDeliveryEntity>();
+    public DbSet<ReportFeedbackEntity> ReportFeedback => Set<ReportFeedbackEntity>();
 
     /// <inheritdoc />
     /// <inheritdoc />

@@ -3,7 +3,7 @@ using System.Diagnostics.Metrics;
 namespace SreAiAgent.Application.Tests;
 
 /// <summary>
-/// A meter factory for tests that do not assert on metrics.
+/// A meter factory for tests, isolated from every other test's meters.
 /// </summary>
 /// <remarks>
 /// SreMetrics takes an IMeterFactory because instruments have to be created
@@ -22,6 +22,9 @@ internal sealed class TestMeterFactory : IMeterFactory
         _meters.Add(meter);
         return meter;
     }
+
+    /// <summary>Whether this factory created <paramref name="meter"/>, so a listener ignores other tests' meters.</summary>
+    public bool Owns(Meter meter) => _meters.Contains(meter);
 
     public void Dispose()
     {

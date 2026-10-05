@@ -9,7 +9,7 @@
 | Adım | İş | Durum | Kanıt |
 |---|---|---|---|
 | L | `GET /v1/incidents`: filtreler, keyset sayfalama, son rapor sonucu | uygulandı | `IncidentListingTests` (Postgres, HTTP): 7 incident 3 sayfada eksiksiz ve tekrarsız, eşit `detected_at` id ile ayrılıyor, başka kiracı görünmüyor; her filtre; son raporun sonucu; 7 bozuk girdi 400. Compose doğrulaması V'de |
-| F | RCA geri bildirimi: rapor sürümüne operatör hükmü, liste, metrik, eval'e dönüş prosedürü | planlandı | — |
+| F | RCA geri bildirimi: rapor sürümüne operatör hükmü, liste, metrik, eval'e dönüş prosedürü | uygulandı | D49; `ReportFeedbackTests` (Postgres, HTTP): kişi başına revizyon, ikinci kişi ayrı satır, timeline'da serbest metin yok, yanlış sürüm/başka kiracı 404, Viewer 403, bilinmeyen verdict 400, uzun metin 400, kiracı listesi filtre + sayfalama; domain ve metrik birim testleri; RUNBOOK prosedürü. Compose doğrulaması V'de |
 | E-1 | Eval tamamlamada görev ayrılığı ve artifact doğrulaması | planlandı | — |
 | E-2 | Promotion kapısı: aktivasyon yalnız aynı release hash'ine ait, platformun doğruladığı geçen eval ile | planlandı | — |
 | V | Gate (`--with-integration`) + compose doğrulaması + doküman | planlandı | — |
@@ -43,8 +43,8 @@ hangi uzmanın, hangi incident türünde yanıldığı ölçülemiyor ve eval da
 gerçek hatalardan beslenmiyor.
 
 - `POST /v1/incidents/{id}/report/feedback`:
-  `report_version` (zorunlu), `verdict` (`confirmed` | `partially_correct` |
-  `incorrect`), `actual_root_cause` (isteğe bağlı, ≤ 2000), `comment` (isteğe
+  `report_version` (zorunlu), `verdict` (`Confirmed` | `PartiallyCorrect` |
+  `Incorrect`; API'deki diğer enum'lar gibi), `actual_root_cause` (isteğe bağlı, ≤ 2000), `comment` (isteğe
   bağlı, ≤ 2000).
 - Aynı kişi aynı rapor sürümü için yeniden gönderirse kaydı günceller (kişi
   başına tek güncel hüküm); timeline'a `report_feedback` girdisi düşer.
@@ -53,7 +53,7 @@ gerçek hatalardan beslenmiyor.
   liste; eval dataset'ine aday vakaları seçmenin girdisi.
 - Yetki: yazma `WriteIncidents` (incident'ı soruşturan kişi), okuma
   `ReadIncidents`.
-- Metrik `sre_report_feedback_total{verdict, outcome}`; etiketler sınırlı.
+- Metrik `sre_report_feedback_total{tenant, verdict, outcome}`; etiketler sınırlı.
 - Serbest metin hiçbir zaman modele, span'e veya loga gitmez.
 - Döngünün kapanışı: `incorrect` hükümlü raporun redakte edilmiş eval vakasına
   dönüştürülmesi RUNBOOK'ta prosedür olarak yazılır. Otomatik dönüşüm kapsam

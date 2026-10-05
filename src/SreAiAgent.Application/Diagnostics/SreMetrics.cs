@@ -36,6 +36,7 @@ public sealed class SreMetrics
     private readonly Counter<long> _toolPolicyDenied;
     private readonly Histogram<double> _toolDuration;
     private readonly Counter<long> _promptRenderFailure;
+    private readonly Counter<long> _reportFeedback;
 
     public SreMetrics(IMeterFactory meterFactory)
     {
@@ -80,6 +81,9 @@ public sealed class SreMetrics
         _promptRenderFailure = meter.CreateCounter<long>(
             "sre_prompt_render_failure_total", description: "Prompt renders rejected by the renderer.");
 
+        _reportFeedback = meter.CreateCounter<long>(
+            "sre_report_feedback_total", description: "Verdicts people gave on root cause reports.");
+
         meter.CreateObservableCounter(
             "sre_trace_attribute_rejected_total",
             static () => TraceAttributes.RejectedTagCount,
@@ -101,6 +105,19 @@ public sealed class SreMetrics
         _incidentCompleted.Add(1, tags);
         _incidentDuration.Record(duration.TotalSeconds, tags);
     }
+
+    /// <remarks>
+    /// Counted on every submission, a revision included: the series answers how
+    /// often people judge reports, and the feedback table answers what they
+    /// currently think.
+    /// </remarks>
+    public void ReportFeedback(string tenant, string verdict, string outcome)
+        => _reportFeedback.Add(1, new TagList
+        {
+            { TraceAttributes.Tenant, tenant },
+            { "verdict", verdict },
+            { "outcome", outcome },
+        });
 
     public void IncidentFailed(string tenant, string environment, string errorCode)
     {

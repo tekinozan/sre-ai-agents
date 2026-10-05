@@ -322,6 +322,34 @@ curl -X POST "$API/v1/notification-channels/$ID/test" -H "Authorization: Bearer 
 PlatformAdmin role. A webhook rotates like a `file://` provider key (table
 below); to change anything else about a channel, delete it and create it again.
 
+### Turning a wrong report into an eval case
+
+People record verdicts with `POST /v1/incidents/{id}/report/feedback`
+(`Confirmed`, `PartiallyCorrect`, `Incorrect`, optionally the actual cause).
+`sre_report_feedback_total{verdict,outcome}` shows the trend; the cases to learn
+from are listed by:
+
+```bash
+curl "$API/v1/report-feedback?verdict=incorrect&since=2026-10-01T00:00:00Z" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+For each one worth keeping:
+
+1. Read the incident, its evidence and the report (`GET /v1/incidents/{id}`,
+   `/evidence`, `/report?version=N`) beside the verdict's `actual_root_cause`.
+2. Write a case in the shape of `tests/SreAiAgent.Evals/Datasets/incidents/v1/cases/`:
+   the incident, the tool results as fixtures, the actual cause as the expected
+   root-cause family, and the report's wrong conclusion as a forbidden claim.
+   Redact by hand: hostnames, customer names, ids and anything else that should
+   not live in the repository. Nothing does this automatically, and the
+   verdict's free text is not redacted at all.
+3. Put it in a **new dataset version** (`v2/`, copying `v1`'s cases), never in
+   `v1`. A dataset's hash is part of every baseline built on it, and baselines
+   are immutable; editing `v1` would make every existing baseline incompatible.
+4. Bootstrap a baseline for the new version with the active release, then
+   evaluate the next release against it (`tests/SreAiAgent.Evals/EVALS.md`).
+
 ### Backup and restore
 
 Three logical databases, backed up together: `sre` (incidents, evidence,

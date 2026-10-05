@@ -21,4 +21,5 @@ public static class DomainErrorCodes
     public static readonly ErrorCode TenantScopeInvalid = new("TENANT_SCOPE_INVALID");
     public static readonly ErrorCode BudgetInvalid = new("BUDGET_INVALID");
     public static readonly ErrorCode NotificationChannelInvalid = new("NOTIFICATION_CHANNEL_INVALID");
+    public static readonly ErrorCode ReportFeedbackInvalid = new("REPORT_FEEDBACK_INVALID");
 }

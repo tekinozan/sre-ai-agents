@@ -991,6 +991,8 @@ GET  /v1/incidents/{incidentId}
 GET  /v1/incidents/{incidentId}/timeline
 GET  /v1/incidents/{incidentId}/evidence
 GET  /v1/incidents/{incidentId}/report
+GET|POST /v1/incidents/{incidentId}/report/feedback
+GET  /v1/report-feedback?verdict=&since=&cursor=&limit=
 POST /v1/incidents/{incidentId}/investigate
 POST /v1/incidents/{incidentId}/retry
 POST /v1/incidents/{incidentId}/cancel
@@ -1237,6 +1239,7 @@ sre_tool_requests_total
 sre_tool_policy_denied_total
 sre_tool_duration_seconds
 sre_prompt_render_failure_total
+sre_report_feedback_total
 sre_kafka_consumer_lag
 ```
 

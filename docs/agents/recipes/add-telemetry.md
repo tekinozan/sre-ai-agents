@@ -11,7 +11,7 @@ Everything lives in `src/SreAiAgent.Application/Diagnostics/`:
 | `SreActivitySources.cs` | The six sources: Investigation, Agent, Llm, Tool, Messaging, Persistence |
 | `SreSpanNames.cs` | Span names, matching ARCHITECTURE.md 16.1 exactly |
 | `TraceAttributes.cs` | The allowlist and `SetSafeTag` |
-| `SreMetrics.cs` | The sixteen instruments of 16.2, created once |
+| `SreMetrics.cs` | The instruments of 16.2, created once |
 
 `System.Diagnostics` is a BCL primitive, so instruments live with the code that
 records them; the OpenTelemetry SDK wiring stays in one Infrastructure file (D13).

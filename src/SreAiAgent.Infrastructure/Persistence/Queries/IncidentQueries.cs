@@ -74,7 +74,7 @@ internal sealed class IncidentQueries : IIncidentQueries
         // predicate as two LINQ conditions would also lose the index.
         IQueryable<Incident> incidents = query.After is { } after
             ? _context.Incidents.FromSql(
-                $"SELECT * FROM incidents WHERE (detected_at, id) < ({after.DetectedAt}, {after.IncidentId.Value})")
+                $"SELECT * FROM incidents WHERE (detected_at, id) < ({after.At}, {after.Id})")
             : _context.Incidents;
 
         incidents = incidents.Where(incident => incident.Tenant == tenant);
@@ -152,7 +152,7 @@ internal sealed class IncidentQueries : IIncidentQueries
         return new IncidentListResponse
         {
             Items = rows,
-            NextCursor = new IncidentListCursor(last.DetectedAt, last.IncidentId).Encode(),
+            NextCursor = new PageCursor(last.DetectedAt, last.IncidentId.Value).Encode(),
         };
     }
 

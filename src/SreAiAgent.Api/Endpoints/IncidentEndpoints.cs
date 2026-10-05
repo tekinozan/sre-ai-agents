@@ -152,10 +152,10 @@ public static class IncidentEndpoints
             return Invalid("detected_from and detected_to must be ISO 8601 instants with an offset.");
         }
 
-        IncidentListCursor? after = null;
+        PageCursor? after = null;
         if (query.TryGetValue("cursor", out StringValues cursor))
         {
-            if (!IncidentListCursor.TryDecode(cursor.ToString(), out IncidentListCursor? decoded))
+            if (!PageCursor.TryDecode(cursor.ToString(), out PageCursor? decoded))
             {
                 return Invalid("The cursor is not one this API issued.");
             }
