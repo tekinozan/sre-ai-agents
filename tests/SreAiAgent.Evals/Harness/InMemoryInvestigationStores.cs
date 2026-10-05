@@ -36,11 +36,17 @@ internal sealed class InMemoryInvestigationStores :
         DateTimeOffset activeSince,
         CancellationToken cancellationToken)
     {
-        var found = _incidents.Values.FirstOrDefault(i =>
-            i.Tenant == tenant &&
-            i.Source == source &&
-            i.Fingerprint == fingerprint &&
-            i.CreatedAt >= activeSince);
+        // Mirrors IncidentRepository (docs/DECISIONS.md D43).
+        var found = _incidents.Values
+            .Where(i =>
+                i.Tenant == tenant &&
+                i.Source == source &&
+                i.Fingerprint == fingerprint &&
+                i.Status != IncidentStatus.Cancelled &&
+                (i.Status != IncidentStatus.Resolved || i.LastAlertAt >= activeSince))
+            .OrderBy(i => i.Status == IncidentStatus.Resolved ? 1 : 0)
+            .ThenByDescending(i => i.LastAlertAt)
+            .FirstOrDefault();
         return Task.FromResult(found);
     }
 

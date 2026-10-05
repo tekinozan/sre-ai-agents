@@ -485,11 +485,15 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Tenant", "Source", "Fingerprint")
+                        .IsUnique()
                         .HasDatabaseName("ix_incidents_active_fingerprint")
                         .HasFilter("status NOT IN ('Resolved', 'Cancelled')");
 
                     b.HasIndex("Tenant", "Status", "DetectedAt")
                         .HasDatabaseName("ix_incidents_tenant_status_detected");
+
+                    b.HasIndex("Tenant", "Source", "Fingerprint", "LastAlertAt")
+                        .HasDatabaseName("ix_incidents_fingerprint_last_alert");
 
                     b.ToTable("incidents", (string)null);
                 });

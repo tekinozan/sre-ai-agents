@@ -218,14 +218,162 @@ public sealed class CreateIncidentHandlerTests
         await _pinner.Received(1).PinCurrentAsync("acme", Now, Arg.Any<CancellationToken>());
     }
 
-    private static Incident Existing(IncidentSeverity severity = IncidentSeverity.High)
+    [Fact]
+    public async Task ARepeatAlertForAnIncidentThatWasNeverInvestigatedStartsTheInvestigation()
     {
+        // BUG-001: an incident opened without an investigation used to absorb
+        // every later alert for its identity, so a real, ongoing outage was only
+        // counted.
+        Incident existing = Existing(status: IncidentStatus.Open);
+        FindReturns(existing);
+
+        Result<IncidentAcceptedResponse> result = await _handler.HandleAsync(
+            Request(), "acme", Window, TestContext.Current.CancellationToken);
+
+        result.Value.IsDuplicate.ShouldBeTrue();
+        result.Value.Status.ShouldBe(IncidentStatus.Investigating);
+        existing.AlertCount.ShouldBe(2);
+        existing.ConfigurationSnapshotId.ShouldNotBeNull();
+        _snapshots.Received(1).Add(Arg.Any<ConfigurationSnapshot>());
+        _publisher.Received(1).Enqueue(
+            KafkaTopics.InvestigationRequested, "sre.incident.investigation.requested",
+            Arg.Is<InvestigationRequestedPayload>(payload => payload.Attempt == 1), existing.Id.ToString(), Arg.Any<Guid?>());
+    }
+
+    [Fact]
+    public async Task ARepeatAlertInsideTheCooldownOfAResolvedIncidentIsOnlyCounted()
+    {
+        // D43: the outage outlived its investigation. One report explains it;
+        // a fresh investigation per alert was the TicketHub pilot's six
+        // incidents for one SMTP outage.
+        Incident existing = Existing(status: IncidentStatus.Resolved);
+        FindReturns(existing);
+
+        Result<IncidentAcceptedResponse> result = await _handler.HandleAsync(
+            Request(IncidentSeverity.Critical), "acme", Window, TestContext.Current.CancellationToken);
+
+        result.Value.IsDuplicate.ShouldBeTrue();
+        result.Value.Status.ShouldBe(IncidentStatus.Resolved);
+        existing.AlertCount.ShouldBe(2);
+        existing.Severity.ShouldBe(IncidentSeverity.Critical);
+        await _pinner.DidNotReceive().PinCurrentAsync(Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>());
+        _publisher.DidNotReceive().Enqueue(
+            KafkaTopics.InvestigationRequested, Arg.Any<string>(),
+            Arg.Any<InvestigationRequestedPayload>(), Arg.Any<string>(), Arg.Any<Guid?>());
+    }
+
+    [Fact]
+    public async Task ARepeatAlertAfterAFailedIncidentWentQuietRestartsTheInvestigation()
+    {
+        Incident existing = Existing(status: IncidentStatus.Failed, openedAt: Now - Window - TimeSpan.FromMinutes(1));
+        FindReturns(existing);
+
+        Result<IncidentAcceptedResponse> result = await _handler.HandleAsync(
+            Request(), "acme", Window, TestContext.Current.CancellationToken);
+
+        result.Value.Status.ShouldBe(IncidentStatus.Investigating);
+        _publisher.Received(1).Enqueue(
+            KafkaTopics.InvestigationRequested, "sre.incident.investigation.requested",
+            Arg.Is<InvestigationRequestedPayload>(payload => payload.Attempt == 2), existing.Id.ToString(), Arg.Any<Guid?>());
+    }
+
+    [Fact]
+    public async Task ARepeatAlertWhileAFailedIncidentIsStillAlertingIsOnlyCounted()
+    {
+        // A pipeline that fails on every attempt costs one investigation per
+        // window, not one per alert.
+        Incident existing = Existing(status: IncidentStatus.Failed, openedAt: Now - TimeSpan.FromMinutes(5));
+        FindReturns(existing);
+
+        Result<IncidentAcceptedResponse> result = await _handler.HandleAsync(
+            Request(), "acme", Window, TestContext.Current.CancellationToken);
+
+        result.Value.Status.ShouldBe(IncidentStatus.Failed);
+        existing.AlertCount.ShouldBe(2);
+        await _pinner.DidNotReceive().PinCurrentAsync(Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task APinFailureOnARecurrenceThatNeedsAnInvestigationChangesNothing()
+    {
+        // A transient pin failure is redelivered; counting the alert first would
+        // count it again on the retry.
+        Incident existing = Existing(status: IncidentStatus.Open);
+        FindReturns(existing);
+        _pinner.PinCurrentAsync(Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns(Result<ConfigurationSnapshot>.Failure(Error.Transient(new ErrorCode("TEST"), "Fail")));
+
+        Result<IncidentAcceptedResponse> result = await _handler.HandleAsync(
+            Request(), "acme", Window, TestContext.Current.CancellationToken);
+
+        result.IsFailure.ShouldBeTrue();
+        existing.AlertCount.ShouldBe(1);
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AResolvedDeliveryWithNothingToFoldIntoOpensNoIncident()
+    {
+        // BUG-001's first mechanism: this used to open an incident that was
+        // never investigated and then absorbed the real alerts that followed.
+        Result result = await _handler.RecordResolutionAsync(
+            Request(), "acme", Window, TestContext.Current.CancellationToken);
+
+        result.IsSuccess.ShouldBeTrue();
+        _incidents.DidNotReceive().Add(Arg.Any<Incident>());
+        _incidents.DidNotReceive().AddTimelineEntry(Arg.Any<IncidentTimelineEntry>());
+        await _pinner.DidNotReceive().PinCurrentAsync(Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>());
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AResolvedDeliveryAnnotatesTheIncidentItBelongsToAndChangesNothingElse()
+    {
+        Incident existing = Existing(status: IncidentStatus.Investigating);
+        FindReturns(existing);
+
+        Result result = await _handler.RecordResolutionAsync(
+            Request(), "acme", Window, TestContext.Current.CancellationToken);
+
+        result.IsSuccess.ShouldBeTrue();
+        existing.AlertCount.ShouldBe(1);
+        existing.Status.ShouldBe(IncidentStatus.Investigating);
+        _incidents.Received(1).AddTimelineEntry(Arg.Is<IncidentTimelineEntry>(
+            entry => entry.IncidentId == existing.Id && entry.EventType == "alert.resolved"));
+        await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    private void FindReturns(Incident incident)
+        => _incidents.FindActiveByFingerprintAsync(
+                "acme", "alertmanager", Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns(incident);
+
+    private static Incident Existing(
+        IncidentSeverity severity = IncidentSeverity.High,
+        IncidentStatus status = IncidentStatus.Investigating,
+        DateTimeOffset? openedAt = null)
+    {
+        DateTimeOffset at = openedAt ?? Now;
         Incident incident = new(
             IncidentId.New(),
             new NewIncident(
                 "acme", "alertmanager", "alert-1", "fingerprint-1",
-                "Checkout latency above threshold", null, "checkout", "production", severity, Now),
-            Now);
+                "Checkout latency above threshold", null, "checkout", "production", severity, at),
+            at);
+
+        if (status is not IncidentStatus.Open)
+        {
+            incident.StartInvestigation(ConfigurationSnapshotId.New(), at);
+        }
+
+        if (status is IncidentStatus.Resolved)
+        {
+            incident.MarkResolved(at);
+        }
+        else if (status is IncidentStatus.Failed)
+        {
+            incident.MarkFailed(new ErrorCode("TEST"), "Failed for the test.", at);
+        }
 
         incident.DequeueEvents();
         return incident;

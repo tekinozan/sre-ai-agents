@@ -160,17 +160,38 @@ retry of that incident is refused as already running until it is terminated.
 
 ### The same alert opened two incidents
 
-Deduplication is by `(tenant, source, fingerprint)` inside the active window,
-measured from `last_alert_at`. Two incidents means the fingerprints differ. The
-usual cause is an identity label that is not stable — a pod name changes on every
-restart, so a crash loop opens an incident per restart. Check
+Deduplication is by `(tenant, source, fingerprint)`, and the database allows one
+active incident per identity (`ix_incidents_active_fingerprint` is unique). A
+recurrence also folds into a *resolved* incident whose `last_alert_at` is inside
+the deduplication window: the report already explains that outage
+(docs/DECISIONS.md D43). Two incidents therefore means either the fingerprints
+differ or the alert was quiet for longer than the window between them. The usual
+cause of the first is an identity label that is not stable — a pod name changes
+on every restart, so a crash loop opens an incident per restart. Check
 `IdentityLabelKeys` on the adapter for that source.
+
+A resolved delivery from the source never opens an incident; it shows up as an
+`alert.resolved` entry on the incident's timeline.
+
+### A recurrence did not start a new investigation
+
+Expected inside the cooldown of a resolved incident, and while an incident is
+investigating or waiting on approval. A recurrence starts one only on an
+incident that was never investigated, or on a failed one whose alert had been
+quiet for a whole window (D43). Inside the window a failed incident stays
+failed: retry it with `POST /v1/incidents/{id}/retry`.
 
 ### An alert is redelivered forever
 
 Look for `7203` in the consumer logs. A handler failure leaves the offset
-uncommitted on purpose, so the message returns. If the failure is permanent the
-message will loop; the fix is either the underlying cause or dead-lettering it.
+uncommitted and rewinds the partition to it after a short pause, so the message
+returns on the next poll (docs/DECISIONS.md D42); `7204` means the rewind found
+the partition revoked, and its new owner resumes from the committed offset.
+After `Kafka:MaxDeliveryAttempts` attempts the message is dead-lettered (`7301`)
+and the partition moves on.
+
+A message for an alert that lost a creation race to another message is retried
+the same way and folds into the winner's incident on the next attempt.
 
 A historical instance of this: the creation claim outlived the incident it
 created, so a recurrence could neither fold into a closed incident nor take the

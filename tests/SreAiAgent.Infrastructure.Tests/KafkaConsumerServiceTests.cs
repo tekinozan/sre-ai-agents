@@ -162,7 +162,8 @@ public sealed class KafkaConsumerServiceTests
             "duplicate key value violates unique constraint",
             "ERROR",
             "ERROR",
-            PostgresErrorCodes.UniqueViolation);
+            PostgresErrorCodes.UniqueViolation,
+            tableName: "inbox_messages");
         DbUpdateException dbUpdateException = new("Unique constraint violation", postgresException);
 
         unitOfWork.SaveChangesAsync(ct).Returns<Task<int>>(_ => throw dbUpdateException);
@@ -205,5 +206,108 @@ public sealed class KafkaConsumerServiceTests
 
             consumer.Commit(result);
         });
+    }
+
+    [Theory]
+    [InlineData("idempotency_keys")]
+    [InlineData("incidents")]
+    public async Task ProcessAsync_WhenAnotherMessageWinsTheAlertRace_RetriesInsteadOfAcknowledging(string table)
+    {
+        // BUG-001: a unique violation keyed on the alert rather than on the
+        // message is a different message losing a race. Acknowledging it
+        // discarded the alert; it has to be retried so it folds into the winner.
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        EventEnvelope<CanonicalAlert> envelope = CreateSampleEnvelope();
+        ConsumeResult<string, byte[]> result = CreateConsumeResult(envelope, partition: 3, offset: 901);
+
+        IConsumer<string, byte[]> consumer = Substitute.For<IConsumer<string, byte[]>>();
+        IDeliveryAttemptStore attempts = Substitute.For<IDeliveryAttemptStore>();
+        IUnitOfWork unitOfWork = Substitute.For<IUnitOfWork>();
+        IServiceScopeFactory scopeFactory = FailingScopes(envelope, attempts, unitOfWork, attemptsSoFar: 1, ct);
+
+        PostgresException raceLost = new(
+            "duplicate key value violates unique constraint",
+            "ERROR",
+            "ERROR",
+            PostgresErrorCodes.UniqueViolation,
+            tableName: table);
+        unitOfWork.SaveChangesAsync(ct).Returns<Task<int>>(_ => throw new DbUpdateException("race", raceLost));
+
+        TestKafkaConsumerService sut = new(scopeFactory, DefaultOptions(), Substitute.For<IMessageProducer>(), TimeProvider.System);
+
+        await sut.ProcessAsync(consumer, result, ct);
+
+        consumer.DidNotReceive().Commit(Arg.Any<ConsumeResult<string, byte[]>>());
+        await attempts.Received(1).RecordFailureAsync(
+            result.Topic, 3, 901, "test-alert-worker", envelope.EventId, envelope.EventType, Arg.Any<string>(), ct);
+        consumer.Received(1).Seek(result.TopicPartitionOffset);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WhenHandlerFailsBelowTheAttemptLimit_RewindsSoTheMessageReturns()
+    {
+        // Leaving the offset uncommitted does not redeliver on its own: the
+        // fetch position has moved on, and a later success on the partition
+        // commits past the failed message.
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        EventEnvelope<CanonicalAlert> envelope = CreateSampleEnvelope();
+        ConsumeResult<string, byte[]> result = CreateConsumeResult(envelope, partition: 0, offset: 42);
+
+        IConsumer<string, byte[]> consumer = Substitute.For<IConsumer<string, byte[]>>();
+        IDeliveryAttemptStore attempts = Substitute.For<IDeliveryAttemptStore>();
+        IUnitOfWork unitOfWork = Substitute.For<IUnitOfWork>();
+        IServiceScopeFactory scopeFactory = FailingScopes(envelope, attempts, unitOfWork, attemptsSoFar: 2, ct);
+
+        TestKafkaConsumerService sut = new(
+            scopeFactory,
+            DefaultOptions(),
+            Substitute.For<IMessageProducer>(),
+            TimeProvider.System,
+            onHandle: static (_, _, _) => throw new InvalidOperationException("database unavailable"));
+
+        await sut.ProcessAsync(consumer, result, ct);
+
+        consumer.DidNotReceive().Commit(Arg.Any<ConsumeResult<string, byte[]>>());
+        consumer.Received(1).Seek(result.TopicPartitionOffset);
+    }
+
+    private static IOptions<KafkaOptions> DefaultOptions()
+        => Options.Create(new KafkaOptions
+        {
+            BootstrapServers = "localhost:9092",
+            ConsumerGroup = "test-group",
+        });
+
+    private static IServiceScopeFactory FailingScopes(
+        EventEnvelope<CanonicalAlert> envelope,
+        IDeliveryAttemptStore attempts,
+        IUnitOfWork unitOfWork,
+        int attemptsSoFar,
+        CancellationToken ct)
+    {
+        IInboxStore inbox = Substitute.For<IInboxStore>();
+        inbox.TryBeginAsync(envelope.EventId, envelope.EventType, "test-alert-worker", ct)
+            .Returns(Task.FromResult(true));
+        attempts.RecordFailureAsync(
+                Arg.Any<string>(), Arg.Any<int>(), Arg.Any<long>(), Arg.Any<string>(),
+                Arg.Any<Guid?>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(attemptsSoFar));
+
+        IServiceScopeFactory scopeFactory = Substitute.For<IServiceScopeFactory>();
+        IServiceScope mainScope = Substitute.For<IServiceScope>();
+        IServiceProvider mainServices = Substitute.For<IServiceProvider>();
+        IServiceScope failureScope = Substitute.For<IServiceScope>();
+        IServiceProvider failureServices = Substitute.For<IServiceProvider>();
+
+        scopeFactory.CreateScope().Returns(mainScope, failureScope);
+
+        mainScope.ServiceProvider.Returns(mainServices);
+        mainServices.GetService(typeof(IInboxStore)).Returns(inbox);
+        mainServices.GetService(typeof(IUnitOfWork)).Returns(unitOfWork);
+
+        failureScope.ServiceProvider.Returns(failureServices);
+        failureServices.GetService(typeof(IDeliveryAttemptStore)).Returns(attempts);
+
+        return scopeFactory;
     }
 }

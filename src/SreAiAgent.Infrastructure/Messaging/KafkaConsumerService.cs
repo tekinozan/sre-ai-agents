@@ -16,6 +16,7 @@ using SreAiAgent.Application.Errors;
 using SreAiAgent.Contracts.Messaging;
 using SreAiAgent.Contracts.Serialization;
 using SreAiAgent.Infrastructure.Configuration;
+using SreAiAgent.Infrastructure.Persistence.Configurations;
 
 namespace SreAiAgent.Infrastructure.Messaging;
 
@@ -228,8 +229,8 @@ internal abstract partial class KafkaConsumerService<TPayload> : BackgroundServi
         catch (DbUpdateException exception) when (IsDuplicateDelivery(exception))
         {
             // Another delivery of this message committed while this one was
-            // working. The primary key, not the earlier read, is what decides;
-            // the effect rolled back with the failed transaction, so acknowledging
+            // working. The inbox key, not the earlier read, is what decides; the
+            // effect rolled back with the failed transaction, so acknowledging
             // here discards a duplicate rather than losing work.
             // Settle from a fresh scope because the handler's DbContext has a failed save.
             using IServiceScope settlementScope = _scopeFactory.CreateScope();
@@ -258,21 +259,27 @@ internal abstract partial class KafkaConsumerService<TPayload> : BackgroundServi
     }
 
     /// <summary>
-    /// Whether a failed save was a losing race with another delivery rather than
-    /// a real error.
+    /// Whether a failed save was another delivery of this same message getting
+    /// there first, rather than a real error.
     /// </summary>
     /// <remarks>
-    /// Any unique violation qualifies: the inbox row, the idempotency claim and
-    /// the incident's own deduplication index all express the same fact, that
-    /// another delivery of this message got there first. All of them rolled the
-    /// transaction back, so nothing partial was written and acknowledging is
-    /// safe.
+    /// Only a violation of the inbox key means that. The idempotency claim and
+    /// the incident's deduplication index are keyed on the alert, not on the
+    /// message: a violation there is a different message for the same alert
+    /// losing a race, and acknowledging it discarded the alert with no timeline
+    /// entry, no recurrence count and no escalation (BUG-001). That case takes
+    /// the failure path instead, and its redelivery finds the winner and folds
+    /// into it.
     ///
-    /// Matched on the SQL state rather than on constraint names, which are a
-    /// schema detail a migration may rename while this keeps compiling.
+    /// Matched on the table, named once in the inbox mapping, rather than on a
+    /// constraint name that a migration may rename while this keeps compiling.
     /// </remarks>
-    private static bool IsDuplicateDelivery(DbUpdateException exception)
-        => exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
+    internal static bool IsDuplicateDelivery(DbUpdateException exception)
+        => exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation,
+            TableName: InboxMessageConfiguration.TableName,
+        };
 
 
     /// <summary>
@@ -318,6 +325,7 @@ internal abstract partial class KafkaConsumerService<TPayload> : BackgroundServi
         {
             // Not committed: redelivery is the retry, and the inbox row rolled
             // back with the failed transaction so the retry is not mistaken for a duplicate.
+            await RewindAsync(consumer, result, attempted, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -325,6 +333,7 @@ internal abstract partial class KafkaConsumerService<TPayload> : BackgroundServi
         {
             // The dead letter did not reach the broker. Committing here would
             // discard the message entirely, so leave it for redelivery.
+            await RewindAsync(consumer, result, attempted, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -346,6 +355,42 @@ internal abstract partial class KafkaConsumerService<TPayload> : BackgroundServi
 
         LogPoisonDeadLettered(_logger, Topic, envelope?.EventType ?? "unknown", deadLetterEventId, attempted);
         consumer.Commit(result);
+    }
+
+    /// <summary>
+    /// Moves the partition back to a message that was left uncommitted, so the
+    /// next poll returns it.
+    /// </summary>
+    /// <remarks>
+    /// Leaving the offset uncommitted is not enough on its own. The consumer's
+    /// fetch position has already moved past the message, so without a seek it
+    /// returns only after a restart or a rebalance; and the moment a later
+    /// message on the same partition succeeds, its commit covers this offset too
+    /// and the failed message is skipped for good. The pause before retrying
+    /// keeps a dependency outage from turning the partition into a hot loop; the
+    /// attempt counter, not the pause, is what bounds it.
+    ///
+    /// A failed seek means the partition was revoked while this message was
+    /// handled. Its new owner starts from the last committed offset, which is
+    /// still this message, so there is nothing left to do here.
+    /// </remarks>
+    private async Task RewindAsync(
+        IConsumer<string, byte[]> consumer,
+        ConsumeResult<string, byte[]> result,
+        int attempted,
+        CancellationToken cancellationToken)
+    {
+        TimeSpan pause = TimeSpan.FromMilliseconds(Math.Min(250 * attempted, 5_000));
+        await Task.Delay(pause, _timeProvider, cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            consumer.Seek(result.TopicPartitionOffset);
+        }
+        catch (KafkaException exception)
+        {
+            LogRewindFailed(_logger, Topic, result.TopicPartitionOffset.ToString(), exception);
+        }
     }
 
     /// <summary>
@@ -524,6 +569,13 @@ internal abstract partial class KafkaConsumerService<TPayload> : BackgroundServi
         Message = "Handling {EventType} from {Topic} failed; the message will be redelivered.")]
     private static partial void LogHandlerFailed(
         ILogger logger, string topic, string eventType, Exception exception);
+
+    [LoggerMessage(
+        EventId = 7204,
+        Level = LogLevel.Warning,
+        Message = "Could not rewind {Topic} to {Offset}; the partition was likely revoked and its new owner resumes from the committed offset.")]
+    private static partial void LogRewindFailed(
+        ILogger logger, string topic, string offset, Exception exception);
 
     [LoggerMessage(
         EventId = 7301,

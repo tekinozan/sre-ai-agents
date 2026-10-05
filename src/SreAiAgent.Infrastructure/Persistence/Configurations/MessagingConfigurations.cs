@@ -41,11 +41,17 @@ internal sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outb
 /// <summary>Maps the inbox to <c>inbox_messages</c>.</summary>
 internal sealed class InboxMessageConfiguration : IEntityTypeConfiguration<InboxMessageEntity>
 {
+    /// <summary>
+    /// Named once because the consumer tells a duplicate delivery apart from a
+    /// lost race by which table the unique violation came from.
+    /// </summary>
+    internal const string TableName = "inbox_messages";
+
     public void Configure(EntityTypeBuilder<InboxMessageEntity> builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        builder.ToTable("inbox_messages");
+        builder.ToTable(TableName);
 
         // Keyed on event plus consumer, not event alone. Two consumers must each
         // be able to process the same message once; a single-column key would let

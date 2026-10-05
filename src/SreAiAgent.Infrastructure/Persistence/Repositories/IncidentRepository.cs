@@ -31,18 +31,23 @@ internal sealed class IncidentRepository : IIncidentRepository
                     .Where(incident => incident.Tenant == tenant
                                        && incident.Source == source
                                        && incident.Fingerprint == fingerprint
-                                       && incident.Status != IncidentStatus.Resolved
                                        && incident.Status != IncidentStatus.Cancelled
 
-                                       // Measured from when the platform last saw
-                                       // an alert, not from when the provider says
-                                       // the condition began. A provider reporting
-                                       // a start time from this morning would
-                                       // otherwise fall outside its own window
-                                       // immediately, and every notification would
-                                       // open another incident.
-                                       && incident.LastAlertAt >= since)
-                    .OrderByDescending(incident => incident.LastAlertAt)
+                                       // An active incident is found however long
+                                       // the alert has been quiet: the unique index
+                                       // allows only one, so a second could not be
+                                       // opened beside it anyway. A resolved one is
+                                       // found only inside the cooldown (D43).
+                                       //
+                                       // The cooldown is measured from when the
+                                       // platform last saw an alert, not from when
+                                       // the provider says the condition began. A
+                                       // provider reporting a start time from this
+                                       // morning would otherwise fall outside its
+                                       // own window immediately.
+                                       && (incident.Status != IncidentStatus.Resolved || incident.LastAlertAt >= since))
+                    .OrderBy(incident => incident.Status == IncidentStatus.Resolved ? 1 : 0)
+                    .ThenByDescending(incident => incident.LastAlertAt)
                     .FirstOrDefault());
 
     private readonly SreDbContext _context;

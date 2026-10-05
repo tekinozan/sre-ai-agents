@@ -319,6 +319,12 @@ Kanıt yalnız ölçülen product/env/revision için geçerlidir.
 
 ## Bilinen defekt — mutlaka düzeltilmeli, ayrı bir faz değil
 
+> **Durum (2026-10-05): kapandı.** Üç kabul kriteri `project-assessment-2026-10.md`
+> P1-1 kapsamında uygulandı ve doğrulandı; kararlar `DECISIONS.md` D42 (consumer)
+> ve D43 (alert kimliği ve cooldown). Kapanış sırasında ikinci mekanizmanın
+> dayandığı yeniden teslimin de çalışmadığı bulundu: başarısız mesaj seek
+> edilmediği için aynı partition'daki sonraki başarılı commit onu atlıyordu (D42).
+
 **BUG-001 — Bir incident iki bağımsız doğrulanmış yoldan kalıcı olarak soruşturulmadan kalabiliyor: "resolved" durumundaki bir teslimatın açtığı ölü bir incident, ve daha geniş bir catch bloğunun sessizce attığı gerçek bir eşzamanlı yarış.**
 
 **Birinci mekanizma — hipotez değil, pilot'un kendi veritabanı sorgulanarak

@@ -113,11 +113,14 @@ Use `SRE_BIND_ADDRESS=0.0.0.0` only when an explicit non-loopback local binding 
 ```bash
 curl -X POST http://localhost:8080/v1/alerts/alertmanager \
   -H 'Content-Type: application/json' \
-  -d '{"status":"firing","fingerprint":"verify-1",
+  -d '{"status":"firing","alerts":[{"status":"firing","fingerprint":"verify-1",
        "labels":{"alertname":"HighCheckoutLatency","service":"checkout",
                  "environment":"production","severity":"critical","tenant":"local"},
-       "annotations":{"summary":"Checkout p99 latency above 2s"}}'
+       "annotations":{"summary":"Checkout p99 latency above 2s"}}]}'
 ```
+
+Alertmanager always posts its group envelope, so the alert goes inside `alerts`
+even when there is only one (docs/DECISIONS.md D39); a bare alert is a `400`.
 
 Expect `202` with an **empty body**. This endpoint stages the alert onto the
 topic; the worker opens the incident, so there is no id to return yet. Find it in
@@ -152,16 +155,22 @@ Roughly ten seconds from alert to report.
   `classify` → `route` → `agent.execute` → `llm.call` → `tool.execute` →
   `correlate`. Not three separate traces
 - No span carries a prompt, a token or a credential
-- `GET /metrics` shows `sre_incident_started_total` incremented and
-  `sre_trace_attribute_rejected_total` still `0`
+- `sre_incident_started_total` incremented and `sre_trace_attribute_rejected_total`
+  still `0`. The incident counters are emitted by the workers, which export over
+  OTLP; locally the collector prints them (`docker compose ... logs otel-collector`).
+  `GET /metrics` on the API carries only the API's own instruments
 - The Temporal workflow is `Completed`, not `Running`. A workflow still running
   against a resolved incident holds its id and blocks a retry
 
 ## The four checks worth doing every time
 
-**Duplicate.** Send the same alert again. No second incident; a timeline entry is
-added to the existing one. The deduplication window is measured from
-`last_alert_at`, platform time, not the provider's `DetectedAt` (D23).
+**Duplicate.** Send the same alert again. No second incident and no second
+investigation, even though the first one is already `Resolved`: the alert folds
+into it while its `last_alert_at` is inside the deduplication window, and the
+count rises (D43). The window is measured from `last_alert_at`, platform time,
+not the provider's `DetectedAt` (D23). Send it as `"status":"resolved"` and the
+incident gains an `alert.resolved` timeline entry; send a resolved alert for a
+fingerprint nobody has seen and no incident is opened.
 
 **Recovery.** Stop the investigation worker, send an alert, start it again. The
 alert is still accepted, the work resumes, and exactly one report is produced.

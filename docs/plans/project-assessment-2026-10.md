@@ -18,8 +18,8 @@ Bir satır, komut çalıştırılıp kanıt yazıldıktan sonra güncellenir.
 |---|---|---|---|
 | P0-1 | Plan doküman kayması: ADP ilerleme tablosu, eksik `PRODUCTION_READINESS_PLAN.md` referansı | uygulandı | ADP tablosu F1-1…F1-5 commit referanslarıyla; readiness kaynağı bu repodaki belgeye çevrildi (kök dosya hiç commit edilmemiş) |
 | P0-2 | Gate Linux'ta kırmızı: eval harness platforma bağlı | doğrulandı | Endpoint doğrulaması Unix'te `/v1/...`'i `file://` sayıyordu; scorer hash'i `Environment.NewLine`'lı girintili JSON'dan hesaplanıyordu. Canonical hash + Linux'ta kaydedilmiş `scripted-smoke-2026.10.05.json`; Evals 43/43 |
-| P1-1 | BUG-001: fingerprint yarışı ve "resolved" teslimatı | planlandı | — |
-| P1-2 | "Resolved" anlamının ayrılması: soruşturma bitti ≠ kesinti bitti | planlandı | — |
+| P1-1 | BUG-001: fingerprint yarışı ve "resolved" teslimatı | doğrulandı | D42, D43. Gate `--with-integration`: 454 + eval + 46 + 11 test yeşil. Compose: tek alert → `Resolved`/`Complete`; 8 eşzamanlı aynı alert → 1 incident, sayaç 8; bilinmeyen kimliğe resolved teslimat → 0 incident; tenant'sız zehirli mesaj 5 kez yeniden teslim edildi ve dead-letter'a gitti, arkasındaki alert işlendi; `sre_trace_attribute_rejected_total` 0 |
+| P1-2 | "Resolved" anlamının ayrılması: soruşturma bitti ≠ kesinti bitti | doğrulandı | D43 cooldown: Resolved incident'a pencere içinde gelen alert sayılır, yeniden soruşturulmaz (compose: sayaç 2, tek `investigation.requested`). Status adının değişmesi bilinçli olarak reddedildi; maliyeti D43'te |
 | P1-3 | BUG-002: `TenantWide` assignment'ı bırakmayan aktivasyonun reddi | planlandı | — |
 | P1-4 | Onay reddi veya süre aşımı RCA raporunu kaybetmez (V2 için gizli hata) | planlandı | — |
 | P1-5 | Reopen gerçek aktörü kaydeder | planlandı | — |
@@ -145,6 +145,17 @@ burada tekrar tanımlanmaz:
    incident açmaz.
 
 Doğrulama: unit + Testcontainers integration (`--with-integration`).
+
+### P1-1 notları
+
+- Kalan: `POST /v1/incidents` yolundaki gerçek eşzamanlı yarış hâlâ yakalanmamış
+  `DbUpdateException` ile 500 döner (sessiz değil, veri kaybı yok). Kafka yolu
+  D42 ile yeniden dener; HTTP yolu için ayrı bir adım gerekirse burada açılır.
+- `verify-end-to-end.md` recipe'i D39'dan beri geçersiz bir Alertmanager
+  payload'ı ve yanlış süreçte bir metrik gösteriyordu; düzeltildi.
+- Sandbox notu: compose doğrulaması `docker.redpanda.com` erişilemediği ve image
+  build'i egress proxy CA'sına güvenmediği için repo dışı bir override ile
+  koşuldu; repo dosyaları değişmedi.
 
 ### P1-2 — "Resolved" anlamı
 

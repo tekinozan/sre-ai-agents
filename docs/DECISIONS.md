@@ -748,3 +748,86 @@ offer, so both construct `TenantScope.TenantWide(tenant)` explicitly at their
 own call site — not hidden inside `ModelProviderRepository`, and not a
 repository-level default, because `TenantWide` is what the data they actually
 have supports, not a guess standing in for data they don't.
+
+### D42 — A failed message is rewound, and only an inbox collision is a duplicate
+
+Two consumer behaviours that the at-least-once design relied on did not hold.
+
+**Rewind.** A handler failure below `Kafka:MaxDeliveryAttempts` left the offset
+uncommitted and returned, on the understanding that the broker would redeliver.
+It does not: `Consume` has already moved the fetch position, so the message
+comes back only after a restart or a rebalance. Worse, the next message on the
+same partition that succeeds commits its own offset, which covers the failed
+one, and the failed message is skipped for good with an unsettled attempt row
+as its only trace. The consumer now seeks back to the failed offset after a
+short pause that grows with the attempt count (250 ms per attempt, at most
+5 s). A failed seek means the partition was revoked mid-handling; its new owner
+resumes from the committed offset, which is still the failed message.
+
+**Duplicate.** Every unique violation used to be read as "another delivery of
+this message got there first" and acknowledged. That is true of the inbox key
+only. The idempotency claim and the incident deduplication index are keyed on
+the alert, so a violation there is a different message for the same alert
+losing a race, and acknowledging it discarded the alert with no timeline entry,
+no recurrence count and no escalation (BUG-001's second mechanism). Such a
+violation now takes the failure path; the rewind redelivers it and the
+redelivery folds into the incident the winner opened. The inbox table is named
+once, in its mapping, and matched by table rather than by constraint name.
+
+**Cost:** a partition stops behind a failing message until it succeeds or is
+dead-lettered, which is the ordering guarantee the design already claimed and
+now actually has: at five attempts the worst case is two and a half
+seconds of pauses plus five handler runs before the dead letter. A lost race
+spends one delivery attempt, so a message that keeps losing races can be
+dead-lettered; that needs five consecutive losses on one alert and leaves the
+message replayable from `sre.deadletter.v1`.
+
+### D43 — One open incident per alert identity, and a concluded investigation keeps covering its alert for the cooldown
+
+ARCHITECTURE.md 9.3 asks the database to enforce one active incident per
+`(tenant, source, fingerprint)`, and says a recurrence opens a new incident only
+once a resolved incident is outside its cooldown. The implementation did
+neither. `ix_incidents_active_fingerprint` was an ordinary index, and the lookup
+excluded resolved incidents outright, so an outage that outlived its own
+investigation opened a new incident, and paid for a new investigation, every
+time the alert fired after the report was written: the TicketHub pilot recorded
+six incidents for one SMTP outage. And an active incident older than the
+deduplication window was ignored, so a second active incident for the same
+alert opened beside it.
+
+**Decided:**
+
+1. `ix_incidents_active_fingerprint` is unique. The migration refuses to run,
+   naming the offending identity, if existing data already holds two active
+   incidents for one alert; it never resolves the conflict by itself.
+2. The lookup returns the active incident for the identity regardless of age,
+   since there can be only one; failing that, the most recently alerted
+   *resolved* incident whose last alert is inside the deduplication window,
+   which is the cooldown 9.3 describes. A recurrence folds into either. Folding
+   into a resolved incident counts the alert and escalates severity but does
+   not reopen it: reopening stays an explicit, audited operation.
+3. A firing recurrence starts an investigation on the incident it folds into
+   when that incident was never investigated (`Open`, no snapshot), and
+   restarts one, against a freshly pinned snapshot, when the incident is
+   `Failed` and the alert had gone quiet for longer than the window. Any other
+   active state is already investigating or waiting on a human.
+4. A resolved delivery (`IsResolved` from the source) never opens an incident.
+   It adds an `alert.resolved` timeline entry to the incident the lookup finds,
+   and does nothing else when there is none. This is BUG-001's first
+   mechanism: the delivery opened an incident without an investigation, the
+   identity then counted as active, and the real alerts that followed were only
+   counted.
+
+**Rejected: renaming `Resolved` to `Investigated` and closing incidents on the
+source's resolved delivery.** It is the cleaner model, but it changes a status
+that crosses the HTTP contract, Kafka events, the Temporal payloads and the
+partial index filter, and it depends on every source sending a resolved
+delivery, which generic webhooks and Kafka producers do not. The cooldown gives
+the behaviour that matters, one investigation per outage, without either.
+
+**Cost:** `Resolved` still means "the investigation concluded", not "the outage
+is over", and the API says so only through the timeline. A failed incident
+absorbs recurrences inside the window without retrying, so a fix to whatever
+made it fail needs an operator retry or an hour of quiet. An operator who
+reopens a resolved incident while another incident for the same alert is
+active is refused by the unique index rather than by a friendly error.
