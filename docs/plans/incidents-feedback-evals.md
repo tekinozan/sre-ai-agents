@@ -10,8 +10,8 @@
 |---|---|---|---|
 | L | `GET /v1/incidents`: filtreler, keyset sayfalama, son rapor sonucu | uygulandı | `IncidentListingTests` (Postgres, HTTP): 7 incident 3 sayfada eksiksiz ve tekrarsız, eşit `detected_at` id ile ayrılıyor, başka kiracı görünmüyor; her filtre; son raporun sonucu; 7 bozuk girdi 400. Compose doğrulaması V'de |
 | F | RCA geri bildirimi: rapor sürümüne operatör hükmü, liste, metrik, eval'e dönüş prosedürü | uygulandı | D49; `ReportFeedbackTests` (Postgres, HTTP): kişi başına revizyon, ikinci kişi ayrı satır, timeline'da serbest metin yok, yanlış sürüm/başka kiracı 404, Viewer 403, bilinmeyen verdict 400, uzun metin 400, kiracı listesi filtre + sayfalama; domain ve metrik birim testleri; RUNBOOK prosedürü. Compose doğrulaması V'de |
-| E-1 | Eval tamamlamada görev ayrılığı ve artifact doğrulaması | planlandı | — |
-| E-2 | Promotion kapısı: aktivasyon yalnız aynı release hash'ine ait, platformun doğruladığı geçen eval ile | planlandı | — |
+| E-1 | Eval tamamlamada görev ayrılığı ve artifact doğrulaması | uygulandı | D50; harness `sre-eval-summary/v2` (`EndToEndEvalTests`); `ModelControlPlaneTests`: talep eden tamamlayamaz, hash summary baytlarının SHA-256'sı, 9 ayrı bozuk summary reddi, çok deployment'lı release reddi, bootstrap yalnız istenince; `EvaluationCompletionHttpTests`: Operator 403, runner 200, girintili baytların hash'i; `ModelProviderAuthorizationTests`: politika yalnız `SreEvaluationRunner` |
+| E-2 | Promotion kapısı: aktivasyon yalnız aynı release hash'ine ait, platformun doğruladığı geçen eval ile | uygulandı | `ModelControlPlaneTests`: eval'siz, başarısız eval'li, başka release'in eval'iyle ve tamamlayıcının kendisiyle aktivasyon reddi; doğru akış geçer. Compose'da dev kimliği tek kişi olduğundan tamamlama compose'da gösterilemez (D50 maliyeti) |
 | V | Gate (`--with-integration`) + compose doğrulaması + doküman | planlandı | — |
 
 ## L — `GET /v1/incidents`

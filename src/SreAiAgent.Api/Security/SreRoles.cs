@@ -8,6 +8,12 @@ public static class SreRoles
     public const string Approver = "SreApprover";
     public const string Operator = "SreOperator";
     public const string PlatformAdmin = "SrePlatformAdmin";
+
+    /// <summary>
+    /// The CI identity that runs the eval harness and hands its summary back
+    /// (D50). Not a person's role: it can complete evaluations and nothing else.
+    /// </summary>
+    public const string EvaluationRunner = "SreEvaluationRunner";
 }
 
 /// <summary>
@@ -57,4 +63,13 @@ public static class SrePolicies
     /// platform will post on the tenant's behalf.
     /// </remarks>
     public const string ManageNotifications = "notifications:manage";
+
+    /// <summary>Complete a model assignment evaluation with the harness's summary.</summary>
+    /// <remarks>
+    /// Held only by <see cref="SreRoles.EvaluationRunner"/>, deliberately not by
+    /// <see cref="SreRoles.Operator"/> or <see cref="SreRoles.PlatformAdmin"/>:
+    /// the people who request and activate a release are exactly the ones who
+    /// must not be able to declare that it passed (D50).
+    /// </remarks>
+    public const string CompleteModelEvaluations = "model-evaluations:complete";
 }

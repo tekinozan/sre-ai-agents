@@ -1140,6 +1140,7 @@ SreInvestigator
 SreApprover
 SreOperator
 SrePlatformAdmin
+SreEvaluationRunner   # CI kimliği; yalnız model eval'ini tamamlar (D50)
 ```
 
 ### 15.2 Tool güvenliği

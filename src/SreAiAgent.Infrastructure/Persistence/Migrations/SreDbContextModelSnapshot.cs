@@ -1150,6 +1150,11 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamptz")
                         .HasColumnName("completed_at");
 
+                    b.Property<string>("CompletedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("completed_by");
+
                     b.Property<string>("Dataset")
                         .IsRequired()
                         .HasMaxLength(256)
@@ -1175,6 +1180,14 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(128)")
                         .HasDefaultValue("")
                         .HasColumnName("product");
+
+                    b.Property<string>("ReleaseConfigurationHash")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasDefaultValue("")
+                        .HasColumnName("release_configuration_hash");
 
                     b.Property<DateTimeOffset>("RequestedAt")
                         .HasColumnType("timestamptz")

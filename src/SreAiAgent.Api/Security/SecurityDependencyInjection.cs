@@ -93,7 +93,11 @@ public static class SecurityDependencyInjection
             .AddPolicy(SrePolicies.ManageNotifications, policy => policy
                 .RequireAuthenticatedUser()
                 .RequireClaim(SreClaims.Tenant)
-                .RequireRole(SreRoles.Operator, SreRoles.PlatformAdmin));
+                .RequireRole(SreRoles.Operator, SreRoles.PlatformAdmin))
+            .AddPolicy(SrePolicies.CompleteModelEvaluations, policy => policy
+                .RequireAuthenticatedUser()
+                .RequireClaim(SreClaims.Tenant)
+                .RequireRole(SreRoles.EvaluationRunner));
 
         return services;
     }

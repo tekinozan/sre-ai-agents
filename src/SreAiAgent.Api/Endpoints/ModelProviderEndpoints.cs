@@ -2,6 +2,7 @@ using System.Security.Claims;
 using SreAiAgent.Api.Http;
 using SreAiAgent.Api.Security;
 using SreAiAgent.Application.Abstractions.Llm;
+using SreAiAgent.Application.Errors;
 using SreAiAgent.Contracts.ModelProviders;
 using SreAiAgent.Domain.ModelProviders;
 using SreAiAgent.Domain.Shared;
@@ -23,6 +24,7 @@ namespace SreAiAgent.Api.Endpoints;
 public static class ModelProviderEndpoints
 {
     private const int DefaultReadLimit = 100;
+    private const int EvaluationSummaryLimit = 256 * 1024;
 
     /// <summary>Maps the model-provider management endpoints.</summary>
     public static IEndpointRouteBuilder MapModelProviderEndpoints(this IEndpointRouteBuilder builder)
@@ -76,8 +78,9 @@ public static class ModelProviderEndpoints
             .WithSummary("Requests an evaluation for an assignment release.");
 
         providers.MapPost("/model-assignment-releases/{releaseId:guid}/evaluations/{evaluationId:guid}", CompleteEvaluationAsync)
-            .RequireAuthorization(SrePolicies.ManageModelProviders)
-            .WithSummary("Completes an evaluation with the CI verdict.");
+            .RequireAuthorization(SrePolicies.CompleteModelEvaluations)
+            .Accepts<object>("application/json")
+            .WithSummary("Completes an evaluation with the harness's summary.json, sent unchanged as the body.");
 
         providers.MapPost("/model-assignment-releases/{releaseId:guid}/activate", ActivateAsync)
             .RequireAuthorization(SrePolicies.ManageModelProviders)
@@ -324,27 +327,45 @@ public static class ModelProviderEndpoints
             : ResultExtensions.Problem(result.Error);
     }
 
+    /// <remarks>
+    /// The body is read as bytes, not bound to a type: the artifact hash is the
+    /// SHA-256 of exactly what the harness wrote, so the CI job can compare it
+    /// with <c>sha256sum summary.json</c> (D50).
+    /// </remarks>
     private static async Task<IResult> CompleteEvaluationAsync(
         Guid releaseId,
         Guid evaluationId,
-        CompleteEvaluationRequest request,
+        HttpRequest request,
         ClaimsPrincipal principal,
         IModelProviderControlPlane controlPlane,
         CancellationToken cancellationToken)
     {
-        // releaseId is a path anchor for symmetry with the request-evaluation
-        // route; the control plane resolves the evaluation by its own id, so a
-        // mismatched pair falls out as MODEL_CONFIGURATION_INVALID rather than
-        // being silently accepted.
-        _ = releaseId;
+        if (request.ContentLength is > EvaluationSummaryLimit)
+        {
+            return ResultExtensions.Problem(Error.Permanent(
+                ApplicationErrorCodes.ModelEvaluationSummaryInvalid, "The body must be the harness's summary.json."));
+        }
 
-        ArgumentNullException.ThrowIfNull(request);
+        using MemoryStream body = new();
+        byte[] buffer = new byte[16 * 1024];
+        int read;
+        while ((read = await request.Body.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+        {
+            if (body.Length + read > EvaluationSummaryLimit)
+            {
+                return ResultExtensions.Problem(Error.Permanent(
+                    ApplicationErrorCodes.ModelEvaluationSummaryInvalid, "The body must be the harness's summary.json."));
+            }
+
+            await body.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+        }
+
         Result<ModelAssignmentEvaluationHandoff> result = await controlPlane
             .CompleteEvaluationAsync(
                 principal.TenantScope(),
+                ModelAssignmentReleaseId.From(releaseId),
                 ModelAssignmentEvaluationId.From(evaluationId),
-                request.Passed,
-                request.ArtifactHash,
+                body.GetBuffer().AsMemory(0, (int)body.Length),
                 principal.Actor(),
                 cancellationToken)
             .ConfigureAwait(false);
@@ -449,6 +470,10 @@ public static class ModelProviderEndpoints
         Baseline = handoff.Baseline,
         Status = handoff.Status,
         RequestedAt = handoff.RequestedAt,
+        RequestedBy = handoff.RequestedBy,
+        ArtifactHash = handoff.ArtifactHash,
+        CompletedAt = handoff.CompletedAt,
+        CompletedBy = handoff.CompletedBy,
     };
 
     // ---- Parsing ---------------------------------------------------------

@@ -119,7 +119,12 @@ public sealed class ModelAssignmentEvaluationEntity
     public string? ArtifactHash { get; set; }
     public DateTimeOffset RequestedAt { get; set; }
     public string RequestedBy { get; set; } = string.Empty;
+
+    /// <summary>The release's hash when the evaluation was requested; activation requires it to still match.</summary>
+    public string ReleaseConfigurationHash { get; set; } = string.Empty;
+
     public DateTimeOffset? CompletedAt { get; set; }
+    public string? CompletedBy { get; set; }
 }
 
 // ModelControlPlaneAuditEntity is unchanged: it holds no alternate key anyone

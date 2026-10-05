@@ -26,6 +26,8 @@ public static class ApplicationErrorCodes
     public static readonly ErrorCode ModelDeploymentNotFound = new("MODEL_DEPLOYMENT_NOT_FOUND");
     public static readonly ErrorCode ModelAssignmentNotFound = new("MODEL_ASSIGNMENT_NOT_FOUND");
     public static readonly ErrorCode ModelAssignmentSlotMissing = new("MODEL_ASSIGNMENT_SLOT_MISSING");
+    public static readonly ErrorCode ModelEvaluationSummaryInvalid = new("MODEL_EVALUATION_SUMMARY_INVALID");
+    public static readonly ErrorCode ModelEvaluationSeparationOfDuties = new("MODEL_EVALUATION_SEPARATION_OF_DUTIES");
     public static readonly ErrorCode ModelAssignmentEvaluationRequired = new("MODEL_ASSIGNMENT_EVALUATION_REQUIRED");
 
     /// <summary>

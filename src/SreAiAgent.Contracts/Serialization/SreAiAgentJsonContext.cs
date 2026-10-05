@@ -62,7 +62,6 @@ namespace SreAiAgent.Contracts.Serialization;
 [JsonSerializable(typeof(ModelAssignmentReleaseResponse))]
 [JsonSerializable(typeof(IReadOnlyList<ModelAssignmentReleaseResponse>))]
 [JsonSerializable(typeof(RequestEvaluationRequest))]
-[JsonSerializable(typeof(CompleteEvaluationRequest))]
 [JsonSerializable(typeof(ModelAssignmentEvaluationResponse))]
 [JsonSerializable(typeof(SetBudgetRequest))]
 [JsonSerializable(typeof(BudgetResponse))]

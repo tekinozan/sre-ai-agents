@@ -319,11 +319,17 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
     public Task<bool> HasPassedEvaluationAsync(
         TenantScope scope,
         ModelAssignmentReleaseId releaseId,
+        string releaseConfigurationHash,
+        string activator,
         CancellationToken cancellationToken)
     {
         return context.ModelAssignmentEvaluations.AnyAsync(
             item => item.Tenant == scope.Tenant && item.Product == scope.Product && item.Environment == scope.Environment
-                && item.AssignmentReleaseId == releaseId && item.Passed,
+                && item.AssignmentReleaseId == releaseId
+                && item.Passed
+                && item.ReleaseConfigurationHash == releaseConfigurationHash
+                && item.CompletedBy != null
+                && item.CompletedBy != activator,
             cancellationToken);
     }
 

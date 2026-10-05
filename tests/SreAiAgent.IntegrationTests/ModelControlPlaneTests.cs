@@ -502,66 +502,192 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
         await context.SaveChangesAsync(ct);
     }
 
+    [Fact]
+    public async Task APromotionNeedsThePlatformsOwnVerdictOnThisReleaseFromSomeoneElse()
+    {
+        // D50: the verdict is derived from the summary, the hash is computed
+        // from its bytes, and the three people involved are kept apart.
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        TenantScope scope = TenantScope.TenantWide("promotion-" + Guid.NewGuid());
+        VerifiedRelease release = await CreateVerifiedReleaseAsync(scope, ct);
+
+        var requested = await Plane.RequestEvaluationAsync(
+            scope, release.Release.Id, TestEvaluationSummary.Dataset, TestEvaluationSummary.Baseline, "alice", ct);
+        requested.IsSuccess.ShouldBeTrue();
+        byte[] summary = TestEvaluationSummary.For(release);
+
+        var selfCompleted = await Plane.CompleteEvaluationAsync(scope, release.Release.Id, requested.Value.EvaluationId, summary, "alice", ct);
+        selfCompleted.Error.Code.ShouldBe(ApplicationErrorCodes.ModelEvaluationSeparationOfDuties);
+
+        var completed = await Plane.CompleteEvaluationAsync(scope, release.Release.Id, requested.Value.EvaluationId, summary, EvalRunner, ct);
+        completed.IsSuccess.ShouldBeTrue();
+        completed.Value.Status.ShouldBe("passed");
+        completed.Value.CompletedBy.ShouldBe(EvalRunner);
+        completed.Value.ArtifactHash.ShouldBe(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(summary)).ToLowerInvariant());
+
+        (await Plane.CompleteEvaluationAsync(scope, release.Release.Id, requested.Value.EvaluationId, summary, EvalRunner, ct))
+            .Error.Code.ShouldBe(ApplicationErrorCodes.ModelResourceConflict);
+
+        (await Plane.ActivateAsync(scope, release.Release.Id, EvalRunner, ct))
+            .Error.Code.ShouldBe(ApplicationErrorCodes.ModelAssignmentEvaluationRequired);
+        (await Plane.ActivateAsync(scope, release.Release.Id, "alice", ct)).IsSuccess.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task AFailedOrForeignEvaluationDoesNotPromote()
+    {
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        TenantScope scope = TenantScope.TenantWide("promotion-failed-" + Guid.NewGuid());
+        VerifiedRelease release = await CreateVerifiedReleaseAsync(scope, ct);
+        VerifiedRelease other = await CreateVerifiedReleaseAsync(scope, ct);
+
+        (await Plane.ActivateAsync(scope, release.Release.Id, "alice", ct))
+            .Error.Code.ShouldBe(ApplicationErrorCodes.ModelAssignmentEvaluationRequired);
+
+        var failedRun = await Plane.RequestEvaluationAsync(
+            scope, release.Release.Id, TestEvaluationSummary.Dataset, TestEvaluationSummary.Baseline, "alice", ct);
+        var failed = await Plane.CompleteEvaluationAsync(
+            scope, release.Release.Id, failedRun.Value.EvaluationId, TestEvaluationSummary.For(release, eligible: false), EvalRunner, ct);
+        failed.Value.Status.ShouldBe("failed");
+
+        // A passing evaluation of a different release is not evidence for this one.
+        var otherRun = await Plane.RequestEvaluationAsync(
+            scope, other.Release.Id, TestEvaluationSummary.Dataset, TestEvaluationSummary.Baseline, "alice", ct);
+        (await Plane.CompleteEvaluationAsync(
+            scope, other.Release.Id, otherRun.Value.EvaluationId, TestEvaluationSummary.For(other), EvalRunner, ct)).IsSuccess.ShouldBeTrue();
+        (await Plane.CompleteEvaluationAsync(
+            scope, release.Release.Id, otherRun.Value.EvaluationId, TestEvaluationSummary.For(release), EvalRunner, ct))
+            .Error.Code.ShouldBe(DomainErrorCodes.ModelConfigurationInvalid);
+
+        (await Plane.ActivateAsync(scope, release.Release.Id, "alice", ct))
+            .Error.Code.ShouldBe(ApplicationErrorCodes.ModelAssignmentEvaluationRequired);
+    }
+
+    public static TheoryData<string> TamperedSummaries => new()
+    {
+        "schema", "release-hash", "deployment-hash", "revision-version", "dataset", "baseline", "bootstrap", "inconsistent-gate", "not-json",
+    };
+
+    [Theory]
+    [MemberData(nameof(TamperedSummaries))]
+    public async Task ASummaryThatIsNotEvidenceForThisReleaseIsRefused(string tamper)
+    {
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        TenantScope scope = TenantScope.TenantWide("tampered-" + Guid.NewGuid());
+        VerifiedRelease release = await CreateVerifiedReleaseAsync(scope, ct);
+        var requested = await Plane.RequestEvaluationAsync(
+            scope, release.Release.Id, TestEvaluationSummary.Dataset, TestEvaluationSummary.Baseline, "alice", ct);
+
+        byte[] summary = tamper == "not-json"
+            ? "not json"u8.ToArray()
+            : TestEvaluationSummary.For(release, tamper: json =>
+            {
+                switch (tamper)
+                {
+                    case "schema":
+                        json["schema_version"] = "sre-eval-summary/v1";
+                        break;
+                    case "release-hash":
+                        json["assignment_release"]!["hash"] = new string('0', 64);
+                        break;
+                    case "deployment-hash":
+                        json["model_deployment"]!["hash"] = new string('0', 64);
+                        break;
+                    case "revision-version":
+                        json["provider_connection_revision"]!["version"] = "99";
+                        break;
+                    case "dataset":
+                        json["dataset"]!["version"] = "v2";
+                        break;
+                    case "baseline":
+                        json["baseline"]!["id"] = "some-other-baseline";
+                        break;
+                    case "bootstrap":
+                        json["baseline"]!["bootstrap"] = true;
+                        break;
+                    case "inconsistent-gate":
+                        json["gate"]!["failures"] = new System.Text.Json.Nodes.JsonArray("absolute_cost");
+                        break;
+                }
+            });
+
+        var completed = await Plane.CompleteEvaluationAsync(scope, release.Release.Id, requested.Value.EvaluationId, summary, EvalRunner, ct);
+
+        completed.IsFailure.ShouldBeTrue();
+        completed.Error.Code.ShouldBe(ApplicationErrorCodes.ModelEvaluationSummaryInvalid);
+    }
+
+    [Fact]
+    public async Task OneRunCannotVouchForAReleaseSpreadOverSeveralDeployments()
+    {
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        TenantScope scope = TenantScope.TenantWide("spread-" + Guid.NewGuid());
+        VerifiedRelease release = await CreateVerifiedReleaseAsync(scope, ct, separateCorrelatorDeployment: true);
+        var requested = await Plane.RequestEvaluationAsync(
+            scope, release.Release.Id, TestEvaluationSummary.Dataset, TestEvaluationSummary.Baseline, "alice", ct);
+
+        var completed = await Plane.CompleteEvaluationAsync(
+            scope, release.Release.Id, requested.Value.EvaluationId, TestEvaluationSummary.For(release), EvalRunner, ct);
+
+        completed.Error.Code.ShouldBe(ApplicationErrorCodes.ModelEvaluationSummaryInvalid);
+        completed.Error.Message.ShouldContain("correlator");
+    }
+
+    [Fact]
+    public async Task ABootstrapRunIsAcceptedOnlyWhenABootstrapWasAskedFor()
+    {
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        TenantScope scope = TenantScope.TenantWide("bootstrap-" + Guid.NewGuid());
+        VerifiedRelease release = await CreateVerifiedReleaseAsync(scope, ct);
+
+        (await Plane.RequestEvaluationAsync(scope, release.Release.Id, "no-version", "bootstrap", "alice", ct))
+            .Error.Code.ShouldBe(ApplicationErrorCodes.ConfigInvalid);
+
+        var requested = await Plane.RequestEvaluationAsync(
+            scope, release.Release.Id, TestEvaluationSummary.Dataset, "bootstrap", "alice", ct);
+        var completed = await Plane.CompleteEvaluationAsync(
+            scope,
+            release.Release.Id,
+            requested.Value.EvaluationId,
+            TestEvaluationSummary.For(release, tamper: json => json["baseline"] = new System.Text.Json.Nodes.JsonObject
+            {
+                ["id"] = "baseline-synthesized",
+                ["bootstrap"] = true,
+            }),
+            EvalRunner,
+            ct);
+
+        completed.IsSuccess.ShouldBeTrue();
+        completed.Value.Status.ShouldBe("passed");
+    }
+
+    private const string EvalRunner = "eval-runner";
+
     /// <summary>
     /// Takes a release through the control plane's own pipeline, verification
     /// and a passing evaluation included, so that the only thing left to decide
-    /// activation is the rule under test.
+    /// activation is the rule under test. "actor" requests and later activates;
+    /// the runner completes, as D50 requires.
     /// </summary>
     private async Task<ModelAssignmentReleaseId> CreateVerifiedEvaluatedReleaseAsync(
         TenantScope scope, CancellationToken ct, string currency = "USD")
     {
-        var connection = await Plane.CreateConnectionAsync(scope, "connection-" + Guid.NewGuid(), "actor", ct);
-        connection.IsSuccess.ShouldBeTrue();
+        VerifiedRelease release = await CreateVerifiedReleaseAsync(scope, ct, currency);
 
-        var revision = await Plane.CreateRevisionAsync(
-            scope,
-            connection.Value.Id,
-            new CreateProviderRevisionCommand(
-                ProviderAdapterKind.Scripted, "https://test", null, null, null, "env://TEST_KEY", ModelCapability.None),
-            "actor",
-            ct);
-        revision.IsSuccess.ShouldBeTrue();
-
-        var verified = await Plane.VerifyRevisionAsync(scope, connection.Value.Id, revision.Value.Revision, "actor", ct);
-        verified.IsSuccess.ShouldBeTrue();
-
-        var deployment = await Plane.CreateDeploymentVersionAsync(
-            scope,
-            new CreateModelDeploymentVersionCommand(
-                "model-" + Guid.NewGuid(),
-                revision.Value.Id,
-                "model-1",
-                ModelCapability.None,
-                0f,
-                1000,
-                TimeSpan.FromSeconds(30),
-                0m,
-                0m,
-                currency,
-                new Dictionary<string, string>()),
-            "actor",
-            ct);
-        deployment.IsSuccess.ShouldBeTrue();
-
-        var release = await Plane.CreateAssignmentReleaseAsync(
-            scope,
-            new CreateModelAssignmentReleaseCommand(
-                "release-" + Guid.NewGuid(),
-                deployment.Value.Id,
-                deployment.Value.Id,
-                new Dictionary<string, ModelDeploymentVersionId> { ["test-expert"] = deployment.Value.Id }),
-            "actor",
-            ct);
-        release.IsSuccess.ShouldBeTrue();
-
-        var requested = await Plane.RequestEvaluationAsync(scope, release.Value.Id, "dataset", "baseline", "actor", ct);
+        var requested = await Plane.RequestEvaluationAsync(
+            scope, release.Release.Id, TestEvaluationSummary.Dataset, TestEvaluationSummary.Baseline, "actor", ct);
         requested.IsSuccess.ShouldBeTrue();
         var completed = await Plane.CompleteEvaluationAsync(
-            scope, requested.Value.EvaluationId, passed: true, new string('a', 64), "actor", ct);
-        completed.IsSuccess.ShouldBeTrue();
+            scope, release.Release.Id, requested.Value.EvaluationId, TestEvaluationSummary.For(release), EvalRunner, ct);
+        completed.IsSuccess.ShouldBeTrue(completed.IsFailure ? completed.Error.Message : null);
+        completed.Value.Status.ShouldBe("passed");
 
-        return release.Value.Id;
+        return release.Release.Id;
     }
+
+    private Task<VerifiedRelease> CreateVerifiedReleaseAsync(
+        TenantScope scope, CancellationToken ct, string currency = "USD", bool separateCorrelatorDeployment = false)
+        => TestReleases.CreateVerifiedAsync(Plane, scope, ct, currency, separateCorrelatorDeployment);
 
     /// <summary>
     /// Builds and activates the smallest possible release directly through

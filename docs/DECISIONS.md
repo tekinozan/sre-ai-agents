@@ -1021,3 +1021,43 @@ metric. A verdict on a report that is later superseded by a retry stays on the
 old version, which is the honest place for it but means the newest report starts
 with none.
 
+### D50 — An evaluation is completed by its summary, by someone other than the people who promote
+
+Before this, `POST …/evaluations/{id}` took `passed: true` and any non-empty
+`artifact_hash` from anyone who could manage model providers, and activation
+counted any passed evaluation of the release id. The person who wanted a
+release live could request, pass and activate it alone, and no record said what
+had actually been evaluated: the harness's summary never named the release.
+
+Now the body is the harness's `summary.json` (`sre-eval-summary/v2`), unchanged.
+The platform hashes the bytes itself and derives the verdict from the summary's
+gate (`promotion_eligible`, no listed failures, no hard failures); a summary
+claiming eligibility while listing failures is refused. It checks that the
+summary names this release by id and hash, that every slot of the release uses
+the one deployment version and provider revision the summary names (id,
+version and hash), that the dataset (`id@version`) and baseline are those the
+requester asked for, and that a run against a synthesized baseline was
+requested as `bootstrap`. Completing needs `model-evaluations:complete`, held
+only by `SreEvaluationRunner`, and the completer must not be the requester.
+Activation needs a passed evaluation of the same release whose hash at request
+time still matches, completed by someone other than the activator.
+`RequireEvaluationForActivation` remains, defaulting to on; the bootstrapper
+still bypasses the gate by design (D34).
+
+**Rejected: re-running the gate arithmetic on the platform.** The platform
+would need the attempts, the baseline and the eval configuration, and would then
+be a second implementation of the harness. It verifies identity and internal
+consistency; it trusts the runner's arithmetic, and separation of duties is what
+makes that trust reasonable.
+
+**Cost:** a release whose slots use different deployments cannot be promoted
+through the gate, because the harness evaluates one deployment per run; until
+it can, such a release needs `RequireEvaluationForActivation` off or the
+bootstrapper. Evaluations completed before this change carry no release hash and
+no longer count, so a release evaluated earlier must be evaluated again before
+activation. The Operator and PlatformAdmin roles lose the ability to complete
+evaluations; a CI identity with `SreEvaluationRunner` is now required, and
+local development's single principal cannot complete one. The runner is
+trusted not to forge a summary: the hash makes a forgery traceable to the
+artifact it claims to be, not impossible.
+

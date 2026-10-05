@@ -217,17 +217,6 @@ public sealed record ModelAssignmentReleaseResponse
 /// <summary>Body of <c>POST /v1/model-assignment-releases/{id}/evaluate</c>.</summary>
 public sealed record RequestEvaluationRequest(string Dataset, string Baseline);
 
-/// <summary>
-/// Body of <c>POST /v1/model-assignment-releases/{id}/evaluations/{evaluationId}</c>:
-/// the evaluation CI job hands its verdict back to the control plane.
-/// </summary>
-public sealed record CompleteEvaluationRequest
-{
-    public required bool Passed { get; init; }
-
-    public required string ArtifactHash { get; init; }
-}
-
 /// <summary>An evaluation handoff record, as returned by request/complete.</summary>
 public sealed record ModelAssignmentEvaluationResponse
 {
@@ -242,4 +231,13 @@ public sealed record ModelAssignmentEvaluationResponse
     public required string Status { get; init; }
 
     public required DateTimeOffset RequestedAt { get; init; }
+
+    public required string RequestedBy { get; init; }
+
+    /// <summary>SHA-256 of the summary that completed it; computed by the platform.</summary>
+    public string? ArtifactHash { get; init; }
+
+    public DateTimeOffset? CompletedAt { get; init; }
+
+    public string? CompletedBy { get; init; }
 }

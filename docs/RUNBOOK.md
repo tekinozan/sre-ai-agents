@@ -249,6 +249,28 @@ The worker logs the channel id and the HTTP status, never the URL. Common causes
   outcome `BudgetExceeded`, announced as `investigation_completed`, and the
   `budget_threshold` message covers it.
 
+### Activation is refused with `MODEL_ASSIGNMENT_EVALUATION_REQUIRED`
+
+Activation counts only an evaluation of this release that passed and was
+completed by someone other than you (D50). Check
+`model_assignment_evaluations` for the release: `status` must be `passed`,
+`release_configuration_hash` must equal the release's hash, and `completed_by`
+must not be the activating user. An evaluation completed before D50 has an
+empty hash and no longer counts; request a new one.
+
+Completion itself answers:
+
+- `MODEL_EVALUATION_SEPARATION_OF_DUTIES`: the runner identity is the same as
+  the requester. The CI job must authenticate as its own `SreEvaluationRunner`
+  identity.
+- `MODEL_EVALUATION_SUMMARY_INVALID`: the message names the mismatch. Usually
+  the candidate manifest was not filled from the release
+  (`tests/SreAiAgent.Evals/EVALS.md`, "Completing a platform evaluation"), the
+  evaluation was requested with another dataset or baseline, or the release
+  spreads its slots over several deployments.
+- `403`: the caller lacks `SreEvaluationRunner`; Operator and PlatformAdmin
+  cannot complete evaluations.
+
 ### `sre_trace_attribute_rejected_total` is climbing
 
 Something is trying to put a non-allowlisted key on a span. The value is dropped,
