@@ -262,6 +262,114 @@ The row keeps its payload. Reset `is_dead_lettered` and `next_attempt_at` once t
 cause is fixed, and the dispatcher picks it up on its next pass. Consumers are
 idempotent, so a replay of something that partly succeeded is safe.
 
+### Backup and restore
+
+Three logical databases, backed up together: `sre` (incidents, evidence,
+reports, audit, the model control plane, the outbox and inbox, and
+`__migrations_history`), `temporal` and `temporal_visibility`. Kafka holds
+nothing that is not also in PostgreSQL: undelivered events are outbox rows, and
+a consumer that re-reads a topic is deduplicated by the inbox. Dead letters on
+`sre.deadletter.v1` are the exception; mirror that topic if it must survive a
+broker loss.
+
+```bash
+# As the owner of each database, at the same point in time.
+pg_dump --format=custom --file=sre.dump                 --dbname=sre
+pg_dump --format=custom --file=temporal.dump            --dbname=temporal
+pg_dump --format=custom --file=temporal_visibility.dump --dbname=temporal_visibility
+```
+
+Restore into empty databases owned by the same roles, then let the migration job
+run: it applies only what `__migrations_history` says is missing, so a backup
+taken by an older release upgrades in place.
+
+```bash
+pg_restore --exit-on-error --no-owner --role=<business owner> --dbname=sre sre.dump
+```
+
+Never restore the business database alone onto a running Temporal, or the other
+way round; see "Coordinated recovery".
+
+### Secret rotation
+
+| Secret | How it is read | Rotation |
+|---|---|---|
+| Model provider key, `file://` reference | Read from the mounted file on every call | Update the Kubernetes Secret; the kubelet refreshes the mount within about a minute. No restart, no new revision |
+| Model provider key, `env://` reference | Process environment, read on every call | Update the Secret, then a rolling restart of the API and both workers |
+| A different credential *reference* | Part of the immutable provider revision | New revision → deployment version → assignment release → evaluate → activate, through the management API. Open incidents keep the snapshot they pinned |
+| Kafka SASL credentials | `Kafka:SaslUsername` / `SaslPassword` at start-up | Add the new credential on the broker, update the Secret, rolling restart, then remove the old one |
+| PostgreSQL runtime password | Connection string at start-up; pooled connections stay authenticated | `ALTER ROLE ... PASSWORD`, update the Secret, rolling restart promptly — new connections fail until each pod restarts |
+| OIDC signing keys | The identity provider's JWKS | Nothing to do here; the API refreshes the key set when it meets an unknown key id |
+
+Prefer `file://` for provider keys: it rotates without a restart and does not put
+the key in the process environment.
+
+### Retention
+
+The `Retention` sweep runs every `Retention:IntervalMinutes` (60) and deletes
+in batches of `Retention:BatchSize` (1000), so one sweep never holds a long
+lock. It removes only plumbing:
+
+| Rows | Kept for | Never deleted |
+|---|---|---|
+| Processed inbox messages | `InboxRetentionDays`, 14 | — |
+| Dispatched outbox messages | `DispatchedOutboxRetentionDays`, 7 | Dead-lettered rows |
+| Settled delivery attempts | `DeliveryAttemptRetentionDays`, 7 | Unsettled attempts |
+
+Incidents, timeline, evidence, findings, reports, LLM and tool audit rows and the
+model control plane are never deleted by the platform. The inbox window must
+outlive the longest broker redelivery, or a late redelivery is processed twice;
+the outbox window must outlive the window in which an operator may want to
+replay a message.
+
+### Coordinated recovery
+
+Restore in dependency order, from backups taken at the same point in time:
+
+1. PostgreSQL: `sre`, `temporal`, `temporal_visibility`.
+2. Temporal, against its restored databases.
+3. The broker. An empty broker is acceptable: the outbox re-dispatches what was
+   not yet sent, and consumers start from the earliest offset.
+4. The migration job, then the API, then both workers.
+
+Then reconcile what the two stores disagree about:
+
+- An incident `Investigating` with no running workflow (the business database is
+  newer than Temporal's): `POST /v1/incidents/{id}/retry`. The retry is refused
+  while a workflow is running, so it cannot double one up.
+- A running workflow whose incident does not exist (Temporal is newer):
+  `temporal workflow terminate --workflow-id incident-<id>`. It would otherwise
+  fail at `LoadIncident` and hold its id.
+- `SELECT count(*) FROM outbox_messages WHERE dispatched_at IS NULL` settles at
+  zero once the broker is reachable.
+
+### Load and soak
+
+```bash
+k6 run -e BASE_URL=http://localhost:8080 eng/load/alert-storm.js                    # 5 min ramp, 20 min soak
+k6 run -e BASE_URL=... -e TOKEN=<jwt> -e TENANT=<tenant> eng/load/alert-storm.js   # anything but compose
+docker run --rm --network host -v "$PWD/eng/load:/scripts:ro" grafana/k6 run /scripts/alert-storm.js
+```
+
+The script ramps from 1 to 10 alerts per second and holds, drawing fingerprints
+from a pool of `FINGERPRINTS` (50) so most deliveries fold into an open incident
+and a minority open one. It fails on more than 1% failed requests or a p95 above
+500 ms. Outside k6, during the run: the outbox pending count stays flat, no
+worker restarts, worker memory levels off, and each fingerprint has exactly one
+incident.
+
+The API's rate limit is per caller, `Security:RateLimitPerMinute` (600) in a
+fixed one-minute window, and an Alertmanager is one caller. At the script's
+10 per second the limit is exactly met, so an occasional `429` at a window
+boundary is expected; Alertmanager retries it. An installation whose alert
+volume from one sender exceeds the limit has to raise it, or it trades alerts
+for retries.
+
+Last run (2026-10-05, compose, 1 min ramp and 3 min hold rather than the full
+25): 2,129 requests, p95 4.5 ms, one `429`; the 2,128 accepted alerts produced
+50 incidents with an alert count summing to 2,128, every one resolved, the
+outbox drained to zero, no restarts, workers between 150 and 220 MiB.
+
 ### Running a pilot against a real provider and a real target
 
 `deploy/docker/compose.tickethub-pilot.yaml` is a fourth compose layer, on top

@@ -64,16 +64,17 @@
 # does not have that exposure.
 #
 # Capability note (recorded as an ADP-004 finding in
-# docs/plans/product-adaptability-implementation-and-testing.md): the platform
-# cannot simply point OpenAiCompatible at an arbitrary OpenAI-wire-format
-# endpoint today. `ProviderClientCatalog.Descriptor` grants
-# `ProviderAdapterKind.OpenAiCompatible` only
-# `ModelCapability.StructuredOutput | ModelCapability.SystemMessage`, while the
-# shipped `analytical` profile (`config/models/analytical.v1.yaml`) declares
-# `tool_calling` and `parallel_tool_calls`. Every agent that resolves through
-# `analytical` fails activation with `MODEL_CAPABILITY_MISMATCH` against an
-# OpenAiCompatible revision. `fast` (classification only, no tool calling)
-# would activate; the agents would not.
+# docs/plans/product-adaptability-implementation-and-testing.md, resolved by
+# docs/DECISIONS.md D45): the bootstrapper used to require `tool_calling` of
+# every deployment whose profile allows tools, which `OpenAiCompatible` does not
+# declare, so every agent on `analytical` failed activation with
+# `MODEL_CAPABILITY_MISMATCH`. Agents request tools inside their structured
+# answer, so that requirement is gone. What still differs between OpenAI-shaped
+# servers is the request dialect: a deployment states it with the provider
+# parameters `max_tokens_field`, `response_format` (`json_object` for servers
+# such as DeepSeek that reject `json_schema`) and `temperature` (`omit` for
+# reasoning models). Bootstrap creates deployments with the defaults; a server
+# that needs another dialect is configured through the management API below.
 #
 # Non-destructive provider switch. `ModelAssignmentBootstrapper` only
 # bootstraps a tenant with no ACTIVE assignment (fast-path check before the
@@ -99,8 +100,9 @@
 #   3. POST /v1/model-deployments (then
 #      /v1/model-deployments/{deploymentVersionId}/versions for a later
 #      version) — one `ModelDeploymentVersion` per model profile (analytical,
-#      fast, ...), pinned to the new revision, naming the real model and the
-#      capabilities that revision declares.
+#      fast, ...), pinned to the new revision, naming the real model, the
+#      capabilities that revision declares, and any dialect parameters the
+#      server needs (D45).
 #   4. POST /v1/model-assignment-releases — a new `ModelAssignmentRelease`
 #      naming the classifier/correlator deployment versions and one deployment
 #      version per released agent.

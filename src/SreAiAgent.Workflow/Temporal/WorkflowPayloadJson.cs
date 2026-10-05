@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using SreAiAgent.Application.Abstractions.Persistence;
 using SreAiAgent.Application.Abstractions.Workflow;
 using SreAiAgent.Domain.Shared;
+using Temporalio.Converters;
 
 namespace SreAiAgent.Workflow.Temporal;
 
@@ -78,6 +79,22 @@ internal static class WorkflowPayloadJson
 {
     /// <summary>Shared, read-only options backed by the generated context.</summary>
     public static JsonSerializerOptions Options { get; } = Create();
+
+    /// <summary>
+    /// The converter the client, and through it the worker, writes and reads
+    /// history with.
+    /// </summary>
+    /// <remarks>
+    /// Reflection-based serialization is banned platform-wide, and Temporal's
+    /// default converter uses it. Pointing it at the generated context keeps
+    /// workflow history on the same serializer as every other wire boundary. One
+    /// instance, so the replay test decodes recorded history exactly as a worker
+    /// would.
+    /// </remarks>
+    public static DataConverter DataConverter { get; } = Temporalio.Converters.DataConverter.Default with
+    {
+        PayloadConverter = new DefaultPayloadConverter(Options),
+    };
 
     private static JsonSerializerOptions Create()
     {

@@ -1,6 +1,6 @@
 # Production readiness execution plan
 
-> **Status:** Phases 1–4 and local deployment follow-up complete; Phase 5 not started.
+> **Status:** Phases 1–4 and local deployment follow-up complete; Phase 5 applied (replay test, k6 script, runbook, trace continuity), full soak outstanding.
 > **Source of truth:** this document. The root `PRODUCTION_READINESS_PLAN.md` it once pointed at was never committed and is lost; the per-step specifications that survive are the ones recorded below and in the commits that landed each phase.
 > **Scope:** This document governs execution phasing, ordering dependencies, affected files, acceptance criteria, open questions, and completion tracking.
 > **Last updated:** 2026-09-09.
@@ -13,7 +13,7 @@
 | [Phase 2 — Messaging: transport security and bounded poison messages](#phase-2--messaging-transport-security-and-bounded-poison-messages) | Steps 5, 6 | Complete |
 | [Phase 3 — Operational surface: retention, health, probes](#phase-3--operational-surface-retention-health-probes) | Steps 7, 8, 9 | Complete |
 | [Phase 4 — Outbound resilience and a production configuration that boots](#phase-4--outbound-resilience-and-a-production-configuration-that-boots) | Steps 10, 11 | Complete |
-| [Phase 5 — Proof and operations](#phase-5--proof-and-operations) | Steps 12, 13, 14 | Not started |
+| [Phase 5 — Proof and operations](#phase-5--proof-and-operations) | Steps 12, 13, 14 | Applied 2026-10-05 (`project-assessment-2026-10.md` P3-1, P3-2); the full 25-minute soak and a live SASL/TLS broker remain |
 | [Deployment follow-up — local Compose PostgreSQL consolidation](#deployment-follow-up--local-compose-postgresql-consolidation) | Local stack reliability follow-up | Complete |
 
 ---
