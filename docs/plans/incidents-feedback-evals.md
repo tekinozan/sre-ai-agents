@@ -1,4 +1,4 @@
-> **Durum:** planlandı — 2026-10-05.
+> **Durum:** tamamlandı — 2026-10-05.
 > **Kaynak:** `project-assessment-2026-10.md` P5-3, P6-1, P6-2, P6-3; kullanıcı
 > kararı: bu dört madde sırayla, secret store (P4-5) şimdilik ertelendi.
 
@@ -8,11 +8,11 @@
 
 | Adım | İş | Durum | Kanıt |
 |---|---|---|---|
-| L | `GET /v1/incidents`: filtreler, keyset sayfalama, son rapor sonucu | uygulandı | `IncidentListingTests` (Postgres, HTTP): 7 incident 3 sayfada eksiksiz ve tekrarsız, eşit `detected_at` id ile ayrılıyor, başka kiracı görünmüyor; her filtre; son raporun sonucu; 7 bozuk girdi 400. Compose doğrulaması V'de |
-| F | RCA geri bildirimi: rapor sürümüne operatör hükmü, liste, metrik, eval'e dönüş prosedürü | uygulandı | D49; `ReportFeedbackTests` (Postgres, HTTP): kişi başına revizyon, ikinci kişi ayrı satır, timeline'da serbest metin yok, yanlış sürüm/başka kiracı 404, Viewer 403, bilinmeyen verdict 400, uzun metin 400, kiracı listesi filtre + sayfalama; domain ve metrik birim testleri; RUNBOOK prosedürü. Compose doğrulaması V'de |
+| L | `GET /v1/incidents`: filtreler, keyset sayfalama, son rapor sonucu | doğrulandı | `IncidentListingTests` (Postgres, HTTP): 7 incident 3 sayfada eksiksiz ve tekrarsız, eşit `detected_at` id ile ayrılıyor, başka kiracı görünmüyor; her filtre; son raporun sonucu; 7 bozuk girdi 400. Compose: V |
+| F | RCA geri bildirimi: rapor sürümüne operatör hükmü, liste, metrik, eval'e dönüş prosedürü | doğrulandı | D49; `ReportFeedbackTests` (Postgres, HTTP): kişi başına revizyon, ikinci kişi ayrı satır, timeline'da serbest metin yok, yanlış sürüm/başka kiracı 404, Viewer 403, bilinmeyen verdict 400, uzun metin 400, kiracı listesi filtre + sayfalama; domain ve metrik birim testleri; RUNBOOK prosedürü. Compose: V |
 | E-1 | Eval tamamlamada görev ayrılığı ve artifact doğrulaması | uygulandı | D50; harness `sre-eval-summary/v2` (`EndToEndEvalTests`); `ModelControlPlaneTests`: talep eden tamamlayamaz, hash summary baytlarının SHA-256'sı, 9 ayrı bozuk summary reddi, çok deployment'lı release reddi, bootstrap yalnız istenince; `EvaluationCompletionHttpTests`: Operator 403, runner 200, girintili baytların hash'i; `ModelProviderAuthorizationTests`: politika yalnız `SreEvaluationRunner` |
 | E-2 | Promotion kapısı: aktivasyon yalnız aynı release hash'ine ait, platformun doğruladığı geçen eval ile | uygulandı | `ModelControlPlaneTests`: eval'siz, başarısız eval'li, başka release'in eval'iyle ve tamamlayıcının kendisiyle aktivasyon reddi; doğru akış geçer. Compose'da dev kimliği tek kişi olduğundan tamamlama compose'da gösterilemez (D50 maliyeti) |
-| V | Gate (`--with-integration`) + compose doğrulaması + doküman | planlandı | — |
+| V | Gate (`--with-integration`) + compose doğrulaması + doküman | doğrulandı | Gate yeşil. Compose: üç migration uygulandı; liste iki sayfada cursor ile, `status`/`severity` filtresi, son rapor sonucu (`Complete`/`BudgetExceeded`/`Partial`), bilinmeyen durum 400. Geri bildirim 200, bilinmeyen verdict 400 (önceden Development'ta 500), yanlış sürüm 404, timeline'da yalnız hüküm, `/metrics`'te seri. **Compose iki hata buldu:** revizyon 200 dönüp kaydedilmiyordu (context varsayılanı no-tracking; test artık geri okuyor) ve bozuk dataset adı 500 dönüyordu (artık 400). Eval: talep kaydı release hash'ini tutuyor; dev kimliğiyle tamamlama 403 |
 
 ## L — `GET /v1/incidents`
 

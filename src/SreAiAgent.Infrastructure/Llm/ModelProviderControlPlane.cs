@@ -329,7 +329,7 @@ internal sealed class ModelProviderControlPlane(
             if (!IsDatasetReference(dataset))
             {
                 return Result<ModelAssignmentEvaluationHandoff>.Failure(Error.Permanent(
-                    ApplicationErrorCodes.ConfigInvalid,
+                    ApplicationErrorCodes.ValidationFailed,
                     "The dataset must be named as '<dataset_id>@<version>', for example 'sre-incidents-redacted@v1'."));
             }
 

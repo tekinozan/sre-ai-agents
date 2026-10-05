@@ -51,7 +51,10 @@ internal sealed class ReportFeedbackService(
         }
 
         DateTimeOffset now = timeProvider.GetUtcNow();
+        // Tracked explicitly: the context defaults to no tracking, and without
+        // this a revision answered 200 and saved nothing.
         ReportFeedbackEntity? existing = await context.ReportFeedback
+            .AsTracking()
             .SingleOrDefaultAsync(
                 feedback => feedback.IncidentId == incidentId
                     && feedback.ReportVersion == reportVersion

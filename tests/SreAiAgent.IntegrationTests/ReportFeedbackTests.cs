@@ -69,8 +69,14 @@ public sealed class ReportFeedbackTests(PostgresFixture postgres) : IAsyncLifeti
 
         using JsonDocument list = await GetAsync(alice, $"/v1/incidents/{incident}/report/feedback", ct);
         list.RootElement.GetArrayLength().ShouldBe(2);
-        list.RootElement.EnumerateArray().Select(static item => item.GetProperty("submitted_by").GetString())
-            .ShouldBe(["alice", "bob"], ignoreOrder: true);
+        // Read back, not taken from the submit response: the response is built
+        // from the revised value whether or not it was saved.
+        list.RootElement.EnumerateArray()
+            .Select(static item => (item.GetProperty("submitted_by").GetString(), item.GetProperty("verdict").GetString()))
+            .ShouldBe([("alice", "Incorrect"), ("bob", "PartiallyCorrect")], ignoreOrder: true);
+        JsonElement alicesVerdict = list.RootElement.EnumerateArray()
+            .Single(static item => item.GetProperty("submitted_by").GetString() == "alice");
+        alicesVerdict.GetProperty("actual_root_cause").GetString().ShouldBe("DNS resolver timeouts");
 
         // The timeline records that a verdict was given, never what was written.
         await using SreDbContext db = postgres.CreateContext();

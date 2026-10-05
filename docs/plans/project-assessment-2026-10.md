@@ -1,4 +1,4 @@
-> **Durum:** Değerlendirme yazıldı; uygulama P0'dan başlayarak öncelik sırasıyla yürütülüyor.
+> **Durum:** P0–P6 uygulandı; P4-5 (secret store) kullanıcı kararıyla ertelendi. Ayrıntı her satırın kanıt sütununda.
 > **Kapsam:** Projenin 2026-10-05 itibarıyla faz, sağlayıcı esnekliği, production
 > hazırlığı ve iş akışı değerlendirmesi ile bulguların öncelikli düzeltme sırası.
 > **Kapsam dışı:** Bu belge `adp-phased-execution-plan.md` veya
@@ -34,10 +34,10 @@ Bir satır, komut çalıştırılıp kanıt yazıldıktan sonra güncellenir.
 | P4-5 | Secret store credential resolver (Vault / ExternalSecrets) | planlandı | — |
 | P5-1 | Kiracı başına LLM bütçesi ve alert fırtınası koruması (ADP F3-4) | doğrulandı | D47; `gemini-budgets-notifications.md` B-1…B-3. Compose: farklı para birimi 409; limit dolunca sağlayıcıya çağrı yok (`llm_calls` 0 maliyetli `BUDGET_EXCEEDED`), soruşturma `Resolved`/`BudgetExceeded`. Fırtına için ayrı bir hız limiti eklenmedi: D43 tekilleştirme + bütçe tavanı maliyeti sınırlıyor |
 | P5-2 | Bildirim çıkışı (Slack/Teams/PagerDuty) | doğrulandı | D48; `gemini-budgets-notifications.md` N-1…N-3. PagerDuty kapsam dışı (kullanıcı kararı). Ön koşul olarak hiç yazılmayan `sre.incident.completed.v1` artık yayımlanıyor |
-| P5-3 | `GET /v1/incidents` listeleme ve filtreleme | planlandı | — |
-| P6-1 | RCA geri bildirim döngüsü | planlandı | — |
-| P6-2 | Eval tamamlamada görev ayrılığı ve artifact doğrulaması | planlandı | — |
-| P6-3 | `llm-providers.md` Faz 4: baseline/promotion gate | planlandı | `llm-providers.md` |
+| P5-3 | `GET /v1/incidents` listeleme ve filtreleme | doğrulandı | `incidents-feedback-evals.md` L |
+| P6-1 | RCA geri bildirim döngüsü | doğrulandı | D49; `incidents-feedback-evals.md` F |
+| P6-2 | Eval tamamlamada görev ayrılığı ve artifact doğrulaması | uygulandı | D50; `incidents-feedback-evals.md` E-1. Tamamlama compose'da tek dev kimliğiyle gösterilemez; Postgres+HTTP integration ile kanıtlı |
+| P6-3 | `llm-providers.md` Faz 4: baseline/promotion gate | uygulandı | D50; `incidents-feedback-evals.md` E-2. Opsiyonel LLM judge kapsam dışı (kalibrasyon seti yok) |
 
 ---
 

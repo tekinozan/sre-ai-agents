@@ -640,8 +640,10 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
         TenantScope scope = TenantScope.TenantWide("bootstrap-" + Guid.NewGuid());
         VerifiedRelease release = await CreateVerifiedReleaseAsync(scope, ct);
 
+        // The caller's mistake, so a 400: CONFIG_INVALID is a 500 that means the
+        // platform's own configuration is broken.
         (await Plane.RequestEvaluationAsync(scope, release.Release.Id, "no-version", "bootstrap", "alice", ct))
-            .Error.Code.ShouldBe(ApplicationErrorCodes.ConfigInvalid);
+            .Error.Code.ShouldBe(ApplicationErrorCodes.ValidationFailed);
 
         var requested = await Plane.RequestEvaluationAsync(
             scope, release.Release.Id, TestEvaluationSummary.Dataset, "bootstrap", "alice", ct);

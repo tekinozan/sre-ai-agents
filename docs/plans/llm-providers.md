@@ -1,4 +1,4 @@
-> **Durum:** faz 1-3 tamamlandı; faz 5 operasyonel temelleri kısmen uygulandı; faz 4 ve kalan faz 5 sonraki artırım olarak planlandı.
+> **Durum:** faz 1-3 tamamlandı; faz 4'ün promotion kapısı `incidents-feedback-evals.md` E ile uygulandı (D50), opsiyonel judge açık; faz 5 operasyonel temelleri kısmen uygulandı.
 > **Devam planı:** `docs/plans/llm-providers-resume.md`.
 > **Son güncelleme:** 2026-09-02.
 > Kalıcı kararlar tamamlandıkça `docs/DECISIONS.md`'ye D33+ olarak taşınır;
