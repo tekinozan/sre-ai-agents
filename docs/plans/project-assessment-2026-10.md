@@ -23,8 +23,8 @@ Bir satır, komut çalıştırılıp kanıt yazıldıktan sonra güncellenir.
 | P1-3 | BUG-002: `TenantWide` assignment'ı bırakmayan aktivasyonun reddi | doğrulandı | D44; `ModelControlPlaneTests` kapanış kanıtı (a) ve (b), Postgres integration |
 | P1-4 | Onay reddi veya süre aşımı RCA raporunu kaybetmez (V2 için gizli hata) | doğrulandı | `InvestigationSequenceTests`: red ve süre aşımında `persist` + `complete`, diğer hatalar hâlâ `fail`. V1 bu dala girmediği için replay işaretçisi gerekmedi |
 | P1-5 | Reopen gerçek aktörü kaydeder | doğrulandı | Retry endpoint principal'ı geçirir; timeline girdisi aktörü taşır (`RetryInvestigationHandlerTests`) |
-| P2-1 | GitHub Actions CI: gate + integration | planlandı | — |
-| P2-2 | Container image build, zafiyet taraması | planlandı | — |
+| P2-1 | GitHub Actions CI: gate + integration | uygulandı | `.github/workflows/ci.yml`: Linux gate `--with-integration`, Windows gate, Helm render kontrolü. `actionlint` temiz; yerel eşdeğerleri yeşil. İlk gerçek koşu PR açıldığında görülecek; branch protection ayarı repo sahibinde |
+| P2-2 | Container image build, zafiyet taraması | uygulandı | Üç image build (push yok: yayın hedefi henüz kararlaştırılmadı), Trivy commit SHA ile sabit, düzeltilebilir CRITICAL bulguda kırmızı. Yerel tarama: 0 bulgu |
 | P3-1 | Servisler arası trace sürekliliği (production-readiness sign-off blokeri) | planlandı | — |
 | P3-2 | Readiness Faz 5: workflow replay, k6, backup/DR runbook | planlandı | `production-readiness.md` |
 | P4-1 | OpenAI: `max_completion_tokens`, reasoning modellerinde `temperature` | planlandı | — |

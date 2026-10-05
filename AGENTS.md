@@ -34,6 +34,10 @@ powershell -ExecutionPolicy Bypass -File eng/ci.ps1     # Windows PowerShell 5.1
 pwsh -File eng/ci.ps1 -WithIntegration                  # PowerShell 7
 ```
 
+`.github/workflows/ci.yml` runs these same scripts on every pull request — the
+Linux gate with integration, the Windows gate, and the Helm render check — so a
+step belongs in the scripts, never only in the workflow.
+
 Stack procedure: `docs/agents/recipes/verify-end-to-end.md`.
 
 ## Rules the build enforces
