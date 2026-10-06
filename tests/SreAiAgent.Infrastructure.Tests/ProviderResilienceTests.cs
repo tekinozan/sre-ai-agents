@@ -577,28 +577,33 @@ public sealed class ProviderResilienceTests
         callCount.ShouldBe(3, "LlmGateway must retry semantic failure up to MaxRetries (1 initial + 2 retries = 3).");
     }
 
-    private sealed class SlowHttpMessageHandler(TimeSpan delay, HttpResponseMessage response) : HttpMessageHandler
+    /// <summary>A provider that never answers; only cancellation ends the request.</summary>
+    /// <remarks>
+    /// It used to answer 200 after a fixed delay longer than the timeout under
+    /// test. On a loaded Windows runner the timer thread fell behind until both
+    /// timers were due in the same pass, the delay completed first, and Polly
+    /// returned the success: the verifier timeout test failed once on main with
+    /// the identical tree that had passed on the pull request. A provider that
+    /// never answers leaves the timeout or the caller's cancellation as the only
+    /// way out, which is what every test using this handler asserts.
+    /// </remarks>
+    private sealed class HangingHttpMessageHandler : HttpMessageHandler
     {
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
-            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
-            return response;
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+            throw new InvalidOperationException("Unreachable: the delay only ends by cancellation.");
         }
     }
 
     [Fact]
     public async Task PipelineAttemptTimeoutMapsToLlmTimeoutNotAnUnhandledException()
     {
-        // Longer than the 100ms attempt timeout configured below, so Polly's own timeout
-        // strategy — not the caller's cancellation token — gives up first.
-        SlowHttpMessageHandler stub = new(
-            TimeSpan.FromMilliseconds(500),
-            new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(SuccessChatJson, System.Text.Encoding.UTF8, "application/json"),
-            });
+        // Never answers, so Polly's 100ms attempt timeout configured below — not the
+        // caller's cancellation token — is what ends the request.
+        HangingHttpMessageHandler stub = new();
 
         await using ServiceProvider provider = BuildServiceProvider(stub, configureResilience: options =>
         {
@@ -622,12 +627,7 @@ public sealed class ProviderResilienceTests
     [Fact]
     public async Task AdapterToGatewayPathForPollyTimeoutSurfacesLlmTimeoutAndTimeoutTelemetry()
     {
-        SlowHttpMessageHandler stub = new(
-            TimeSpan.FromMilliseconds(500),
-            new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(SuccessChatJson, System.Text.Encoding.UTF8, "application/json"),
-            });
+        HangingHttpMessageHandler stub = new();
 
         await using ServiceProvider provider = BuildServiceProvider(stub, configureResilience: options =>
         {
@@ -724,12 +724,7 @@ public sealed class ProviderResilienceTests
     [Fact]
     public async Task ProviderRevisionVerifierTimeoutSurfacesLlmTimeout()
     {
-        SlowHttpMessageHandler stub = new(
-            TimeSpan.FromMilliseconds(500),
-            new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent("{\"data\":[]}", System.Text.Encoding.UTF8, "application/json"),
-            });
+        HangingHttpMessageHandler stub = new();
 
         await using ServiceProvider provider = BuildServiceProvider(stub, configureResilience: options =>
         {
@@ -790,12 +785,7 @@ public sealed class ProviderResilienceTests
     [Fact]
     public async Task ProviderRevisionVerifierPreservesCallerCancellation()
     {
-        SlowHttpMessageHandler stub = new(
-            TimeSpan.FromSeconds(2),
-            new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent("{\"data\":[]}", System.Text.Encoding.UTF8, "application/json"),
-            });
+        HangingHttpMessageHandler stub = new();
 
         await using ServiceProvider provider = BuildServiceProvider(stub, configureResilience: options =>
         {
