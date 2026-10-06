@@ -63,7 +63,11 @@ internal static class BaselineGate
             || !string.Equals(baseline.ScorerHash, candidate.Scorer.Hash, StringComparison.Ordinal)
             || baseline.Repeats != candidate.RunSettings.Repeats)
         {
-            throw new InvalidDataException("Baseline dataset/scorer/repeat identity is incompatible with the frozen candidate.");
+            throw new InvalidDataException(
+                "Baseline dataset/scorer/repeat identity is incompatible with the frozen candidate: "
+                + $"dataset {baseline.DatasetHash} vs {candidate.Dataset.Hash}, "
+                + $"scorer {baseline.ScorerHash} vs {candidate.Scorer.Hash}, "
+                + $"repeats {baseline.Repeats} vs {candidate.RunSettings.Repeats}.");
         }
 
         if (baseline.CandidateHash.Length != 64)

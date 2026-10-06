@@ -187,6 +187,12 @@ internal sealed class ModelAssignmentEvaluationConfiguration : IEntityTypeConfig
         builder.Property(entity => entity.Baseline).HasMaxLength(256).IsRequired();
         builder.Property(entity => entity.Status).HasMaxLength(32).IsRequired();
         builder.Property(entity => entity.RequestedBy).HasMaxLength(256).IsRequired();
+
+        // Rows written before E-1 carry no hash and therefore never satisfy the
+        // promotion gate: an evaluation whose verdict was a bare boolean is not
+        // evidence for anything.
+        builder.Property(entity => entity.ReleaseConfigurationHash).HasMaxLength(64).IsRequired().HasDefaultValue(string.Empty);
+        builder.Property(entity => entity.CompletedBy).HasMaxLength(256);
         builder.HasIndex(entity => new { entity.Tenant, entity.Product, entity.Environment, entity.AssignmentReleaseId, entity.RequestedAt });
         builder.HasOne<ModelAssignmentReleaseEntity>()
             .WithMany()

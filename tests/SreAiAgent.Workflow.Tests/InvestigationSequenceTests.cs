@@ -146,4 +146,62 @@ public sealed class InvestigationSequenceTests
         activities.PersistedReport.ShouldBeNull();
         activities.Failed.ShouldNotBeNull().ErrorCode.ShouldBe(ApplicationErrorCodes.ConfigInvalid);
     }
+
+    [Theory]
+    [InlineData("APPROVAL_REJECTED")]
+    [InlineData("WORKFLOW_DEADLINE_EXCEEDED")]
+    public async Task ARejectedOrUnansweredApprovalStillReportsTheDiagnosis(string code)
+    {
+        // The rejection is about the proposed fix, not about the correlation.
+        // Failing here lost the RCA exactly when a human had engaged with it.
+        RecordingActivities activities = new() { ApprovalRequired = true };
+        ScriptedApprovalSequence sequence = new(Result.Failure(Error.Permanent(new ErrorCode(code), "No.")));
+
+        await sequence.ExecuteAsync(activities, Input, TestContext.Current.CancellationToken);
+
+        activities.Failed.ShouldBeNull();
+        activities.PersistedReport.ShouldNotBeNull();
+        activities.Calls.ShouldBe(
+        [
+            "load", "resolve", "classify", "select", "agent:database-expert",
+            "correlate", "recommend", "approval", "persist", "complete",
+        ]);
+    }
+
+    [Fact]
+    public async Task AnApprovalWaitThatFailsForAnyOtherReasonStillFailsTheInvestigation()
+    {
+        RecordingActivities activities = new() { ApprovalRequired = true };
+        ScriptedApprovalSequence sequence = new(
+            Result.Failure(Error.Permanent(ApplicationErrorCodes.WorkflowCancelled, "Cancelled while waiting.")));
+
+        await sequence.ExecuteAsync(activities, Input, TestContext.Current.CancellationToken);
+
+        activities.PersistedReport.ShouldBeNull();
+        activities.Failed.ShouldNotBeNull().ErrorCode.ShouldBe(ApplicationErrorCodes.WorkflowCancelled);
+    }
+
+    /// <summary>
+    /// A sequence whose approval wait returns a fixed answer, standing in for the
+    /// durable engine's signal without a Temporal test server.
+    /// </summary>
+    private sealed class ScriptedApprovalSequence(Result answer) : InvestigationSequence
+    {
+        protected override async Task ForEachAgentAsync(
+            int count,
+            Func<int, CancellationToken, Task> body,
+            CancellationToken cancellationToken)
+        {
+            for (int index = 0; index < count; index++)
+            {
+                await body(index, cancellationToken);
+            }
+        }
+
+        protected override Task<Result> WaitForApprovalAsync(
+            ApprovalDecision decision,
+            InvestigationWorkflowInput input,
+            CancellationToken cancellationToken)
+            => Task.FromResult(answer);
+    }
 }

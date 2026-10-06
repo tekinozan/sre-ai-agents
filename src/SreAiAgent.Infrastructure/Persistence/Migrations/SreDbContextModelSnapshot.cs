@@ -484,12 +484,19 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Tenant", "DetectedAt", "Id")
+                        .HasDatabaseName("ix_incidents_tenant_detected_id");
+
                     b.HasIndex("Tenant", "Source", "Fingerprint")
+                        .IsUnique()
                         .HasDatabaseName("ix_incidents_active_fingerprint")
                         .HasFilter("status NOT IN ('Resolved', 'Cancelled')");
 
                     b.HasIndex("Tenant", "Status", "DetectedAt")
                         .HasDatabaseName("ix_incidents_tenant_status_detected");
+
+                    b.HasIndex("Tenant", "Source", "Fingerprint", "LastAlertAt")
+                        .HasDatabaseName("ix_incidents_fingerprint_last_alert");
 
                     b.ToTable("incidents", (string)null);
                 });
@@ -1071,6 +1078,9 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                     b.HasIndex("PromptName", "PromptVersion")
                         .HasDatabaseName("ix_llm_calls_prompt");
 
+                    b.HasIndex("Tenant", "CalledAt")
+                        .HasDatabaseName("ix_llm_calls_tenant_called_at");
+
                     b.ToTable("llm_calls", (string)null);
                 });
 
@@ -1140,6 +1150,11 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamptz")
                         .HasColumnName("completed_at");
 
+                    b.Property<string>("CompletedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("completed_by");
+
                     b.Property<string>("Dataset")
                         .IsRequired()
                         .HasMaxLength(256)
@@ -1165,6 +1180,14 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(128)")
                         .HasDefaultValue("")
                         .HasColumnName("product");
+
+                    b.Property<string>("ReleaseConfigurationHash")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasDefaultValue("")
+                        .HasColumnName("release_configuration_hash");
 
                     b.Property<DateTimeOffset>("RequestedAt")
                         .HasColumnType("timestamptz")
@@ -1430,6 +1453,93 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("model_deployment_versions", (string)null);
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.NotificationChannelEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("display_name");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<int>("Events")
+                        .HasColumnType("integer")
+                        .HasColumnName("events");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Tenant")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant");
+
+                    b.Property<string>("WebhookRef")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("webhook_ref");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Tenant", "DisplayName")
+                        .IsUnique()
+                        .HasDatabaseName("ux_notification_channels_tenant_name");
+
+                    b.ToTable("notification_channels", (string)null);
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.NotificationDeliveryEntity", b =>
+                {
+                    b.Property<string>("DeliveryKey")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("delivery_key");
+
+                    b.Property<Guid>("ChannelId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("channel_id");
+
+                    b.Property<DateTimeOffset>("ClaimedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("claimed_at");
+
+                    b.Property<string>("Tenant")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant");
+
+                    b.HasKey("DeliveryKey", "ChannelId");
+
+                    b.HasIndex("ClaimedAt")
+                        .HasDatabaseName("ix_notification_deliveries_claimed_at");
+
+                    b.ToTable("notification_deliveries", (string)null);
                 });
 
             modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.OutboxMessageEntity", b =>
@@ -1728,6 +1838,75 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                     b.ToTable("provider_revision_verifications", (string)null);
                 });
 
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ReportFeedbackEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ActualRootCause")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("actual_root_cause");
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("comment");
+
+                    b.Property<Guid>("IncidentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("incident_id");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(48)
+                        .HasColumnType("character varying(48)")
+                        .HasColumnName("outcome");
+
+                    b.Property<int>("ReportVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("report_version");
+
+                    b.Property<DateTimeOffset>("SubmittedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("submitted_at");
+
+                    b.Property<string>("SubmittedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("submitted_by");
+
+                    b.Property<string>("Tenant")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("Verdict")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("verdict");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IncidentId", "ReportVersion", "SubmittedBy")
+                        .IsUnique()
+                        .HasDatabaseName("ux_report_feedback_report_actor");
+
+                    b.HasIndex("Tenant", "SubmittedAt", "Id")
+                        .HasDatabaseName("ix_report_feedback_tenant_submitted");
+
+                    b.ToTable("report_feedback", (string)null);
+                });
+
             modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.TenantActiveModelAssignmentEntity", b =>
                 {
                     b.Property<string>("Tenant")
@@ -1768,6 +1947,49 @@ namespace SreAiAgent.Infrastructure.Persistence.Migrations
                     b.HasIndex("Tenant", "Product", "Environment", "AssignmentReleaseId");
 
                     b.ToTable("tenant_active_model_assignments", (string)null);
+                });
+
+            modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.TenantBudgetEntity", b =>
+                {
+                    b.Property<string>("Tenant")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)")
+                        .HasColumnName("currency");
+
+                    b.Property<decimal>("LimitAmount")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("limit_amount");
+
+                    b.Property<string>("Period")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("period");
+
+                    b.Property<DateTimeOffset>("StartsAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("starts_at");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Tenant");
+
+                    b.ToTable("tenant_budgets", (string)null);
                 });
 
             modelBuilder.Entity("SreAiAgent.Infrastructure.Persistence.Entities.ToolCallEntity", b =>

@@ -188,6 +188,35 @@ A requested live run fails when the candidate, baseline, capability, endpoint, o
 credential is absent or incompatible; it is not converted to a skipped test. The
 runner goes through the production model gateway/provider resolver and never calls
 a provider SDK directly.
+## Completing a platform evaluation
+
+A live run can be the evidence for promoting a model assignment release
+(`docs/DECISIONS.md` D50). For that, the candidate manifest has to describe the
+release exactly, using the management API's own values:
+
+| Manifest member | From |
+|---|---|
+| `assignment_release.id`, `.version`, `.hash` | `GET /v1/model-assignment-releases`: `release_id`, `version`, `configuration_hash` |
+| `model_deployment.id`, `.version`, `.hash` | `GET /v1/model-deployments`: the one deployment version every slot uses |
+| `provider_connection_revision.id`, `.version`, `.hash` | `GET /v1/model-providers/{id}/revisions`: that deployment's revision |
+
+The run writes `summary.json` (`sre-eval-summary/v2`), which names those
+identities, the dataset and the baseline. An operator requests the evaluation
+with the dataset as `<dataset_id>@<version>` and the baseline id the run will use
+(or `bootstrap` for a first run with `SRE_EVAL_WRITE_BASELINE=1`); the CI job,
+authenticated as an `SreEvaluationRunner` identity, posts the file unchanged:
+
+```bash
+curl -X POST "$API/v1/model-assignment-releases/$RELEASE/evaluations/$EVALUATION" \
+  -H "Authorization: Bearer $RUNNER_TOKEN" -H 'Content-Type: application/json' \
+  --data-binary @artifacts/evals/$RUN_ID/summary.json
+sha256sum artifacts/evals/$RUN_ID/summary.json   # equals the response's artifact_hash
+```
+
+The platform derives pass or fail from the summary's gate and refuses a summary
+for another release, deployment, revision, dataset or baseline. A release whose
+slots use more than one deployment cannot be evaluated by one run.
+
 ## Versioned inputs and outputs
 
 - `Datasets/incidents/v1/` contains redacted schema-versioned cases and canonical

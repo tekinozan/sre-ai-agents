@@ -119,7 +119,12 @@ public sealed class ModelAssignmentEvaluationEntity
     public string? ArtifactHash { get; set; }
     public DateTimeOffset RequestedAt { get; set; }
     public string RequestedBy { get; set; } = string.Empty;
+
+    /// <summary>The release's hash when the evaluation was requested; activation requires it to still match.</summary>
+    public string ReleaseConfigurationHash { get; set; } = string.Empty;
+
     public DateTimeOffset? CompletedAt { get; set; }
+    public string? CompletedBy { get; set; }
 }
 
 // ModelControlPlaneAuditEntity is unchanged: it holds no alternate key anyone
@@ -137,4 +142,42 @@ public sealed class ModelControlPlaneAuditEntity
     public Guid ResourceId { get; set; }
     public string ConfigurationHash { get; set; } = string.Empty;
     public DateTimeOffset OccurredAt { get; set; }
+}
+
+/// <summary>A tenant's model-cost budget (gemini-budgets-notifications.md B).</summary>
+public sealed class TenantBudgetEntity
+{
+    public string Tenant { get; set; } = string.Empty;
+    public decimal LimitAmount { get; set; }
+    public string Currency { get; set; } = string.Empty;
+    public string Period { get; set; } = string.Empty;
+    public DateTimeOffset StartsAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+    public string UpdatedBy { get; set; } = string.Empty;
+}
+
+/// <summary>A tenant's Slack or Teams channel (gemini-budgets-notifications.md N).</summary>
+public sealed class NotificationChannelEntity
+{
+    public Guid Id { get; set; }
+    public string Tenant { get; set; } = string.Empty;
+    public string Kind { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string WebhookRef { get; set; } = string.Empty;
+    public int Events { get; set; }
+    public bool Enabled { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public string CreatedBy { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// One notification claimed for one channel. The key is what makes a redelivery
+/// or a second replica skip a channel that was already told.
+/// </summary>
+public sealed class NotificationDeliveryEntity
+{
+    public string DeliveryKey { get; set; } = string.Empty;
+    public Guid ChannelId { get; set; }
+    public string Tenant { get; set; } = string.Empty;
+    public DateTimeOffset ClaimedAt { get; set; }
 }

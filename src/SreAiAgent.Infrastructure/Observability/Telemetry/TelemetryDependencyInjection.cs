@@ -96,6 +96,14 @@ public static class TelemetryDependencyInjection
             // without the persistence layer being instrumented by hand.
             .AddSource("Npgsql")
 
+            // Temporal's tracing interceptor carries the trace across the
+            // workflow boundary, but it creates its spans from its own sources,
+            // and a source nobody listens to creates nothing. Without these the
+            // interceptor was installed and inert: every activity started with no
+            // current span, so classify, route, each agent and correlate each
+            // became the root of a trace of its own (production-readiness Phase 5).
+            .AddSource([.. WorkflowEngineTraceSources.Names])
+
             // Investigations are always sampled; HTTP ingress is not.
             //
             // The volumes differ by orders of magnitude and so does the value. An
@@ -131,4 +139,23 @@ public static class TelemetryDependencyInjection
             metrics.AddOtlpExporter(exporter => exporter.Endpoint = new Uri(telemetry.OtlpEndpoint));
         }
     }
+}
+
+/// <summary>
+/// The activity sources of Temporal's tracing interceptor
+/// (<c>Temporalio.Extensions.OpenTelemetry.TracingInterceptor</c>).
+/// </summary>
+/// <remarks>
+/// Named here because Infrastructure does not reference the workflow engine. A
+/// test compares them with the interceptor's own sources, so an upgrade that
+/// renames one fails the build instead of splitting every trace again.
+/// </remarks>
+internal static class WorkflowEngineTraceSources
+{
+    public static IReadOnlyList<string> Names { get; } =
+    [
+        "Temporalio.Extensions.OpenTelemetry.Client",
+        "Temporalio.Extensions.OpenTelemetry.Workflow",
+        "Temporalio.Extensions.OpenTelemetry.Activity",
+    ];
 }

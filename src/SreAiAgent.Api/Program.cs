@@ -27,6 +27,7 @@ builder.Services
     .AddSreObservability(builder.Environment)
     .AddSreTools()
     .AddSrePersistence()
+    .AddSreNotifications(builder.Configuration)
     .AddSreApplication()
     .AddSreAlertIngestion()
     .AddSreOutboxDispatcher()
@@ -71,6 +72,10 @@ builder.Services.AddOpenTelemetry()
         .AddPrometheusExporter());
 
 builder.Services.AddExceptionHandler<DomainExceptionHandler>();
+builder.Services.AddExceptionHandler<BadRequestExceptionHandler>();
+builder.Services.Configure<RouteHandlerOptions>(static options => options.ThrowOnBadRequest = true);
+builder.Services.Configure<ExceptionHandlerOptions>(static options =>
+    options.SuppressDiagnosticsCallback = static context => context.Exception is Microsoft.AspNetCore.Http.BadHttpRequestException);
 builder.Services.AddProblemDetails();
 builder.Services.AddSreHealthChecks().AddSreWorkflowHealthCheck(builder.Configuration);
 
@@ -114,9 +119,12 @@ if (builder.Configuration.GetValue("Telemetry:EnablePrometheusEndpoint", default
 
 app.MapHealthEndpoints();
 app.MapIncidentEndpoints();
+app.MapFeedbackEndpoints();
 app.MapAlertEndpoints();
 app.MapApprovalEndpoints();
 app.MapModelProviderEndpoints();
+app.MapBudgetEndpoints();
+app.MapNotificationEndpoints();
 app.MapStreamEndpoints();
 
 await app.RunAsync().ConfigureAwait(false);

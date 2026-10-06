@@ -303,7 +303,7 @@ Eşik geçilmezse sonuç `failed`/`blocked` kalır; bir pilot diğerine genellen
 
 Kapsam: ADP-601–ADP-605. Giriş: F5 pilot evidence **ve** eski readiness Phase 5
 kanıtı (`production-readiness.md`: Phase 5 bugün pending;
-`../../PRODUCTION_READINESS_PLAN.md` remediation planı).
+remediation planının ayrıntılı adım metni hiç commit edilmedi; kayıt `production-readiness.md`'dir).
 
 | Adım | İş | Kanıt katmanı |
 |---|---|---|
@@ -318,6 +318,12 @@ Kanıt yalnız ölçülen product/env/revision için geçerlidir.
 ---
 
 ## Bilinen defekt — mutlaka düzeltilmeli, ayrı bir faz değil
+
+> **Durum (2026-10-05): kapandı.** Üç kabul kriteri `project-assessment-2026-10.md`
+> P1-1 kapsamında uygulandı ve doğrulandı; kararlar `DECISIONS.md` D42 (consumer)
+> ve D43 (alert kimliği ve cooldown). Kapanış sırasında ikinci mekanizmanın
+> dayandığı yeniden teslimin de çalışmadığı bulundu: başarısız mesaj seek
+> edilmediği için aynı partition'daki sonraki başarılı commit onu atlıyordu (D42).
 
 **BUG-001 — Bir incident iki bağımsız doğrulanmış yoldan kalıcı olarak soruşturulmadan kalabiliyor: "resolved" durumundaki bir teslimatın açtığı ölü bir incident, ve daha geniş bir catch bloğunun sessizce attığı gerçek bir eşzamanlı yarış.**
 
@@ -415,6 +421,11 @@ eklenti değil) girsin, ya da fazlardan sonra ayrı bir iş olarak yapılsın.
 
 ---
 
+> **Durum (2026-10-05): kapandı.** Seçenek 2 uygulandı (`DECISIONS.md` D44);
+> kapanış kanıtı (a) ve (b) `ModelControlPlaneTests` içinde. Silme/geri çekme
+> işlemi olmadığı için (b)'nin "geri çekilme" hali yerine "hiç TenantWide yokken
+> dar aktivasyon reddedilir" kanıtlandı.
+
 **BUG-002 — Bir operatör `TenantWide` seviyesinde aktif bir assignment bırakmadan bir `ProductWide` veya `Full` release'i aktive ederse, o tenant'ın **bütün** incident'ları sessizce soruşturulamaz hale geliyor; ne şema ne de `ActivateAsync`'in başarılı yanıtı bunu uyarıyor.**
 
 **Kaynak — D41 (`DECISIONS.md`), kod okumasıyla doğrulandı, hipotez değil.**
@@ -489,7 +500,11 @@ Durum yalnız şu değerleri alır: `planlandı`, `uygulandı`, `doğrulandı`, 
 | F0-8 | uygulandı | adp-003-integration-support-and-testing.md, product-adaptability-implementation-and-testing.md, DECISIONS.md D37/D38, README.md |
 | F0-9 | uygulandı | product-adaptability-implementation-and-testing.md (ADP-001 tekil tenant sözlüğü ve scope kararı, ADP-002 hedef/kapsam dışı) |
 | F0-10 | bloklu | Pilot 2 adayı kaydedildi (TicketHub); Pilot 1 ve kalite eşiği bekleniyor |
-| F1-1 … F1-8 | planlandı | — |
+| F1-1 | uygulandı | DECISIONS.md D40 (scope modeli), D41 (exact-match çözümleme) |
+| F1-2 | uygulandı | `fe67c2a` TenantScope sütunları + migration |
+| F1-3, F1-5 | uygulandı | `43056cd` TenantScope cutover; `60589f2` API scope testi |
+| F1-4 | uygulandı | `8087005` credential reference yaşam döngüsü; `773fcf4` sızıntı testi |
+| F1-6 … F1-8 | planlandı | — |
 | F2-1 … F2-7 | planlandı | — |
 | F3-1 … F3-5, F3-7, F3-8 | planlandı | — |
 | F3-6 | bloklu | Credential/target yok |

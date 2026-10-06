@@ -70,6 +70,11 @@ internal sealed class LlmCallConfiguration : IEntityTypeConfiguration<LlmCallEnt
         builder.HasIndex(call => new { call.IncidentId, call.Id })
             .HasDatabaseName("ix_llm_calls_incident");
 
+        // A tenant's spend in a period, read before every model call when the
+        // tenant has a budget (gemini-budgets-notifications.md B).
+        builder.HasIndex(call => new { call.Tenant, call.CalledAt })
+            .HasDatabaseName("ix_llm_calls_tenant_called_at");
+
         // Attribution for a quality regression: which prompt release produced a
         // given result. Section 8.2 is the reason the hash is on the row at all.
         builder.HasIndex(call => new { call.PromptName, call.PromptVersion })

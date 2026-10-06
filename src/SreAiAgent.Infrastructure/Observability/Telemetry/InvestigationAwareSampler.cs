@@ -31,8 +31,14 @@ internal sealed class InvestigationAwareSampler(double ratio) : Sampler
     private readonly Sampler _delegate = new ParentBasedSampler(new TraceIdRatioBasedSampler(ratio));
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Two names, one per engine. The durable engine's span is opened by
+    /// Temporal's tracing interceptor under the consumer that started the
+    /// workflow, so it has the same unsampled-parent problem and the same fix.
+    /// </remarks>
     public override SamplingResult ShouldSample(in SamplingParameters parameters)
         => string.Equals(parameters.Name, SreSpanNames.Investigation, StringComparison.Ordinal)
+           || string.Equals(parameters.Name, SreSpanNames.DurableInvestigation, StringComparison.Ordinal)
             ? new SamplingResult(SamplingDecision.RecordAndSample)
             : _delegate.ShouldSample(in parameters);
 }

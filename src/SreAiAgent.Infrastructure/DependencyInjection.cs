@@ -50,6 +50,7 @@ public static class DependencyInjection
         services.AddOptionsWithValidation<DatabaseOptions>(DatabaseOptions.SectionName);
         services.AddOptionsWithValidation<KafkaOptions>(KafkaOptions.SectionName);
         services.AddOptionsWithValidation<LlmOptions>(LlmOptions.SectionName);
+        services.AddOptionsWithValidation<NotificationOptions>(NotificationOptions.SectionName);
         services.AddOptionsWithValidation<RegistryOptions>(RegistryOptions.SectionName);
         services.AddOptionsWithValidation<AgentRuntimeOptions>(AgentRuntimeOptions.SectionName);
         services.AddOptionsWithValidation<SecurityOptions>(SecurityOptions.SectionName);
@@ -181,6 +182,10 @@ public static class DependencyInjection
         // work of whichever activity is running, so the row commits with the work
         // it describes.
         services.TryAddScoped<ILlmGateway, LlmGateway>();
+
+        // No ceiling unless persistence registers the real guard, which it adds
+        // rather than tries, so it wins in either registration order.
+        services.TryAddScoped<ITenantBudgetGuard, UnlimitedBudgetGuard>();
 
         return services;
     }

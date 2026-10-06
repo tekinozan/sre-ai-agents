@@ -61,6 +61,34 @@ public sealed class ModelProviderAuthorizationTests
         return new ClaimsPrincipal(new ClaimsIdentity(claims, authenticationType: "Test"));
     }
 
+    [Theory]
+    [InlineData(SreRoles.Operator, false)]
+    [InlineData(SreRoles.PlatformAdmin, false)]
+    [InlineData(SreRoles.Investigator, false)]
+    [InlineData(SreRoles.EvaluationRunner, true)]
+    public async Task OnlyTheEvaluationRunnerCompletesAnEvaluation(string role, bool admitted)
+    {
+        // D50: the people who request and activate a release must not be able
+        // to declare that it passed, PlatformAdmin included.
+        IAuthorizationService authorization = BuildAuthorizationService();
+
+        AuthorizationResult result = await authorization.AuthorizeAsync(
+            Principal(tenant: "acme", role), resource: null, policyName: SrePolicies.CompleteModelEvaluations);
+
+        result.Succeeded.ShouldBe(admitted);
+    }
+
+    [Fact]
+    public async Task TheEvaluationRunnerCannotManageOrActivate()
+    {
+        IAuthorizationService authorization = BuildAuthorizationService();
+
+        AuthorizationResult result = await authorization.AuthorizeAsync(
+            Principal(tenant: "acme", SreRoles.EvaluationRunner), resource: null, policyName: SrePolicies.ManageModelProviders);
+
+        result.Succeeded.ShouldBeFalse();
+    }
+
     [Fact]
     public async Task AnInvestigatorIsRefusedOnEveryManagementRoute()
     {
@@ -72,11 +100,11 @@ public sealed class ModelProviderAuthorizationTests
             resource: null,
             policyName: SrePolicies.ManageModelProviders);
 
-        // Every management route is guarded by this single policy, so one refusal
-        // covers all of them (ListConnections, CreateConnection, CreateRevision,
-        // Verify, ListDeployments, Create*Deployment, ListAssignmentReleases,
-        // CreateAssignmentRelease, RequestEvaluation, CompleteEvaluation,
-        // Activate).
+        // Every management route but one is guarded by this single policy, so
+        // one refusal covers them (ListConnections, CreateConnection,
+        // CreateRevision, Verify, ListDeployments, Create*Deployment,
+        // ListAssignmentReleases, CreateAssignmentRelease, RequestEvaluation,
+        // Activate). CompleteEvaluation has its own policy, covered below.
         result.Succeeded.ShouldBeFalse();
     }
 
@@ -178,7 +206,6 @@ public sealed class ModelProviderAuthorizationTests
             typeof(CreateModelDeploymentRequest),
             typeof(CreateModelAssignmentReleaseRequest),
             typeof(RequestEvaluationRequest),
-            typeof(CompleteEvaluationRequest),
         ];
 
         foreach (Type request in managementRequests)

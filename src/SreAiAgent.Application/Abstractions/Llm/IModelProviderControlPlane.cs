@@ -44,7 +44,11 @@ public sealed record ModelAssignmentEvaluationHandoff(
     string Dataset,
     string Baseline,
     string Status,
-    DateTimeOffset RequestedAt);
+    DateTimeOffset RequestedAt,
+    string RequestedBy,
+    string? ArtifactHash = null,
+    DateTimeOffset? CompletedAt = null,
+    string? CompletedBy = null);
 
 public interface IModelProviderControlPlane
 {
@@ -61,6 +65,11 @@ public interface IModelProviderControlPlane
     Task<IReadOnlyList<ModelAssignmentRelease>> ListAssignmentReleasesAsync(TenantScope scope, CancellationToken cancellationToken);
     Task<Result<ModelAssignmentRelease>> CreateAssignmentReleaseAsync(TenantScope scope, CreateModelAssignmentReleaseCommand command, string actor, CancellationToken cancellationToken);
     Task<Result<ModelAssignmentEvaluationHandoff>> RequestEvaluationAsync(TenantScope scope, ModelAssignmentReleaseId releaseId, string dataset, string baseline, string actor, CancellationToken cancellationToken);
-    Task<Result<ModelAssignmentEvaluationHandoff>> CompleteEvaluationAsync(TenantScope scope, ModelAssignmentEvaluationId evaluationId, bool passed, string artifactHash, string actor, CancellationToken cancellationToken);
+    /// <summary>
+    /// Completes an evaluation from the eval harness's <c>summary.json</c>, byte
+    /// for byte. The verdict and the artifact hash are derived here, never
+    /// accepted (D50).
+    /// </summary>
+    Task<Result<ModelAssignmentEvaluationHandoff>> CompleteEvaluationAsync(TenantScope scope, ModelAssignmentReleaseId releaseId, ModelAssignmentEvaluationId evaluationId, ReadOnlyMemory<byte> summary, string actor, CancellationToken cancellationToken);
     Task<Result<ModelAssignmentRelease>> ActivateAsync(TenantScope scope, ModelAssignmentReleaseId releaseId, string actor, CancellationToken cancellationToken);
 }

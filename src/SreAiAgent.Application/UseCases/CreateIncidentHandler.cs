@@ -74,7 +74,8 @@ public sealed class CreateIncidentHandler(
 
         if (existing is not null)
         {
-            return await RecordRecurrenceAsync(existing, request, now, cancellationToken).ConfigureAwait(false);
+            return await RecordRecurrenceAsync(existing, request, now, deduplicationWindow, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         // A unique index decides, not a read. Two deliveries of the same alert
@@ -192,19 +193,88 @@ public sealed class CreateIncidentHandler(
             new IncidentAcceptedResponse(incident.Id, incident.Status, IsDuplicate: false));
     }
 
+    /// <summary>
+    /// Records that the source reported an alert's condition as resolved.
+    /// </summary>
+    /// <remarks>
+    /// Never opens an incident. A resolved delivery for an identity with nothing
+    /// to fold into used to open one without an investigation, and because that
+    /// incident then counted as active, the real alerts that followed were only
+    /// counted and never investigated (BUG-001, docs/DECISIONS.md D43). When an
+    /// incident is found the delivery is a timeline entry and nothing else: the
+    /// platform's own lifecycle is decided by the investigation, not by the
+    /// source.
+    /// </remarks>
+    public async Task<Result> RecordResolutionAsync(
+        CreateIncidentRequest request,
+        string tenant,
+        TimeSpan deduplicationWindow,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        DateTimeOffset now = timeProvider.GetUtcNow();
+        Incident? incident = await incidents
+            .FindActiveByFingerprintAsync(
+                tenant, request.Source, FingerprintOf(request), now - deduplicationWindow, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (incident is null)
+        {
+            return Result.Success();
+        }
+
+        incidents.AddTimelineEntry(IncidentTimelineEntry.Progress(
+            incident.Id,
+            "alert.resolved",
+            $"{incident.Source} reported the alert resolved.",
+            now));
+
+        await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        return Result.Success();
+    }
+
     /// <summary>Folds a repeat alert into the incident already tracking it.</summary>
     /// <remarks>
     /// The caller gets the same successful response either way. A duplicate is
     /// not a client error: an alert source repeating itself while a condition
     /// persists is the normal case, and answering 409 would train every
     /// integration to treat a healthy platform as broken.
+    ///
+    /// Folding is not always only counting. An incident that was never
+    /// investigated, or whose investigation failed before the alert went quiet
+    /// for a whole window, would otherwise absorb every later alert without
+    /// anyone looking at it; for those the recurrence starts the investigation
+    /// (D43). The snapshot is pinned before the aggregate changes, for the same
+    /// reason as on open: a pin failure rejects the delivery rather than leaving
+    /// a counted alert that a retry would count again.
     /// </remarks>
     private async Task<Result<IncidentAcceptedResponse>> RecordRecurrenceAsync(
         Incident incident,
         CreateIncidentRequest request,
         DateTimeOffset now,
+        TimeSpan deduplicationWindow,
         CancellationToken cancellationToken)
     {
+        bool investigate = (request.StartInvestigation ?? true)
+            && NeedsInvestigation(incident, now - deduplicationWindow);
+
+        ConfigurationSnapshot? snapshot = null;
+        if (investigate)
+        {
+            Result<ConfigurationSnapshot> pinned = await pinner
+                .PinCurrentAsync(incident.Tenant, now, cancellationToken)
+                .ConfigureAwait(false);
+            if (pinned.IsFailure)
+            {
+                return Result<IncidentAcceptedResponse>.Failure(pinned.Error);
+            }
+
+            snapshot = pinned.Value;
+        }
+
+        bool wasFailed = incident.Status == IncidentStatus.Failed;
         incident.RecordAlertRecurrence(now);
 
         if (request.Severity > incident.Severity)
@@ -212,13 +282,48 @@ public sealed class CreateIncidentHandler(
             incident.EscalateSeverity(request.Severity, now);
         }
 
+        if (snapshot is not null)
+        {
+            snapshots.Add(snapshot);
+            incident.StartInvestigation(snapshot.Id, now);
+        }
+
         StageTimeline(incident, now);
+
+        if (snapshot is not null)
+        {
+            publisher.Enqueue(
+                KafkaTopics.InvestigationRequested,
+                "sre.incident.investigation.requested",
+                new InvestigationRequestedPayload(incident.Id, incident.Tenant, snapshot.Id, Attempt: wasFailed ? 2 : 1),
+                incident.Id.ToString());
+        }
 
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         return Result<IncidentAcceptedResponse>.Success(
             new IncidentAcceptedResponse(incident.Id, incident.Status, IsDuplicate: true));
     }
+
+    /// <summary>
+    /// Whether a recurrence should start an investigation on the incident it
+    /// folds into.
+    /// </summary>
+    /// <remarks>
+    /// Every other state is either investigating, waiting on a human, or a
+    /// resolved incident inside its cooldown, where the alert repeating is the
+    /// outage the report already explains. A failed incident is restarted only
+    /// once its alert had gone quiet for a window, so a pipeline that fails on
+    /// every attempt costs one investigation per window rather than one per
+    /// alert.
+    /// </remarks>
+    private static bool NeedsInvestigation(Incident incident, DateTimeOffset quietSince)
+        => incident.Status switch
+        {
+            IncidentStatus.Open => incident.ConfigurationSnapshotId is null,
+            IncidentStatus.Failed => incident.LastAlertAt < quietSince,
+            _ => false,
+        };
 
     /// <summary>
     /// Handles losing the race to claim the creation key.
@@ -245,7 +350,7 @@ public sealed class CreateIncidentHandler(
             .ConfigureAwait(false);
 
         return winner is not null
-            ? await RecordRecurrenceAsync(winner, request, now, cancellationToken).ConfigureAwait(false)
+            ? await RecordRecurrenceAsync(winner, request, now, deduplicationWindow, cancellationToken).ConfigureAwait(false)
             : Result<IncidentAcceptedResponse>.Failure(Error.Transient(
                 ApplicationErrorCodes.IncidentInvalidState,
                 "Another request is already opening this incident. Retry shortly."));

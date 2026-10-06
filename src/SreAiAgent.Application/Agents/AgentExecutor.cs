@@ -162,7 +162,12 @@ public sealed partial class AgentExecutor : IAgentExecutor
 
             if (response.IsFailure)
             {
-                return session.Failed(response.Error.Code, response.Error.Message);
+                // The tenant's spending limit is a budget like this agent's own,
+                // not a provider fault. Reported as a failure it made a run the
+                // operator had capped look like a degraded provider (Partial).
+                return response.Error.Code == ApplicationErrorCodes.BudgetExceeded
+                    ? session.BudgetExceeded(response.Error.Message)
+                    : session.Failed(response.Error.Code, response.Error.Message);
             }
 
             budget.RecordUsage(

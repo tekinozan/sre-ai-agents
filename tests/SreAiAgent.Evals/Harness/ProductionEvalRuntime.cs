@@ -120,7 +120,7 @@ internal sealed class ProductionEvalRuntime : IAsyncDisposable
         AgentExecutor executor = new(renderer, gateway, fixtures, metrics, timeProvider, NullLogger<AgentExecutor>.Instance);
 
         InvestigationActivities activities = new(
-            stores, stores, stores, stores, router, executor, agents, prompts, tools, gateway, renderer, metrics, timeProvider, NullLogger<InvestigationActivities>.Instance);
+            stores, stores, stores, stores, stores, router, executor, agents, prompts, tools, gateway, renderer, metrics, timeProvider, NullLogger<InvestigationActivities>.Instance);
 
         IncidentId incidentId = new(DeterministicGuid(evalCase.CaseId));
         Incident incident = new Incident(
@@ -376,6 +376,6 @@ internal sealed class StubModelProviderControlPlane : IModelProviderControlPlane
     public Task<IReadOnlyList<ModelAssignmentRelease>> ListAssignmentReleasesAsync(SreAiAgent.Domain.ModelProviders.TenantScope scope, CancellationToken cancellationToken) => Reject<IReadOnlyList<ModelAssignmentRelease>>();
     public Task<Result<ModelAssignmentRelease>> CreateAssignmentReleaseAsync(SreAiAgent.Domain.ModelProviders.TenantScope scope, CreateModelAssignmentReleaseCommand command, string actor, CancellationToken cancellationToken) => Reject<Result<ModelAssignmentRelease>>();
     public Task<Result<ModelAssignmentEvaluationHandoff>> RequestEvaluationAsync(SreAiAgent.Domain.ModelProviders.TenantScope scope, ModelAssignmentReleaseId releaseId, string dataset, string baseline, string actor, CancellationToken cancellationToken) => Reject<Result<ModelAssignmentEvaluationHandoff>>();
-    public Task<Result<ModelAssignmentEvaluationHandoff>> CompleteEvaluationAsync(SreAiAgent.Domain.ModelProviders.TenantScope scope, ModelAssignmentEvaluationId evaluationId, bool passed, string artifactHash, string actor, CancellationToken cancellationToken) => Reject<Result<ModelAssignmentEvaluationHandoff>>();
+    public Task<Result<ModelAssignmentEvaluationHandoff>> CompleteEvaluationAsync(SreAiAgent.Domain.ModelProviders.TenantScope scope, ModelAssignmentReleaseId releaseId, ModelAssignmentEvaluationId evaluationId, ReadOnlyMemory<byte> summary, string actor, CancellationToken cancellationToken) => Reject<Result<ModelAssignmentEvaluationHandoff>>();
     public Task<Result<ModelAssignmentRelease>> ActivateAsync(SreAiAgent.Domain.ModelProviders.TenantScope scope, ModelAssignmentReleaseId releaseId, string actor, CancellationToken cancellationToken) => Reject<Result<ModelAssignmentRelease>>();
 }

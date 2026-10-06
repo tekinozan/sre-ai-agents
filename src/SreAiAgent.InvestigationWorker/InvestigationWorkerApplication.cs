@@ -32,6 +32,7 @@ public static class InvestigationWorkerApplication
             .AddSreInvestigationUseCases()
             .AddSreWorkflowWorker(builder.Configuration)
             .AddSreInvestigationConsumer()
+            .AddSreNotificationDelivery(builder.Configuration)
             .AddSreOutboxDispatcher()
             .AddSreHealthChecks()
             .AddSreWorkflowHealthCheck(builder.Configuration)

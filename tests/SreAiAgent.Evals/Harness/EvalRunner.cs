@@ -7,6 +7,7 @@ namespace SreAiAgent.Evals.Harness;
 internal sealed class EvalRunner
 {
     internal const string WriteBaselineEnvironmentVariable = "SRE_EVAL_WRITE_BASELINE";
+    internal const string SummarySchemaVersion = "sre-eval-summary/v2";
 
     private readonly LoadedDataset _dataset;
     private readonly CandidateDefinition _definition;
@@ -130,7 +131,18 @@ internal sealed class EvalRunner
             attempt.Output.Usage,
             attempt.Output.LatencyMilliseconds,
             attempt.Tools.Select(static tool => tool.Tool).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList())).ToList();
-        SummaryArtifact summary = new("sre-eval-summary/v1", runId, candidate.CandidateHash, candidate.Dataset.Hash, aggregate, gate);
+        SummaryArtifact summary = new(
+            SummarySchemaVersion,
+            runId,
+            candidate.CandidateHash,
+            candidate.Dataset.Hash,
+            SummaryIdentity.From(candidate.AssignmentRelease),
+            SummaryIdentity.From(candidate.ModelDeployment),
+            SummaryIdentity.From(candidate.ProviderConnectionRevision),
+            SummaryIdentity.From(candidate.Dataset),
+            new SummaryBaseline(effectiveBaseline.BaselineId, writeBaseline),
+            aggregate,
+            gate);
         ArtifactBundle bundle = new(manifest, safeAttempts, summary, ArtifactWriter.BuildJunit(runId, attempts, gate));
         IReadOnlyList<string> canaries = orderedCases.SelectMany(static item => item.Security.SecretCanaries).Distinct(StringComparer.Ordinal).ToList();
         string directory = ArtifactWriter.Write(artifactRoot, bundle, canaries);

@@ -72,7 +72,46 @@ a per-agent scope hook.
 **Two events published twice** — a hand-built `IncidentCreated` alongside the
 domain event, and `InvestigationStarted` sharing a wire type with the request.
 
+**A failed Kafka message was never redelivered.** The consumer left the offset
+uncommitted and returned, on the belief that the broker would send it again. The
+fetch position had already moved past it, so it came back only after a restart,
+and the next success on the partition committed over it for good. The runbook
+even described the retry loop that could not happen. The consumer now seeks back
+to the failed offset (D42).
+
+**Every unique violation was read as a duplicate delivery.** True of the inbox
+key only; on the idempotency claim or the incident index it meant a *different*
+message for the same alert had lost a race, and acknowledging it dropped the
+alert without a count or an escalation (BUG-001, D42). A substitute
+`PostgresException` in a unit test can claim any table; the integration suite
+proves the real server reports it.
+
+**Temporal's tracing interceptor was installed and did nothing.** It emits from
+its own activity sources, and the tracer provider listened only to the
+platform's, so no workflow or activity span was ever created; every
+investigation step became a one-span trace of its own. Adding a second
+interceptor to the worker would have hidden this behind duplicates, because the
+client's interceptor already applies to workers built from it. Both are now
+covered by tests that compare names with the library's own (P3-1).
+
+**A resolved delivery opened an incident nobody investigated,** and because that
+incident then counted as active, the real alerts that followed were only counted.
+Found in the TicketHub pilot's own database, six incidents for one outage (D43).
+
 ---
+
+**An update to an entity read without tracking.** The context defaults to
+`NoTrackingWithIdentityResolution`, so a row loaded by a plain query and then
+changed is saved by nothing: `SaveChanges` succeeds with no writes. A revised
+report verdict answered 200 with the new value and kept the old one; its test
+asserted on the response, which is built from the in-memory value. Load what
+you mean to change with `.AsTracking()`, and assert on a read-back, never on the
+write's echo.
+
+**`sre.incident.completed.v1` was declared and never written.** The aggregate
+raised `IncidentResolved` and `IncidentFailed`, nothing drained them, and every
+consumer of the topic — the notifier was the first — heard nothing. The
+activities now publish it through the outbox with the state change (D48).
 
 ## Serialization
 
@@ -130,6 +169,13 @@ Found by booting the host, which is the only thing that finds them.
 - **`jsonb` reparses payloads.** `{"ok":true}` comes back as `{"ok": true}`; key
   order and whitespace are not preserved. Compare parsed JSON, and never hash a
   payload expecting the stored copy to match.
+- **The gate had never passed on Linux.** The repository was built on Windows,
+  and the eval harness hashed its configuration as indented JSON, whose line
+  breaks are `Environment.NewLine`, so the committed baseline matched no Linux
+  run; and `Uri.TryCreate("/v1/chat", UriKind.Absolute)` succeeds on Unix as a
+  file URI. Hash canonical JSON, and do not treat `TryCreate` alone as "is
+  absolute". Prompts built with `StringBuilder.AppendLine` still differ by
+  platform.
 - **"Zero tests ran" is exit 8, in both directions.** The integration project in
   the default run, and the other seven in a trait-filtered run. Hence the untraited
   convention test in `IntegrationTests` and the scoped integration step in
@@ -147,7 +193,8 @@ Honest gaps, not solved problems.
   workflow is not.
 - **The approval path has never run.** Tables, endpoints, the workflow signal and
   the wait all exist, but nothing in V1 creates an `ApprovalRequest`, so none of
-  that code has executed.
+  that code has executed. One defect was found in it by reading alone: a
+  rejection failed the run before the report was written. Expect more.
 - **Database observability is still a deterministic fake.** Metrics, logs and
   Kubernetes have real adapters; `IDatabaseObservability` does not, and
   `AddSreObservability` refuses any fake provider in Production.

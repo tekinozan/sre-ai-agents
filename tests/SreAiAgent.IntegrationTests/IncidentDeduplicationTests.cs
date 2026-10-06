@@ -1,7 +1,10 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using SreAiAgent.Contracts.Alerts;
 using SreAiAgent.Domain.Findings;
 using SreAiAgent.Domain.Incidents;
 using SreAiAgent.Domain.Shared;
+using SreAiAgent.Infrastructure.Messaging;
 using SreAiAgent.Infrastructure.Persistence;
 using SreAiAgent.Infrastructure.Persistence.Repositories;
 
@@ -82,20 +85,40 @@ public sealed class IncidentDeduplicationTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task AResolvedIncidentDoesNotAbsorbALaterAlert()
+    public async Task AResolvedIncidentInsideItsCooldownAbsorbsALaterAlert()
     {
         string fingerprint = Guid.CreateVersion7().ToString("N", CultureInfo.InvariantCulture);
-        Incident incident = NewIncidentFor(fingerprint, Now);
-        incident.StartInvestigation(ConfigurationSnapshotId.New(), Now);
-        incident.MarkResolved(Now);
+        Incident incident = NewIncidentFor(fingerprint, Now.AddMinutes(-10));
+        incident.StartInvestigation(ConfigurationSnapshotId.New(), Now.AddMinutes(-10));
+        incident.MarkResolved(Now.AddMinutes(-5));
 
         await SaveAsync(incident);
 
         await using SreDbContext context = postgres.CreateContext();
 
-        // A recurrence after the condition cleared is a new incident, not an
-        // addendum to a closed one. Reopening it silently would hide that the
-        // problem came back.
+        // D43: "resolved" means the investigation concluded, not that the
+        // outage ended. An alert that keeps firing inside the cooldown is the
+        // outage the report already explains, not a new incident.
+        Incident? found = await Repository(context).FindActiveByFingerprintAsync(
+            "acme", "alertmanager", fingerprint, Now.AddMinutes(-60), TestContext.Current.CancellationToken);
+
+        found.ShouldNotBeNull().Id.ShouldBe(incident.Id);
+    }
+
+    [Fact]
+    public async Task AResolvedIncidentOutsideItsCooldownDoesNotAbsorbALaterAlert()
+    {
+        string fingerprint = Guid.CreateVersion7().ToString("N", CultureInfo.InvariantCulture);
+        Incident incident = NewIncidentFor(fingerprint, Now.AddHours(-3));
+        incident.StartInvestigation(ConfigurationSnapshotId.New(), Now.AddHours(-3));
+        incident.MarkResolved(Now.AddHours(-3));
+
+        await SaveAsync(incident);
+
+        await using SreDbContext context = postgres.CreateContext();
+
+        // A recurrence after the alert has been quiet for the whole cooldown is
+        // a new incident, not an addendum to a closed one.
         Incident? found = await Repository(context).FindActiveByFingerprintAsync(
             "acme", "alertmanager", fingerprint, Now.AddMinutes(-60), TestContext.Current.CancellationToken);
 
@@ -103,17 +126,65 @@ public sealed class IncidentDeduplicationTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task AnIncidentOlderThanTheWindowIsNotFound()
+    public async Task AnActiveIncidentIsFoundHoweverLongItsAlertWasQuiet()
     {
         string fingerprint = Guid.CreateVersion7().ToString("N", CultureInfo.InvariantCulture);
-        await SaveAsync(NewIncidentFor(fingerprint, Now.AddHours(-3)));
+        Incident saved = await SaveAsync(NewIncidentFor(fingerprint, Now.AddHours(-3)));
+
+        await using SreDbContext context = postgres.CreateContext();
+
+        // The unique index allows one active incident per identity, so a second
+        // could not be opened beside this one; the alert has to fold into it.
+        Incident? found = await Repository(context).FindActiveByFingerprintAsync(
+            "acme", "alertmanager", fingerprint, Now.AddMinutes(-60), TestContext.Current.CancellationToken);
+
+        found.ShouldNotBeNull().Id.ShouldBe(saved.Id);
+    }
+
+    [Fact]
+    public async Task TheActiveIncidentIsPreferredOverAResolvedOneInsideItsCooldown()
+    {
+        string fingerprint = Guid.CreateVersion7().ToString("N", CultureInfo.InvariantCulture);
+        Incident resolved = NewIncidentFor(fingerprint, Now.AddMinutes(-2));
+        resolved.StartInvestigation(ConfigurationSnapshotId.New(), Now.AddMinutes(-2));
+        resolved.MarkResolved(Now.AddMinutes(-1));
+        await SaveAsync(resolved);
+        Incident active = await SaveAsync(NewIncidentFor(fingerprint, Now.AddMinutes(-30)));
 
         await using SreDbContext context = postgres.CreateContext();
 
         Incident? found = await Repository(context).FindActiveByFingerprintAsync(
             "acme", "alertmanager", fingerprint, Now.AddMinutes(-60), TestContext.Current.CancellationToken);
 
-        found.ShouldBeNull("A flapping alert from this morning is not the same event as one now.");
+        found.ShouldNotBeNull().Id.ShouldBe(active.Id);
+    }
+
+    [Fact]
+    public async Task TheDatabaseRefusesASecondActiveIncidentForOneAlert()
+    {
+        string fingerprint = Guid.CreateVersion7().ToString("N", CultureInfo.InvariantCulture);
+        await SaveAsync(NewIncidentFor(fingerprint, Now));
+
+        // BUG-001: the index used to be an ordinary one, so nothing below the
+        // application stopped two open incidents for the same alert.
+        DbUpdateException refused = await Should.ThrowAsync<DbUpdateException>(
+            async () => await SaveAsync(NewIncidentFor(fingerprint, Now)));
+
+        PostgresException violation = refused.InnerException.ShouldBeOfType<PostgresException>();
+        violation.SqlState.ShouldBe(PostgresErrorCodes.UniqueViolation);
+        violation.ConstraintName.ShouldBe("ix_incidents_active_fingerprint");
+    }
+
+    [Fact]
+    public async Task ASecondActiveIncidentIsAllowedOnceTheFirstIsResolved()
+    {
+        string fingerprint = Guid.CreateVersion7().ToString("N", CultureInfo.InvariantCulture);
+        Incident first = NewIncidentFor(fingerprint, Now.AddHours(-3));
+        first.StartInvestigation(ConfigurationSnapshotId.New(), Now.AddHours(-3));
+        first.MarkResolved(Now.AddHours(-3));
+        await SaveAsync(first);
+
+        await SaveAsync(NewIncidentFor(fingerprint, Now));
     }
 
     [Fact]
@@ -142,8 +213,40 @@ public sealed class IncidentDeduplicationTests(PostgresFixture postgres)
 
         // The loser fails at commit, not at the read, and its whole transaction
         // rolls back with it. That is what stops a second incident being opened.
-        await Should.ThrowAsync<DbUpdateException>(
+        DbUpdateException lost = await Should.ThrowAsync<DbUpdateException>(
             async () => await second.SaveChangesAsync(TestContext.Current.CancellationToken));
+
+        // And the consumer must not mistake the loser for a redelivery of its
+        // own message: it is a different message for the same alert, which has
+        // to be retried and folded into the winner, not acknowledged (D42).
+        KafkaConsumerService<CanonicalAlert>.IsDuplicateDelivery(lost).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task ASecondInboxRowForOneMessageIsRecognisedAsADuplicateDelivery()
+    {
+        // The distinction above rests on PostgreSQL reporting which table a
+        // unique violation came from. A substitute in a unit test can claim
+        // anything; this proves the real server does.
+        Guid eventId = Guid.CreateVersion7();
+
+        await using SreDbContext first = postgres.CreateContext();
+        await using SreDbContext second = postgres.CreateContext();
+
+        InboxStore firstInbox = new(first, TimeProvider.System);
+        InboxStore secondInbox = new(second, TimeProvider.System);
+
+        (await firstInbox.TryBeginAsync(eventId, "sre.alert.received", "alert-worker", TestContext.Current.CancellationToken))
+            .ShouldBeTrue();
+        (await secondInbox.TryBeginAsync(eventId, "sre.alert.received", "alert-worker", TestContext.Current.CancellationToken))
+            .ShouldBeTrue();
+
+        await first.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        DbUpdateException duplicate = await Should.ThrowAsync<DbUpdateException>(
+            async () => await second.SaveChangesAsync(TestContext.Current.CancellationToken));
+
+        KafkaConsumerService<CanonicalAlert>.IsDuplicateDelivery(duplicate).ShouldBeTrue();
     }
 
     [Fact]

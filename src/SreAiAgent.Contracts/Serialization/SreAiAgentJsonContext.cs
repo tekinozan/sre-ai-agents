@@ -1,9 +1,11 @@
 using System.Text.Json.Serialization;
 using SreAiAgent.Contracts.Alerts;
 using SreAiAgent.Contracts.Approvals;
+using SreAiAgent.Contracts.Budgets;
 using SreAiAgent.Contracts.Incidents;
 using SreAiAgent.Contracts.Messaging;
 using SreAiAgent.Contracts.ModelProviders;
+using SreAiAgent.Contracts.Notifications;
 using SreAiAgent.Contracts.Streaming;
 
 namespace SreAiAgent.Contracts.Serialization;
@@ -32,6 +34,11 @@ namespace SreAiAgent.Contracts.Serialization;
 [JsonSerializable(typeof(CreateIncidentRequest))]
 [JsonSerializable(typeof(IncidentAcceptedResponse))]
 [JsonSerializable(typeof(IncidentResponse))]
+[JsonSerializable(typeof(IncidentListResponse))]
+[JsonSerializable(typeof(SubmitReportFeedbackRequest))]
+[JsonSerializable(typeof(ReportFeedbackResponse))]
+[JsonSerializable(typeof(IReadOnlyList<ReportFeedbackResponse>))]
+[JsonSerializable(typeof(ReportFeedbackListResponse))]
 [JsonSerializable(typeof(IncidentActionRequest))]
 [JsonSerializable(typeof(IReadOnlyList<IncidentTimelineEntryResponse>))]
 [JsonSerializable(typeof(IReadOnlyList<EvidenceResponse>))]
@@ -55,8 +62,12 @@ namespace SreAiAgent.Contracts.Serialization;
 [JsonSerializable(typeof(ModelAssignmentReleaseResponse))]
 [JsonSerializable(typeof(IReadOnlyList<ModelAssignmentReleaseResponse>))]
 [JsonSerializable(typeof(RequestEvaluationRequest))]
-[JsonSerializable(typeof(CompleteEvaluationRequest))]
 [JsonSerializable(typeof(ModelAssignmentEvaluationResponse))]
+[JsonSerializable(typeof(SetBudgetRequest))]
+[JsonSerializable(typeof(BudgetResponse))]
+[JsonSerializable(typeof(CreateNotificationChannelRequest))]
+[JsonSerializable(typeof(NotificationChannelResponse))]
+[JsonSerializable(typeof(IReadOnlyList<NotificationChannelResponse>))]
 [JsonSerializable(typeof(InvestigationStreamEvent))]
 [JsonSerializable(typeof(EventEnvelope<CanonicalAlert>))]
 [JsonSerializable(typeof(EventEnvelope<IncidentCreatedPayload>))]

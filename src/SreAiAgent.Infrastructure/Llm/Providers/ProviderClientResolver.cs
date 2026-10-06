@@ -22,6 +22,7 @@ internal sealed class ProviderClientCatalog(
             ProviderAdapterKind.OpenAiCompatible => new OpenAiCompatibleProviderChatClient(clients, credentials, revision),
             ProviderAdapterKind.AzureOpenAi => new AzureOpenAiProviderChatClient(clients, credentials, revision),
             ProviderAdapterKind.Anthropic => new AnthropicProviderChatClient(clients, credentials, revision),
+            ProviderAdapterKind.Gemini => new GeminiProviderChatClient(clients, credentials, revision),
             _ => throw new InvalidOperationException("The provider adapter kind is not registered."),
         };
     }
@@ -40,6 +41,8 @@ internal sealed class ProviderClientCatalog(
             ProviderAdapterKind.Anthropic => new(adapterKind,
                 ModelCapability.StructuredOutput | ModelCapability.SystemMessage
                 | ModelCapability.ToolCalling | ModelCapability.ParallelToolCalls),
+            ProviderAdapterKind.Gemini => new(adapterKind,
+                ModelCapability.StructuredOutput | ModelCapability.SystemMessage | ModelCapability.Seed),
             _ => throw new InvalidOperationException("The provider adapter kind is not registered."),
         };
 }

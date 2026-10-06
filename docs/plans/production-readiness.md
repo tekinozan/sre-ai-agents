@@ -1,7 +1,7 @@
 # Production readiness execution plan
 
-> **Status:** Phases 1–4 and local deployment follow-up complete; Phase 5 not started.
-> **Source of truth:** `PRODUCTION_READINESS_PLAN.md` (root) holds the detailed per-step specifications, code templates, and context.
+> **Status:** Phases 1–4 and local deployment follow-up complete; Phase 5 applied (replay test, k6 script, runbook, trace continuity), full soak outstanding.
+> **Source of truth:** this document. The root `PRODUCTION_READINESS_PLAN.md` it once pointed at was never committed and is lost; the per-step specifications that survive are the ones recorded below and in the commits that landed each phase.
 > **Scope:** This document governs execution phasing, ordering dependencies, affected files, acceptance criteria, open questions, and completion tracking.
 > **Last updated:** 2026-09-09.
 
@@ -13,7 +13,7 @@
 | [Phase 2 — Messaging: transport security and bounded poison messages](#phase-2--messaging-transport-security-and-bounded-poison-messages) | Steps 5, 6 | Complete |
 | [Phase 3 — Operational surface: retention, health, probes](#phase-3--operational-surface-retention-health-probes) | Steps 7, 8, 9 | Complete |
 | [Phase 4 — Outbound resilience and a production configuration that boots](#phase-4--outbound-resilience-and-a-production-configuration-that-boots) | Steps 10, 11 | Complete |
-| [Phase 5 — Proof and operations](#phase-5--proof-and-operations) | Steps 12, 13, 14 | Not started |
+| [Phase 5 — Proof and operations](#phase-5--proof-and-operations) | Steps 12, 13, 14 | Applied 2026-10-05 (`project-assessment-2026-10.md` P3-1, P3-2); the full 25-minute soak and a live SASL/TLS broker remain |
 | [Deployment follow-up — local Compose PostgreSQL consolidation](#deployment-follow-up--local-compose-postgresql-consolidation) | Local stack reliability follow-up | Complete |
 
 ---
@@ -310,4 +310,4 @@ They provide operational validation, durability guarantees, and runbooks for hum
 ### Open questions and notes
 - **`WorkflowHistory.FromJson` factory:** In `Temporalio` 1.18.0, check `Temporalio.Common.WorkflowHistory` for the exact JSON deserialization method. If `WorkflowHistory.FromJson` is unavailable, use `Temporalio.Api.History.V1.History.Parser.ParseJson(json)` to instantiate `WorkflowHistory`.
 - **History capture format:** Ensure the recorded JSON history fixture is the normalized history proto representation rather than a Temporal CLI envelope wrapper.
-- **Cross-service trace continuity (outstanding, blocks final sign-off):** Verifying Phase 4 against the Compose stack (`docs/agents/recipes/verify-end-to-end.md`) found that one alert-to-report run produces spans (`classify`, `route`, `agent.execute`, `llm.call`, `tool.execute`, `correlate`) scattered across several different Jaeger trace ids rather than the single trace spanning API, alert-worker, and investigation-worker that this document's own Phase 5 verification step 2 requires ("Single Jaeger trace spans API, worker, and tools"); some of those spans carry no parent reference at all. This predates Phase 4's own changes — nothing in steps 10–11 touches tracing, the sampler, or context propagation — so it was not diagnosed or fixed as part of Phase 4. It must be investigated and resolved, with root cause identified (likely context propagation across the Kafka message envelope and/or the Temporal activity boundary) and a regression test added, before production readiness as a whole can be signed off; Phase 5's own step 2 verification cannot pass while this stands.
+- **Cross-service trace continuity (resolved 2026-10-05, `project-assessment-2026-10.md` P3-1):** the break was at the Temporal boundary, not Kafka. The tracing interceptor was installed but its activity sources were never registered with the tracer provider, so it created no spans and every activity started as a root; a second interceptor on the worker would then have recorded each span twice. Original finding: Verifying Phase 4 against the Compose stack (`docs/agents/recipes/verify-end-to-end.md`) found that one alert-to-report run produces spans (`classify`, `route`, `agent.execute`, `llm.call`, `tool.execute`, `correlate`) scattered across several different Jaeger trace ids rather than the single trace spanning API, alert-worker, and investigation-worker that this document's own Phase 5 verification step 2 requires ("Single Jaeger trace spans API, worker, and tools"); some of those spans carry no parent reference at all. This predates Phase 4's own changes — nothing in steps 10–11 touches tracing, the sampler, or context propagation — so it was not diagnosed or fixed as part of Phase 4. It must be investigated and resolved, with root cause identified (likely context propagation across the Kafka message envelope and/or the Temporal activity boundary) and a regression test added, before production readiness as a whole can be signed off; Phase 5's own step 2 verification cannot pass while this stands.

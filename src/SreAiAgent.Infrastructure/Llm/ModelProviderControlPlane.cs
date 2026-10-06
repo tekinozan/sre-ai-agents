@@ -324,6 +324,15 @@ internal sealed class ModelProviderControlPlane(
                 return NotFound<ModelAssignmentEvaluationHandoff>(ApplicationErrorCodes.ModelAssignmentNotFound, "No such model assignment release.");
             }
 
+            // The dataset is named as the harness names it, so the summary can be
+            // matched against what was asked for (D50).
+            if (!IsDatasetReference(dataset))
+            {
+                return Result<ModelAssignmentEvaluationHandoff>.Failure(Error.Permanent(
+                    ApplicationErrorCodes.ValidationFailed,
+                    "The dataset must be named as '<dataset_id>@<version>', for example 'sre-incidents-redacted@v1'."));
+            }
+
             DateTimeOffset now = timeProvider.GetUtcNow();
             ModelAssignmentEvaluationId evaluationId = ModelAssignmentEvaluationId.New();
             providers.AddEvaluation(new ModelAssignmentEvaluationEntity
@@ -339,6 +348,7 @@ internal sealed class ModelProviderControlPlane(
                 Passed = false,
                 RequestedAt = now,
                 RequestedBy = actor,
+                ReleaseConfigurationHash = release.ConfigurationHash,
             });
             providers.AddAudit(scope.Tenant, actor, "evaluate", "model_assignment_release", release.Id.Value,
                 release.ConfigurationHash, now);
@@ -349,7 +359,8 @@ internal sealed class ModelProviderControlPlane(
                 dataset,
                 baseline,
                 "requested",
-                now));
+                now,
+                actor));
         }
         catch (DomainException exception)
         {
@@ -370,9 +381,9 @@ internal sealed class ModelProviderControlPlane(
     }
     public async Task<Result<ModelAssignmentEvaluationHandoff>> CompleteEvaluationAsync(
         TenantScope scope,
+        ModelAssignmentReleaseId releaseId,
         ModelAssignmentEvaluationId evaluationId,
-        bool passed,
-        string artifactHash,
+        ReadOnlyMemory<byte> summary,
         string actor,
         CancellationToken cancellationToken)
     {
@@ -380,7 +391,7 @@ internal sealed class ModelProviderControlPlane(
         {
             ModelAssignmentEvaluationEntity? evaluation = await providers.FindEvaluationAsync(scope, evaluationId, cancellationToken)
                 .ConfigureAwait(false);
-            if (evaluation is null)
+            if (evaluation is null || evaluation.AssignmentReleaseId != releaseId)
             {
                 return NotFound<ModelAssignmentEvaluationHandoff>(DomainErrorCodes.ModelConfigurationInvalid, "No such model assignment evaluation.");
             }
@@ -392,24 +403,42 @@ internal sealed class ModelProviderControlPlane(
                     "The evaluation is already in a terminal state."));
             }
 
+            // The person who wants a release promoted does not also get to say
+            // that it passed (D50).
+            if (string.Equals(evaluation.RequestedBy, actor, StringComparison.Ordinal))
+            {
+                return Result<ModelAssignmentEvaluationHandoff>.Failure(Error.Permanent(
+                    ApplicationErrorCodes.ModelEvaluationSeparationOfDuties,
+                    "An evaluation must be completed by someone other than the person who requested it."));
+            }
+
+            PinnedModelAssignment? release = await providers.BuildSnapshotAsync(scope, releaseId, cancellationToken)
+                .ConfigureAwait(false);
+            if (release is null)
+            {
+                return NotFound<ModelAssignmentEvaluationHandoff>(ApplicationErrorCodes.ModelAssignmentNotFound, "No such model assignment release.");
+            }
+
+            Result<VerifiedEvaluationSummary> verified = EvaluationSummaryVerifier.Verify(
+                summary, evaluation.Dataset, evaluation.Baseline, release);
+            if (verified.IsFailure)
+            {
+                return Result<ModelAssignmentEvaluationHandoff>.Failure(verified.Error);
+            }
+
             DateTimeOffset now = timeProvider.GetUtcNow();
-            evaluation.Status = passed ? "passed" : "failed";
-            evaluation.Passed = passed;
-            evaluation.ArtifactHash = Required(artifactHash, "artifactHash");
+            evaluation.Status = verified.Value.Passed ? "passed" : "failed";
+            evaluation.Passed = verified.Value.Passed;
+            evaluation.ArtifactHash = verified.Value.ArtifactHash;
             evaluation.CompletedAt = now;
+            evaluation.CompletedBy = actor;
 
             providers.UpdateEvaluation(evaluation);
             providers.AddAudit(scope.Tenant, actor, "complete_evaluation", "model_assignment_release", evaluation.AssignmentReleaseId.Value,
                 evaluation.ArtifactHash, now);
             await providers.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-            return Result<ModelAssignmentEvaluationHandoff>.Success(new ModelAssignmentEvaluationHandoff(
-                evaluation.Id,
-                evaluation.AssignmentReleaseId,
-                evaluation.Dataset,
-                evaluation.Baseline,
-                evaluation.Status,
-                evaluation.RequestedAt));
+            return Result<ModelAssignmentEvaluationHandoff>.Success(ToHandoff(evaluation));
         }
         catch (DomainException exception)
         {
@@ -429,6 +458,23 @@ internal sealed class ModelProviderControlPlane(
         }
     }
 
+    private static ModelAssignmentEvaluationHandoff ToHandoff(ModelAssignmentEvaluationEntity evaluation) => new(
+        evaluation.Id,
+        evaluation.AssignmentReleaseId,
+        evaluation.Dataset,
+        evaluation.Baseline,
+        evaluation.Status,
+        evaluation.RequestedAt,
+        evaluation.RequestedBy,
+        evaluation.ArtifactHash,
+        evaluation.CompletedAt,
+        evaluation.CompletedBy);
+
+    private static bool IsDatasetReference(string? dataset)
+    {
+        int at = dataset?.IndexOf('@', StringComparison.Ordinal) ?? -1;
+        return at > 0 && at < dataset!.Length - 1 && dataset.IndexOf('@', at + 1) < 0 && !dataset.Any(char.IsWhiteSpace);
+    }
 
     public async Task<Result<ModelAssignmentRelease>> ActivateAsync(
         TenantScope scope,
@@ -447,12 +493,40 @@ internal sealed class ModelProviderControlPlane(
                 return NotFound<ModelAssignmentRelease>(ApplicationErrorCodes.ModelAssignmentNotFound, "No such model assignment release.");
             }
 
+            // Incidents carry no product, so the pinner can only ever ask for the
+            // tenant-wide assignment (D41). A narrower activation on a tenant
+            // without one succeeded and left every incident for that tenant
+            // unable to pin, with nothing telling the operator (BUG-002).
+            if (scope.Kind != TenantScopeKind.TenantWide
+                && !await providers.HasActiveAssignmentAsync(TenantScope.TenantWide(scope.Tenant), cancellationToken)
+                    .ConfigureAwait(false))
+            {
+                return Result<ModelAssignmentRelease>.Failure(Error.Permanent(
+                    ApplicationErrorCodes.ModelAssignmentScopeUnreachable,
+                    "Incidents resolve only the tenant-wide assignment, and this tenant has none active. "
+                    + "Activate a tenant-wide release before a product or environment release."));
+            }
+
+            // A budget counts spend in one currency. A release priced in another
+            // would spend without ever approaching the limit (D47).
+            TenantBudgetEntity? budget = await providers.FindBudgetAsync(scope.Tenant, cancellationToken)
+                .ConfigureAwait(false);
+            if (budget is not null && TenantBudgetService.ForeignCurrency(snapshot, budget.Currency) is { } foreign)
+            {
+                return Result<ModelAssignmentRelease>.Failure(Error.Permanent(
+                    ApplicationErrorCodes.BudgetCurrencyMismatch,
+                    $"The release is priced in {foreign}, but the tenant's budget is in {budget.Currency}."));
+            }
+
+            // Only an evaluation of this exact release, completed by someone other
+            // than the person activating it, counts (D50).
             if (_options.RequireEvaluationForActivation
-                && !await providers.HasPassedEvaluationAsync(scope, releaseId, cancellationToken).ConfigureAwait(false))
+                && !await providers.HasPassedEvaluationAsync(scope, releaseId, release.ConfigurationHash, actor, cancellationToken)
+                    .ConfigureAwait(false))
             {
                 return Result<ModelAssignmentRelease>.Failure(Error.Permanent(
                     ApplicationErrorCodes.ModelAssignmentEvaluationRequired,
-                    "A passing immutable evaluation result is required before activation."));
+                    "Activation needs a passing evaluation of this release, completed by someone other than you."));
             }
 
             IEnumerable<PinnedModelCandidate> candidates =
@@ -563,11 +637,21 @@ internal sealed class ModelProviderControlPlane(
                 "A new deployment version must keep the prior logical name."));
         }
 
-        if (command.ProviderParameters.Keys.Any(static key => !string.Equals(key, "seed", StringComparison.Ordinal)))
+        if (command.ProviderParameters.Keys.Any(static key =>
+                !string.Equals(key, "seed", StringComparison.Ordinal) && !OpenAiDialect.Names.Contains(key)))
         {
             return Result<ModelDeploymentVersion>.Failure(Error.Permanent(
                 DomainErrorCodes.ModelConfigurationInvalid,
-                "Only the allowlisted provider parameter 'seed' is supported."));
+                "Only the allowlisted provider parameters 'seed', "
+                + string.Join(", ", OpenAiDialect.Names.Select(static name => $"'{name}'"))
+                + " are supported."));
+        }
+
+        if (OpenAiDialect.Validate(revision.AdapterKind, command.ProviderParameters) is { } dialectProblem)
+        {
+            return Result<ModelDeploymentVersion>.Failure(Error.Permanent(
+                DomainErrorCodes.ModelConfigurationInvalid,
+                dialectProblem));
         }
 
         if (command.ProviderParameters.TryGetValue("seed", out string? seedString))

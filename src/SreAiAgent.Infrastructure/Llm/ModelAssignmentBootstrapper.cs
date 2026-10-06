@@ -161,18 +161,16 @@ internal sealed partial class ModelAssignmentBootstrapper(
                 ModelProfile profile = resolvedProfile.Value;
                 if (!distinctDeployments.TryGetValue(profile.Name, out ModelDeploymentVersion? deployment))
                 {
+                    // Tool calling is not required of the provider even when the
+                    // profile allows tools. Agents ask for tools inside their
+                    // structured answer and the gateway runs them; no request
+                    // carries native tool definitions (llm-providers.md 8). Demanding
+                    // the capability anyway refused every OpenAI-compatible
+                    // provider for the analytical slot while buying nothing (D45).
                     ModelCapability requiredCapabilities = ModelCapability.SystemMessage;
                     if (profile.SupportsStructuredOutput)
                     {
                         requiredCapabilities |= ModelCapability.StructuredOutput;
-                    }
-                    if (profile.SupportsToolCalling)
-                    {
-                        requiredCapabilities |= ModelCapability.ToolCalling;
-                    }
-                    if (profile.SupportsParallelToolCalls)
-                    {
-                        requiredCapabilities |= ModelCapability.ParallelToolCalls;
                     }
 
                     deployment = ModelDeploymentVersion.Create(

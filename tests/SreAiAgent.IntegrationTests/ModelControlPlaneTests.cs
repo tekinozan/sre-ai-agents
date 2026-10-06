@@ -11,6 +11,7 @@ using SreAiAgent.Application.Abstractions.Llm;
 using SreAiAgent.Application.Abstractions.Persistence;
 using SreAiAgent.Application.Agents;
 using SreAiAgent.Application.Errors;
+using SreAiAgent.Domain.Budgets;
 using SreAiAgent.Domain.ModelProviders;
 using SreAiAgent.Domain.Shared;
 using SreAiAgent.Infrastructure;
@@ -355,6 +356,340 @@ public sealed class ModelControlPlaneTests : IAsyncLifetime
         (await repository.GetActiveSnapshotAsync(productWide, ct)).ShouldBeNull();
         (await repository.GetActiveSnapshotAsync(full, ct)).ShouldBeNull();
     }
+
+    [Fact]
+    public async Task AProductReleaseCannotBeActivatedOnATenantWithNoTenantWideAssignment()
+    {
+        // BUG-002 (b): incidents carry no product, so they only ever resolve
+        // the tenant-wide assignment (D41). This activation used to succeed and
+        // leave every incident for the tenant unable to pin, silently.
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        string tenant = "unreachable-" + Guid.NewGuid();
+        TenantScope checkout = TenantScope.ProductWide(tenant, "checkout");
+
+        ModelAssignmentReleaseId release = await CreateVerifiedEvaluatedReleaseAsync(checkout, ct);
+
+        var activated = await Plane.ActivateAsync(checkout, release, "actor", ct);
+
+        activated.IsSuccess.ShouldBeFalse();
+        activated.Error.Code.ShouldBe(ApplicationErrorCodes.ModelAssignmentScopeUnreachable);
+        ErrorCatalog.Describe(activated.Error.Code).HttpStatusCode.ShouldBe(409);
+
+        ModelProviderRepository repository = _scope.ServiceProvider.GetRequiredService<ModelProviderRepository>();
+        (await repository.GetActiveSnapshotAsync(checkout, ct)).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task AProductReleaseActivatedBesideATenantWideOneLeavesTheTenantsIncidentsPinnable()
+    {
+        // BUG-002 (a): with a tenant-wide assignment active, narrowing one
+        // product is allowed, and a new incident for the tenant still pins.
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        string tenant = "reachable-" + Guid.NewGuid();
+        TenantScope tenantWide = TenantScope.TenantWide(tenant);
+        TenantScope checkout = TenantScope.ProductWide(tenant, "checkout");
+
+        ModelAssignmentReleaseId tenantWideRelease = await CreateAndActivateMinimalReleaseAsync(tenantWide, ct);
+        ModelAssignmentReleaseId productRelease = await CreateVerifiedEvaluatedReleaseAsync(checkout, ct);
+
+        var activated = await Plane.ActivateAsync(checkout, productRelease, "actor", ct);
+        activated.IsSuccess.ShouldBeTrue();
+
+        // The lookup ConfigurationPinner makes for every incident: the
+        // tenant-wide scope, exactly (D41). It still resolves, and the product
+        // release sits beside it rather than replacing it.
+        ModelProviderRepository repository = _scope.ServiceProvider.GetRequiredService<ModelProviderRepository>();
+        (await repository.GetActiveSnapshotAsync(tenantWide, ct)).ShouldNotBeNull().ReleaseId.ShouldBe(tenantWideRelease);
+        (await repository.GetActiveSnapshotAsync(checkout, ct)).ShouldNotBeNull().ReleaseId.ShouldBe(productRelease);
+    }
+
+    [Fact]
+    public async Task AMonthlyBudgetCountsThisMonthsSpendAndRefusesOnceItIsReached()
+    {
+        // gemini-budgets-notifications.md B: spend is llm_calls.estimated_cost
+        // since the period began, failed calls included; last month's does not
+        // count against a monthly budget.
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        string tenant = "budget-monthly-" + Guid.NewGuid();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        DateTimeOffset monthStart = new(now.Year, now.Month, 1, 0, 0, 0, TimeSpan.Zero);
+
+        TenantBudgetService budgets = _scope.ServiceProvider.GetRequiredService<TenantBudgetService>();
+        (await budgets.CheckAsync(tenant, ct)).IsSuccess.ShouldBeTrue("No budget means no ceiling.");
+
+        (await budgets.SetAsync(tenant, 1.00m, "usd", BudgetPeriod.Monthly, null, "alice", ct)).IsSuccess.ShouldBeTrue();
+
+        await RecordSpendAsync(tenant, monthStart.AddDays(-3), 5.00m, "succeeded", ct);
+        await RecordSpendAsync(tenant, monthStart.AddMinutes(1), 0.60m, "failed", ct);
+
+        TenantBudgetStatus? status = await budgets.GetAsync(tenant, ct);
+        status.ShouldNotBeNull();
+        status.PeriodStartedAt.ShouldBe(monthStart);
+        status.Spent.ShouldBe(0.60m);
+        status.Remaining.ShouldBe(0.40m);
+        (await budgets.CheckAsync(tenant, ct)).IsSuccess.ShouldBeTrue();
+
+        await RecordSpendAsync(tenant, monthStart.AddMinutes(2), 0.40m, "succeeded", ct);
+
+        Result refused = await budgets.CheckAsync(tenant, ct);
+        refused.IsFailure.ShouldBeTrue();
+        refused.Error.Code.ShouldBe(ApplicationErrorCodes.BudgetExceeded);
+        ErrorCatalog.Describe(refused.Error.Code).IsRetryable.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task AFixedBudgetCountsEverythingSinceItsStartAcrossMonths()
+    {
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        string tenant = "budget-fixed-" + Guid.NewGuid();
+        // Whole seconds: PostgreSQL keeps microseconds, .NET keeps 100 ns ticks.
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        DateTimeOffset start = new DateTimeOffset(now.Year, now.Month, now.Day, now.Hour, now.Minute, now.Second, TimeSpan.Zero)
+            .AddDays(-45);
+
+        TenantBudgetService budgets = _scope.ServiceProvider.GetRequiredService<TenantBudgetService>();
+        (await budgets.SetAsync(tenant, 10m, "USD", BudgetPeriod.Fixed, start, "alice", ct)).IsSuccess.ShouldBeTrue();
+
+        await RecordSpendAsync(tenant, start.AddDays(-1), 100m, "succeeded", ct);
+        await RecordSpendAsync(tenant, start.AddDays(1), 4m, "succeeded", ct);
+        await RecordSpendAsync(tenant, DateTimeOffset.UtcNow.AddMinutes(-1), 5m, "succeeded", ct);
+
+        TenantBudgetStatus? status = await budgets.GetAsync(tenant, ct);
+        status.ShouldNotBeNull().Spent.ShouldBe(9m);
+        status.PeriodStartedAt.ShouldBe(start.ToUniversalTime());
+    }
+
+    [Fact]
+    public async Task ABudgetAndTheModelsItCountsMustShareACurrency()
+    {
+        // D47: spend priced in USD can never approach a limit in EUR, so the
+        // pair is refused from either side instead of going uncounted.
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        string tenant = "budget-currency-" + Guid.NewGuid();
+        TenantScope tenantWide = TenantScope.TenantWide(tenant);
+        await CreateAndActivateMinimalReleaseAsync(tenantWide, ct);
+
+        TenantBudgetService budgets = _scope.ServiceProvider.GetRequiredService<TenantBudgetService>();
+        Result<TenantBudgetStatus> euro = await budgets.SetAsync(tenant, 10m, "EUR", BudgetPeriod.Monthly, null, "alice", ct);
+        euro.IsFailure.ShouldBeTrue();
+        euro.Error.Code.ShouldBe(ApplicationErrorCodes.BudgetCurrencyMismatch);
+
+        (await budgets.SetAsync(tenant, 10m, "USD", BudgetPeriod.Monthly, null, "alice", ct)).IsSuccess.ShouldBeTrue();
+
+        TenantScope checkout = TenantScope.ProductWide(tenant, "checkout");
+        ModelAssignmentReleaseId release = await CreateVerifiedEvaluatedReleaseAsync(checkout, ct, currency: "EUR");
+        var activated = await Plane.ActivateAsync(checkout, release, "actor", ct);
+        activated.IsFailure.ShouldBeTrue();
+        activated.Error.Code.ShouldBe(ApplicationErrorCodes.BudgetCurrencyMismatch);
+    }
+
+    private async Task RecordSpendAsync(string tenant, DateTimeOffset calledAt, decimal cost, string outcome, CancellationToken ct)
+    {
+        await using SreDbContext context = _postgres.CreateContext();
+        context.LlmCalls.Add(new LlmCallEntity
+        {
+            Id = Guid.CreateVersion7(),
+            IncidentId = Guid.CreateVersion7(),
+            Tenant = tenant,
+            AgentName = "classifier",
+            PromptName = "classify",
+            PromptVersion = "1",
+            PromptHash = "hash",
+            Outcome = outcome,
+            EstimatedCost = cost,
+            CalledAt = calledAt,
+        });
+        await context.SaveChangesAsync(ct);
+    }
+
+    [Fact]
+    public async Task APromotionNeedsThePlatformsOwnVerdictOnThisReleaseFromSomeoneElse()
+    {
+        // D50: the verdict is derived from the summary, the hash is computed
+        // from its bytes, and the three people involved are kept apart.
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        TenantScope scope = TenantScope.TenantWide("promotion-" + Guid.NewGuid());
+        VerifiedRelease release = await CreateVerifiedReleaseAsync(scope, ct);
+
+        var requested = await Plane.RequestEvaluationAsync(
+            scope, release.Release.Id, TestEvaluationSummary.Dataset, TestEvaluationSummary.Baseline, "alice", ct);
+        requested.IsSuccess.ShouldBeTrue();
+        byte[] summary = TestEvaluationSummary.For(release);
+
+        var selfCompleted = await Plane.CompleteEvaluationAsync(scope, release.Release.Id, requested.Value.EvaluationId, summary, "alice", ct);
+        selfCompleted.Error.Code.ShouldBe(ApplicationErrorCodes.ModelEvaluationSeparationOfDuties);
+
+        var completed = await Plane.CompleteEvaluationAsync(scope, release.Release.Id, requested.Value.EvaluationId, summary, EvalRunner, ct);
+        completed.IsSuccess.ShouldBeTrue();
+        completed.Value.Status.ShouldBe("passed");
+        completed.Value.CompletedBy.ShouldBe(EvalRunner);
+        completed.Value.ArtifactHash.ShouldBe(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(summary)).ToLowerInvariant());
+
+        (await Plane.CompleteEvaluationAsync(scope, release.Release.Id, requested.Value.EvaluationId, summary, EvalRunner, ct))
+            .Error.Code.ShouldBe(ApplicationErrorCodes.ModelResourceConflict);
+
+        (await Plane.ActivateAsync(scope, release.Release.Id, EvalRunner, ct))
+            .Error.Code.ShouldBe(ApplicationErrorCodes.ModelAssignmentEvaluationRequired);
+        (await Plane.ActivateAsync(scope, release.Release.Id, "alice", ct)).IsSuccess.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task AFailedOrForeignEvaluationDoesNotPromote()
+    {
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        TenantScope scope = TenantScope.TenantWide("promotion-failed-" + Guid.NewGuid());
+        VerifiedRelease release = await CreateVerifiedReleaseAsync(scope, ct);
+        VerifiedRelease other = await CreateVerifiedReleaseAsync(scope, ct);
+
+        (await Plane.ActivateAsync(scope, release.Release.Id, "alice", ct))
+            .Error.Code.ShouldBe(ApplicationErrorCodes.ModelAssignmentEvaluationRequired);
+
+        var failedRun = await Plane.RequestEvaluationAsync(
+            scope, release.Release.Id, TestEvaluationSummary.Dataset, TestEvaluationSummary.Baseline, "alice", ct);
+        var failed = await Plane.CompleteEvaluationAsync(
+            scope, release.Release.Id, failedRun.Value.EvaluationId, TestEvaluationSummary.For(release, eligible: false), EvalRunner, ct);
+        failed.Value.Status.ShouldBe("failed");
+
+        // A passing evaluation of a different release is not evidence for this one.
+        var otherRun = await Plane.RequestEvaluationAsync(
+            scope, other.Release.Id, TestEvaluationSummary.Dataset, TestEvaluationSummary.Baseline, "alice", ct);
+        (await Plane.CompleteEvaluationAsync(
+            scope, other.Release.Id, otherRun.Value.EvaluationId, TestEvaluationSummary.For(other), EvalRunner, ct)).IsSuccess.ShouldBeTrue();
+        (await Plane.CompleteEvaluationAsync(
+            scope, release.Release.Id, otherRun.Value.EvaluationId, TestEvaluationSummary.For(release), EvalRunner, ct))
+            .Error.Code.ShouldBe(DomainErrorCodes.ModelConfigurationInvalid);
+
+        (await Plane.ActivateAsync(scope, release.Release.Id, "alice", ct))
+            .Error.Code.ShouldBe(ApplicationErrorCodes.ModelAssignmentEvaluationRequired);
+    }
+
+    public static TheoryData<string> TamperedSummaries => new()
+    {
+        "schema", "release-hash", "deployment-hash", "revision-version", "dataset", "baseline", "bootstrap", "inconsistent-gate", "not-json",
+    };
+
+    [Theory]
+    [MemberData(nameof(TamperedSummaries))]
+    public async Task ASummaryThatIsNotEvidenceForThisReleaseIsRefused(string tamper)
+    {
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        TenantScope scope = TenantScope.TenantWide("tampered-" + Guid.NewGuid());
+        VerifiedRelease release = await CreateVerifiedReleaseAsync(scope, ct);
+        var requested = await Plane.RequestEvaluationAsync(
+            scope, release.Release.Id, TestEvaluationSummary.Dataset, TestEvaluationSummary.Baseline, "alice", ct);
+
+        byte[] summary = tamper == "not-json"
+            ? "not json"u8.ToArray()
+            : TestEvaluationSummary.For(release, tamper: json =>
+            {
+                switch (tamper)
+                {
+                    case "schema":
+                        json["schema_version"] = "sre-eval-summary/v1";
+                        break;
+                    case "release-hash":
+                        json["assignment_release"]!["hash"] = new string('0', 64);
+                        break;
+                    case "deployment-hash":
+                        json["model_deployment"]!["hash"] = new string('0', 64);
+                        break;
+                    case "revision-version":
+                        json["provider_connection_revision"]!["version"] = "99";
+                        break;
+                    case "dataset":
+                        json["dataset"]!["version"] = "v2";
+                        break;
+                    case "baseline":
+                        json["baseline"]!["id"] = "some-other-baseline";
+                        break;
+                    case "bootstrap":
+                        json["baseline"]!["bootstrap"] = true;
+                        break;
+                    case "inconsistent-gate":
+                        json["gate"]!["failures"] = new System.Text.Json.Nodes.JsonArray("absolute_cost");
+                        break;
+                }
+            });
+
+        var completed = await Plane.CompleteEvaluationAsync(scope, release.Release.Id, requested.Value.EvaluationId, summary, EvalRunner, ct);
+
+        completed.IsFailure.ShouldBeTrue();
+        completed.Error.Code.ShouldBe(ApplicationErrorCodes.ModelEvaluationSummaryInvalid);
+    }
+
+    [Fact]
+    public async Task OneRunCannotVouchForAReleaseSpreadOverSeveralDeployments()
+    {
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        TenantScope scope = TenantScope.TenantWide("spread-" + Guid.NewGuid());
+        VerifiedRelease release = await CreateVerifiedReleaseAsync(scope, ct, separateCorrelatorDeployment: true);
+        var requested = await Plane.RequestEvaluationAsync(
+            scope, release.Release.Id, TestEvaluationSummary.Dataset, TestEvaluationSummary.Baseline, "alice", ct);
+
+        var completed = await Plane.CompleteEvaluationAsync(
+            scope, release.Release.Id, requested.Value.EvaluationId, TestEvaluationSummary.For(release), EvalRunner, ct);
+
+        completed.Error.Code.ShouldBe(ApplicationErrorCodes.ModelEvaluationSummaryInvalid);
+        completed.Error.Message.ShouldContain("correlator");
+    }
+
+    [Fact]
+    public async Task ABootstrapRunIsAcceptedOnlyWhenABootstrapWasAskedFor()
+    {
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        TenantScope scope = TenantScope.TenantWide("bootstrap-" + Guid.NewGuid());
+        VerifiedRelease release = await CreateVerifiedReleaseAsync(scope, ct);
+
+        // The caller's mistake, so a 400: CONFIG_INVALID is a 500 that means the
+        // platform's own configuration is broken.
+        (await Plane.RequestEvaluationAsync(scope, release.Release.Id, "no-version", "bootstrap", "alice", ct))
+            .Error.Code.ShouldBe(ApplicationErrorCodes.ValidationFailed);
+
+        var requested = await Plane.RequestEvaluationAsync(
+            scope, release.Release.Id, TestEvaluationSummary.Dataset, "bootstrap", "alice", ct);
+        var completed = await Plane.CompleteEvaluationAsync(
+            scope,
+            release.Release.Id,
+            requested.Value.EvaluationId,
+            TestEvaluationSummary.For(release, tamper: json => json["baseline"] = new System.Text.Json.Nodes.JsonObject
+            {
+                ["id"] = "baseline-synthesized",
+                ["bootstrap"] = true,
+            }),
+            EvalRunner,
+            ct);
+
+        completed.IsSuccess.ShouldBeTrue();
+        completed.Value.Status.ShouldBe("passed");
+    }
+
+    private const string EvalRunner = "eval-runner";
+
+    /// <summary>
+    /// Takes a release through the control plane's own pipeline, verification
+    /// and a passing evaluation included, so that the only thing left to decide
+    /// activation is the rule under test. "actor" requests and later activates;
+    /// the runner completes, as D50 requires.
+    /// </summary>
+    private async Task<ModelAssignmentReleaseId> CreateVerifiedEvaluatedReleaseAsync(
+        TenantScope scope, CancellationToken ct, string currency = "USD")
+    {
+        VerifiedRelease release = await CreateVerifiedReleaseAsync(scope, ct, currency);
+
+        var requested = await Plane.RequestEvaluationAsync(
+            scope, release.Release.Id, TestEvaluationSummary.Dataset, TestEvaluationSummary.Baseline, "actor", ct);
+        requested.IsSuccess.ShouldBeTrue();
+        var completed = await Plane.CompleteEvaluationAsync(
+            scope, release.Release.Id, requested.Value.EvaluationId, TestEvaluationSummary.For(release), EvalRunner, ct);
+        completed.IsSuccess.ShouldBeTrue(completed.IsFailure ? completed.Error.Message : null);
+        completed.Value.Status.ShouldBe("passed");
+
+        return release.Release.Id;
+    }
+
+    private Task<VerifiedRelease> CreateVerifiedReleaseAsync(
+        TenantScope scope, CancellationToken ct, string currency = "USD", bool separateCorrelatorDeployment = false)
+        => TestReleases.CreateVerifiedAsync(Plane, scope, ct, currency, separateCorrelatorDeployment);
 
     /// <summary>
     /// Builds and activates the smallest possible release directly through

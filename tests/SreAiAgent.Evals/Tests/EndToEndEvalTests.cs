@@ -19,6 +19,19 @@ public sealed class EndToEndEvalTests
         File.Exists(Path.Combine(result.ArtifactDirectory, "attempts.jsonl")).ShouldBeTrue();
         File.Exists(Path.Combine(result.ArtifactDirectory, "summary.json")).ShouldBeTrue();
         File.Exists(Path.Combine(result.ArtifactDirectory, "results.junit.xml")).ShouldBeTrue();
+
+        // The control plane completes an evaluation from these bytes and checks
+        // these members against the release it is asked to promote.
+        using JsonDocument summary = JsonDocument.Parse(await File.ReadAllBytesAsync(
+            Path.Combine(result.ArtifactDirectory, "summary.json"), TestContext.Current.CancellationToken));
+        JsonElement root = summary.RootElement;
+        root.GetProperty("schema_version").GetString().ShouldBe("sre-eval-summary/v2");
+        root.GetProperty("assignment_release").GetProperty("hash").GetString().ShouldBe(result.Candidate.AssignmentRelease.Hash);
+        root.GetProperty("model_deployment").GetProperty("id").GetString().ShouldBe(result.Candidate.ModelDeployment.Id);
+        root.GetProperty("provider_connection_revision").GetProperty("version").GetString().ShouldBe(result.Candidate.ProviderConnectionRevision.Version);
+        root.GetProperty("dataset").GetProperty("id").GetString().ShouldBe("sre-incidents-redacted");
+        root.GetProperty("baseline").GetProperty("bootstrap").GetBoolean().ShouldBeFalse();
+        root.GetProperty("gate").GetProperty("promotion_eligible").GetBoolean().ShouldBeTrue();
     }
 
     [Fact]

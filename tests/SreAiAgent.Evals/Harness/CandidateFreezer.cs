@@ -30,12 +30,17 @@ internal static partial class CandidateFreezer
         VersionedIdentity policy = Release(candidate.Releases.Policy, "policy", HashPolicyRelease(candidate.Releases.Policy));
         VersionedIdentity datasetIdentity = new() { Id = dataset.Manifest.DatasetId, Version = dataset.Manifest.Version, Hash = dataset.Hash };
 
-        string configJson = JsonSerializer.Serialize(config, EvalJsonContext.Default.EvalConfig);
+        // Hashed in canonical form, not as serialized. The eval context writes
+        // indented JSON, whose line breaks are Environment.NewLine: the same
+        // configuration hashed differently on Windows and Linux, so a baseline
+        // recorded on one never matched a run on the other.
+        using JsonDocument configDocument = JsonDocument.Parse(
+            JsonSerializer.Serialize(config, EvalJsonContext.Default.EvalConfig));
         VersionedIdentity scorer = new()
         {
             Id = config.ScorerVersion,
             Version = config.SchemaVersion,
-            Hash = CanonicalJson.HashUtf8(configJson),
+            Hash = CanonicalJson.Hash(configDocument.RootElement),
         };
 
         CandidateSnapshot unhashed = new()
@@ -113,7 +118,12 @@ internal static partial class CandidateFreezer
             throw new InvalidDataException("Candidate identities must be exact and cannot use latest or mutable aliases.");
         }
 
-        if (!Uri.TryCreate(candidate.ProviderConnectionRevision.Endpoint, UriKind.Absolute, out Uri? uri))
+        // On Unix a rooted path such as "/v1/chat" parses as an absolute file
+        // URI, so TryCreate alone accepts it there and rejects it on Windows. An
+        // endpoint is absolute only when it names its scheme itself.
+        string endpoint = candidate.ProviderConnectionRevision.Endpoint;
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out Uri? uri)
+            || (uri.IsFile && !endpoint.StartsWith(Uri.UriSchemeFile + ":", StringComparison.OrdinalIgnoreCase)))
         {
             throw new InvalidDataException($"Candidate endpoint '{candidate.ProviderConnectionRevision.Endpoint}' must be a valid absolute URI.");
         }

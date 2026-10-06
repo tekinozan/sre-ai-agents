@@ -2,9 +2,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using SreAiAgent.Application.Abstractions.Feedback;
+using SreAiAgent.Application.Abstractions.Llm;
 using SreAiAgent.Application.Abstractions.Messaging;
 using SreAiAgent.Application.Abstractions.Persistence;
 using SreAiAgent.Infrastructure.Configuration;
+using SreAiAgent.Infrastructure.Feedback;
+using SreAiAgent.Infrastructure.Llm;
 using SreAiAgent.Infrastructure.Llm.Providers;
 using SreAiAgent.Infrastructure.Persistence;
 using SreAiAgent.Infrastructure.Persistence.Outbox;
@@ -110,6 +114,7 @@ public static class PersistenceDependencyInjection
         services.TryAddScoped<IIncidentRepository, IncidentRepository>();
         services.TryAddScoped<IInvestigationStore, InvestigationStore>();
         services.TryAddScoped<IIncidentQueries, IncidentQueries>();
+        services.TryAddScoped<IReportFeedbackService, ReportFeedbackService>();
         services.TryAddScoped<IApprovalStore, ApprovalStore>();
         services.TryAddScoped<IConfigurationSnapshotStore, ConfigurationSnapshotStore>();
         services.TryAddScoped<IIdempotencyStore, IdempotencyStore>();
@@ -118,6 +123,9 @@ public static class PersistenceDependencyInjection
         services.TryAddScoped<IOutboxStore, OutboxStore>();
         services.TryAddScoped<IEventPublisher, EventPublisher>();
         services.TryAddScoped<ModelProviderRepository>();
+        services.TryAddScoped<TenantBudgetService>();
+        services.TryAddScoped<ITenantBudgetService>(provider => provider.GetRequiredService<TenantBudgetService>());
+        services.AddScoped<ITenantBudgetGuard>(provider => provider.GetRequiredService<TenantBudgetService>());
         services.TryAddScoped<IProviderRevisionReader>(provider => provider.GetRequiredService<ModelProviderRepository>());
         services.TryAddScoped<IConfigurationPinner, ConfigurationPinner>();
 

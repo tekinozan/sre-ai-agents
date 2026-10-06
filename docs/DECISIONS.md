@@ -748,3 +748,316 @@ offer, so both construct `TenantScope.TenantWide(tenant)` explicitly at their
 own call site — not hidden inside `ModelProviderRepository`, and not a
 repository-level default, because `TenantWide` is what the data they actually
 have supports, not a guess standing in for data they don't.
+
+### D42 — A failed message is rewound, and only an inbox collision is a duplicate
+
+Two consumer behaviours that the at-least-once design relied on did not hold.
+
+**Rewind.** A handler failure below `Kafka:MaxDeliveryAttempts` left the offset
+uncommitted and returned, on the understanding that the broker would redeliver.
+It does not: `Consume` has already moved the fetch position, so the message
+comes back only after a restart or a rebalance. Worse, the next message on the
+same partition that succeeds commits its own offset, which covers the failed
+one, and the failed message is skipped for good with an unsettled attempt row
+as its only trace. The consumer now seeks back to the failed offset after a
+short pause that grows with the attempt count (250 ms per attempt, at most
+5 s). A failed seek means the partition was revoked mid-handling; its new owner
+resumes from the committed offset, which is still the failed message.
+
+**Duplicate.** Every unique violation used to be read as "another delivery of
+this message got there first" and acknowledged. That is true of the inbox key
+only. The idempotency claim and the incident deduplication index are keyed on
+the alert, so a violation there is a different message for the same alert
+losing a race, and acknowledging it discarded the alert with no timeline entry,
+no recurrence count and no escalation (BUG-001's second mechanism). Such a
+violation now takes the failure path; the rewind redelivers it and the
+redelivery folds into the incident the winner opened. The inbox table is named
+once, in its mapping, and matched by table rather than by constraint name.
+
+**Cost:** a partition stops behind a failing message until it succeeds or is
+dead-lettered, which is the ordering guarantee the design already claimed and
+now actually has: at five attempts the worst case is two and a half
+seconds of pauses plus five handler runs before the dead letter. A lost race
+spends one delivery attempt, so a message that keeps losing races can be
+dead-lettered; that needs five consecutive losses on one alert and leaves the
+message replayable from `sre.deadletter.v1`.
+
+### D43 — One open incident per alert identity, and a concluded investigation keeps covering its alert for the cooldown
+
+ARCHITECTURE.md 9.3 asks the database to enforce one active incident per
+`(tenant, source, fingerprint)`, and says a recurrence opens a new incident only
+once a resolved incident is outside its cooldown. The implementation did
+neither. `ix_incidents_active_fingerprint` was an ordinary index, and the lookup
+excluded resolved incidents outright, so an outage that outlived its own
+investigation opened a new incident, and paid for a new investigation, every
+time the alert fired after the report was written: the TicketHub pilot recorded
+six incidents for one SMTP outage. And an active incident older than the
+deduplication window was ignored, so a second active incident for the same
+alert opened beside it.
+
+**Decided:**
+
+1. `ix_incidents_active_fingerprint` is unique. The migration refuses to run,
+   naming the offending identity, if existing data already holds two active
+   incidents for one alert; it never resolves the conflict by itself.
+2. The lookup returns the active incident for the identity regardless of age,
+   since there can be only one; failing that, the most recently alerted
+   *resolved* incident whose last alert is inside the deduplication window,
+   which is the cooldown 9.3 describes. A recurrence folds into either. Folding
+   into a resolved incident counts the alert and escalates severity but does
+   not reopen it: reopening stays an explicit, audited operation.
+3. A firing recurrence starts an investigation on the incident it folds into
+   when that incident was never investigated (`Open`, no snapshot), and
+   restarts one, against a freshly pinned snapshot, when the incident is
+   `Failed` and the alert had gone quiet for longer than the window. Any other
+   active state is already investigating or waiting on a human.
+4. A resolved delivery (`IsResolved` from the source) never opens an incident.
+   It adds an `alert.resolved` timeline entry to the incident the lookup finds,
+   and does nothing else when there is none. This is BUG-001's first
+   mechanism: the delivery opened an incident without an investigation, the
+   identity then counted as active, and the real alerts that followed were only
+   counted.
+
+**Rejected: renaming `Resolved` to `Investigated` and closing incidents on the
+source's resolved delivery.** It is the cleaner model, but it changes a status
+that crosses the HTTP contract, Kafka events, the Temporal payloads and the
+partial index filter, and it depends on every source sending a resolved
+delivery, which generic webhooks and Kafka producers do not. The cooldown gives
+the behaviour that matters, one investigation per outage, without either.
+
+**Cost:** `Resolved` still means "the investigation concluded", not "the outage
+is over", and the API says so only through the timeline. A failed incident
+absorbs recurrences inside the window without retrying, so a fix to whatever
+made it fail needs an operator retry or an hour of quiet. An operator who
+reopens a resolved incident while another incident for the same alert is
+active is refused by the unique index rather than by a friendly error.
+
+### D44 — A narrower activation needs a tenant-wide assignment already active
+
+D41's cost paragraph named a trap: activating a `ProductWide` or `Full` release
+on a tenant with no active `TenantWide` assignment succeeded, and from then on
+every incident for that tenant failed to pin, because incidents carry no product
+and the pinner can only ask for the tenant-wide scope (BUG-002). D41 left two
+ways out: give incidents a product dimension, or refuse the activation.
+
+**Decided: refuse it.** `ActivateAsync` returns
+`MODEL_ASSIGNMENT_SCOPE_UNREACHABLE` (409) for a narrower-than-tenant activation
+when nothing is active at the tenant-wide scope, before any verification or
+evaluation check, and writes nothing.
+
+**Rejected for now: a product dimension on incidents.** It is the change that
+would make narrower releases do anything at all, but it reaches the alert
+contract, every adapter's label mapping, the incident schema and D41's
+resolution rule, and no pilot has asked for per-product models yet. Refusing the
+activation closes the outage without deciding that design early.
+
+**Cost:** a product or environment release can be activated but still never
+resolves for an incident; until incidents carry a product it is configuration
+that only the control plane reads. There is no deactivation operation, so the
+guard cannot be bypassed by removing the tenant-wide assignment afterwards; if
+one is added, it needs the same check in reverse.
+
+### D45 — OpenAI-shaped servers differ per deployment, and the deployment says how
+
+The OpenAI-family adapters sent one request shape to every server: `max_tokens`,
+a `json_schema` response format with `strict: true`, and the deployment's
+temperature. OpenAI's own reasoning models reject `max_tokens` and any
+non-default temperature; DeepSeek rejects `json_schema` and accepts
+`json_object`; Groq, Qwen and Gemini's compatible endpoint vary by model. Each
+mismatch is a 400 that the gateway reports, correctly, as a permanent invalid
+request, so a whole class of providers the plan names could not be used.
+
+**Decided:** three allowlisted provider parameters on a model deployment
+version, beside `seed`, owned by `OpenAiDialect`:
+
+| Parameter | Values | Default |
+|---|---|---|
+| `max_tokens_field` | `max_tokens`, `max_completion_tokens` | `max_completion_tokens` for `openai`, `max_tokens` otherwise |
+| `response_format` | `json_schema`, `json_object` | `json_schema` |
+| `temperature` | `send`, `omit` | `send` |
+
+They are part of the deployment's immutable configuration hash, so they are
+pinned into incident snapshots like everything else about the candidate. A value
+outside the list, or a dialect parameter on a non-OpenAI-shaped adapter, is
+refused when the deployment is created. In `json_object` mode the schema is put
+in the system prompt; the gateway still validates every answer against it, so
+the structured-output guarantee stays the platform's.
+
+Separately, the bootstrapper no longer requires `ToolCalling` and
+`ParallelToolCalls` of a deployment because its profile allows tools. Agents ask
+for tools inside their structured answer and the gateway runs them; no request
+carries native tool definitions (llm-providers.md 8). Requiring the capability
+refused every OpenAI-compatible provider for the analytical slot and bought
+nothing.
+
+**Rejected: inferring the dialect from the model name.** It is what reference
+implementations such as oh-my-pi do with a curated model catalogue, and it is
+what ADP-302 rules out here: a name says nothing reliable about a self-hosted
+or proxied deployment, and a wrong guess fails at call time rather than at
+creation.
+
+**Cost:** an operator has to know which dialect a server speaks; the defaults
+suit OpenAI and the common compatible servers, and verification does not probe
+it. A server that needs something outside these three (reasoning-content
+replay, different tool-call shapes) still needs an adapter change. The model
+profile's `tool_calling` flags remain in the registry and are now descriptive
+only, until native tool calling exists.
+
+### D46 — Gemini gets a native adapter beside its OpenAI-compatible path
+
+D45 made Gemini's OpenAI-compatible endpoint usable. A native `gemini` adapter
+kind is added anyway, on the user's decision and for what the native wire
+carries that the compatible one flattens: a JSON Schema the server enforces
+(`responseJsonSchema`), the system prompt as a first-class instruction, and
+thinking tokens reported apart from the answer. Those are billed as output and
+are counted as output; the budget in `gemini-budgets-notifications.md` depends
+on it. The key travels in `x-goog-api-key`, never in the `?key=` query string
+Google also accepts, because a URL is what proxies and access logs keep. In
+production the only host is `generativelanguage.googleapis.com`; the
+OpenAI-compatible custom-host allowlist does not widen it.
+
+**Cost:** a second way to reach the same models, so an operator has to pick one
+per deployment; the OpenAI dialect parameters are refused on it. Vertex AI
+(service-account auth, regional hosts) is not covered by either path.
+
+### D47 — A tenant budget is a ceiling on estimated model cost, checked before every call
+
+Decided by the user: a tenant's limit is either monthly or a fixed total.
+`tenant_budgets` holds one row per tenant (`limit`, `currency`, `period`
+`monthly` | `fixed`, `starts_at`); no row means no ceiling. `LlmGateway` asks
+`ITenantBudgetGuard` before resolving a provider client, so an exhausted budget
+makes no outbound call at all and is audited as a failed call at zero cost with
+`BUDGET_EXCEEDED`, which is permanent: retrying cannot help until the period
+turns or someone raises the limit.
+
+Spend is the sum of `llm_calls.estimated_cost` since the period start, failed
+calls included, because a provider charges for a truncated or schema-invalid
+answer exactly as for a good one. Monthly periods follow the UTC calendar month.
+
+A budget counts one currency. Setting a budget whose currency differs from the
+active tenant-wide assignment, or activating a release priced in another
+currency than the budget, is refused with `BUDGET_CURRENCY_MISMATCH`; the
+alternative was spend that could never approach the limit.
+
+**Rejected: a locked per-tenant counter updated by each call.** It would make
+the ceiling exact at the price of serialising every model call of a tenant on
+one row. Reading committed spend costs one indexed sum per call.
+
+**Cost:** the ceiling is soft by a bounded amount. Audit rows commit when an
+activity finishes, so agents running in parallel can each make the calls their
+activity has not yet committed. The guard is not registered where there is no
+database (the eval harness), which runs unlimited. Cost is the platform's
+estimate from the deployment's prices, not the provider's invoice.
+
+A call refused for the tenant's budget ends the agent run as `BudgetExceeded`,
+the same status as an agent that spent its own iterations or tokens, so the
+report's outcome is `BudgetExceeded` and the incident is `Resolved` with what the
+tools gathered. Reported as an ordinary failure, it had made a capped
+investigation read as `Partial`, which is what a provider outage looks like.
+
+### D48 — Slack and Teams hear about investigations through webhooks named by secret reference
+
+Decided by the user: the channels are Slack and Teams. A tenant's channel holds
+a kind, a name, the events it wants (`investigation_completed`,
+`investigation_failed`, `budget_threshold`) and a `webhook_ref` in the same
+`env://` / `file://` form as provider credentials. A raw URL is refused by the
+API: an incoming-webhook URL is itself the credential, and a column of them is
+a list of ways to post into a company's chat.
+
+Completions arrive on `sre.incident.completed.v1`, which nothing had ever
+written to; `CompleteInvestigationAsync` and `FailInvestigationAsync` now
+publish it through the outbox in the same transaction as the state change. A
+`notifier` consumer reads it, and a poller in the worker reports 80% and 100%
+of a budget. The message body is built only from the platform's own fields
+(title, service, outcome, the report's summary cut to 600 characters), escaped
+for Slack's mrkdwn; nothing a provider returned verbatim reaches a chat.
+
+Each `(delivery_key, channel)` is claimed by an insert before it is sent, in a
+scope of its own so the claim never commits the consumer's inbox row early
+(D25). A failed send releases its claim and fails the handler, which D42
+retries. In production a webhook must be HTTPS to `hooks.slack.com`,
+`*.webhook.office.com`, `*.logic.azure.com` or
+`*.environment.api.powerplatform.com`, or to a host the installation allowed
+explicitly, and never to an IP address.
+
+**Rejected: at-least-once delivery.** It would mean sending before claiming,
+and a redelivered completion would post twice. A chat message about a report
+that is also in the API is worth less than not paging a channel twice.
+
+**Cost:** a crash between the claim and the send loses that one notification,
+and claims are pruned after `Retention:NotificationClaimRetentionDays` (62), so
+a fixed-period budget that stays spent is announced again after that long. Budget
+warnings lag by up to `Notifications:BudgetCheckIntervalSeconds`. A channel's
+webhook is resolved at every send, so a rotated secret takes effect without a
+restart but a broken reference only shows when something is sent; `POST
+/v1/notification-channels/{id}/test` is how an operator finds out first. The
+legacy Teams "Office 365 connector" webhooks are not supported, only Workflows.
+
+### D49 — A report verdict is one person's current opinion of one report version
+
+`POST /v1/incidents/{id}/report/feedback` records `Confirmed`,
+`PartiallyCorrect` or `Incorrect` against an explicit report version, with an
+optional actual cause and comment. A second submission by the same person on
+the same version revises theirs (unique on incident, version, person); the
+first submission time is kept and orders the tenant-wide list, so revisions do
+not reshuffle pages. The report's outcome is copied onto the row so verdicts can
+be read per outcome without a join, and counted in
+`sre_report_feedback_total{tenant, verdict, outcome}`.
+
+Writing needs `WriteIncidents`, the capability of the people who work an
+incident; a viewer reads verdicts but cannot cast one. The free text never
+reaches a model, a span, a log line or the timeline, which only says that a
+version was judged and how.
+
+**Rejected: turning `Incorrect` verdicts into eval cases automatically.** A case
+carries tool results from a real incident; only a person can redact them, and a
+case that leaked a hostname into the repository is worse than no case. The
+RUNBOOK gives the procedure instead.
+
+**Cost:** the verdict text is stored unredacted and is readable by every incident
+reader of the tenant. Nothing links a verdict to the agents that contributed to
+the report beyond the report itself, so per-agent accuracy needs a query, not a
+metric. A verdict on a report that is later superseded by a retry stays on the
+old version, which is the honest place for it but means the newest report starts
+with none.
+
+### D50 — An evaluation is completed by its summary, by someone other than the people who promote
+
+Before this, `POST …/evaluations/{id}` took `passed: true` and any non-empty
+`artifact_hash` from anyone who could manage model providers, and activation
+counted any passed evaluation of the release id. The person who wanted a
+release live could request, pass and activate it alone, and no record said what
+had actually been evaluated: the harness's summary never named the release.
+
+Now the body is the harness's `summary.json` (`sre-eval-summary/v2`), unchanged.
+The platform hashes the bytes itself and derives the verdict from the summary's
+gate (`promotion_eligible`, no listed failures, no hard failures); a summary
+claiming eligibility while listing failures is refused. It checks that the
+summary names this release by id and hash, that every slot of the release uses
+the one deployment version and provider revision the summary names (id,
+version and hash), that the dataset (`id@version`) and baseline are those the
+requester asked for, and that a run against a synthesized baseline was
+requested as `bootstrap`. Completing needs `model-evaluations:complete`, held
+only by `SreEvaluationRunner`, and the completer must not be the requester.
+Activation needs a passed evaluation of the same release whose hash at request
+time still matches, completed by someone other than the activator.
+`RequireEvaluationForActivation` remains, defaulting to on; the bootstrapper
+still bypasses the gate by design (D34).
+
+**Rejected: re-running the gate arithmetic on the platform.** The platform
+would need the attempts, the baseline and the eval configuration, and would then
+be a second implementation of the harness. It verifies identity and internal
+consistency; it trusts the runner's arithmetic, and separation of duties is what
+makes that trust reasonable.
+
+**Cost:** a release whose slots use different deployments cannot be promoted
+through the gate, because the harness evaluates one deployment per run; until
+it can, such a release needs `RequireEvaluationForActivation` off or the
+bootstrapper. Evaluations completed before this change carry no release hash and
+no longer count, so a release evaluated earlier must be evaluated again before
+activation. The Operator and PlatformAdmin roles lose the ability to complete
+evaluations; a CI identity with `SreEvaluationRunner` is now required, and
+local development's single principal cannot complete one. The runner is
+trusted not to forge a summary: the hash makes a forgery traceable to the
+artifact it claims to be, not impossible.
+

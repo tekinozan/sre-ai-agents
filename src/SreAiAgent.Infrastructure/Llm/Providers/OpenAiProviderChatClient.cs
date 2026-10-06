@@ -64,13 +64,7 @@ internal class OpenAiCompatibleProviderChatClient : IProviderChatClient
             return Result<ProviderChatResponse>.Failure(credential.Error);
         }
 
-        OpenAiChatRequest payload = new(
-            request.ProviderModel,
-            [new ProviderMessage("system", request.SystemPrompt), new ProviderMessage("user", request.UserPrompt)],
-            request.Temperature,
-            request.MaxOutputTokens,
-            new OpenAiResponseFormat("json_schema", new OpenAiJsonSchema("sre_response", Strict: true, request.JsonSchema)),
-            request.Seed);
+        OpenAiChatRequest payload = OpenAiDialect.Build(request, Revision.AdapterKind);
 
         Uri endpoint = BuildEndpoint(Revision.Endpoint, "chat/completions");
         using HttpRequestMessage message = new(HttpMethod.Post, endpoint)

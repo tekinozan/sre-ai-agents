@@ -6,7 +6,6 @@ using SreAiAgent.Application.Workflows;
 using SreAiAgent.Workflow.Health;
 using SreAiAgent.Workflow.Inline;
 using SreAiAgent.Workflow.Temporal;
-using Temporalio.Converters;
 using Temporalio.Extensions.Hosting;
 using Temporalio.Extensions.OpenTelemetry;
 
@@ -87,9 +86,12 @@ public static class WorkflowDependencyInjection
             return services;
         }
 
+        // No interceptor of its own. The worker runs on the client registered
+        // above, and Temporal hands a client's worker interceptors to every
+        // worker built from it; a second TracingInterceptor here recorded every
+        // workflow and activity span twice.
         services
             .AddHostedTemporalWorker(configuration["Workflow:TaskQueue"] ?? "sre-investigation")
-            .ConfigureOptions(options => options.Interceptors = [new TracingInterceptor()])
             .AddScopedActivities<InvestigationActivityShims>()
             .AddWorkflow<TemporalInvestigationWorkflow>();
 
@@ -123,14 +125,7 @@ public static class WorkflowDependencyInjection
             options.TargetHost = configuration["Workflow:TemporalHostPort"] ?? "localhost:7233";
             options.Namespace = configuration["Workflow:TemporalNamespace"] ?? "default";
 
-            // Reflection-based serialization is banned platform-wide, and
-            // Temporal's default converter uses it. Pointing it at the generated
-            // context keeps workflow history on the same serializer as every
-            // other wire boundary.
-            options.DataConverter = DataConverter.Default with
-            {
-                PayloadConverter = new DefaultPayloadConverter(WorkflowPayloadJson.Options),
-            };
+            options.DataConverter = WorkflowPayloadJson.DataConverter;
 
             // Carries W3C trace context into workflow and activity spans, so an
             // investigation started by an HTTP request stays one trace across the

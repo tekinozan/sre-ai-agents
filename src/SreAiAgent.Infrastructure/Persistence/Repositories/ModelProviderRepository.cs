@@ -319,11 +319,17 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
     public Task<bool> HasPassedEvaluationAsync(
         TenantScope scope,
         ModelAssignmentReleaseId releaseId,
+        string releaseConfigurationHash,
+        string activator,
         CancellationToken cancellationToken)
     {
         return context.ModelAssignmentEvaluations.AnyAsync(
             item => item.Tenant == scope.Tenant && item.Product == scope.Product && item.Environment == scope.Environment
-                && item.AssignmentReleaseId == releaseId && item.Passed,
+                && item.AssignmentReleaseId == releaseId
+                && item.Passed
+                && item.ReleaseConfigurationHash == releaseConfigurationHash
+                && item.CompletedBy != null
+                && item.CompletedBy != activator,
             cancellationToken);
     }
 
@@ -358,6 +364,15 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
             active.ActivatedBy = actor;
         }
     }
+
+    /// <summary>
+    /// Whether anything is activated at exactly <paramref name="scope"/>, with
+    /// the same no-fallback rule as <see cref="GetActiveSnapshotAsync"/>.
+    /// </summary>
+    public Task<bool> HasActiveAssignmentAsync(TenantScope scope, CancellationToken cancellationToken)
+        => context.TenantActiveModelAssignments.AnyAsync(
+            item => item.Tenant == scope.Tenant && item.Product == scope.Product && item.Environment == scope.Environment,
+            cancellationToken);
 
     /// <summary>
     /// The active assignment for exactly <paramref name="scope"/> (D41). Never
@@ -472,6 +487,10 @@ internal sealed class ModelProviderRepository(SreDbContext context) : IProviderR
             Agents = agents
         };
     }
+
+    /// <summary>The tenant's budget row, if it has one (D47).</summary>
+    public Task<TenantBudgetEntity?> FindBudgetAsync(string tenant, CancellationToken cancellationToken)
+        => context.TenantBudgets.AsNoTracking().SingleOrDefaultAsync(budget => budget.Tenant == tenant, cancellationToken);
 
     public void AddAudit(
         string tenant,

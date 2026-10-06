@@ -411,7 +411,33 @@ internal sealed record EvalBaseline
 internal sealed record GateResult(bool PromotionEligible, IReadOnlyList<string> Failures);
 internal sealed record RunManifest(string SchemaVersion, string RunId, CandidateSnapshot Candidate, DateTimeOffset FixedUtc, string BaselineId);
 internal sealed record SafeAttemptArtifact(string CaseId, int Repeat, HardScore Hard, QualityScore Quality, string Status, string? ErrorCode, AgentRunUsage Usage, double LatencyMilliseconds, IReadOnlyList<string> Tools);
-internal sealed record SummaryArtifact(string SchemaVersion, string RunId, string CandidateHash, string DatasetHash, EvalAggregate Aggregate, GateResult Gate);
+/// <summary>
+/// What the control plane is handed to complete an evaluation
+/// (incidents-feedback-evals.md E-1).
+/// </summary>
+/// <remarks>
+/// v2 names what was evaluated: the platform refuses a summary whose release,
+/// deployment or provider revision is not the release it is asked to promote,
+/// and a run against a synthesized bootstrap baseline says so instead of
+/// passing for a regression comparison.
+/// </remarks>
+internal sealed record SummaryArtifact(
+    string SchemaVersion,
+    string RunId,
+    string CandidateHash,
+    string DatasetHash,
+    SummaryIdentity AssignmentRelease,
+    SummaryIdentity ModelDeployment,
+    SummaryIdentity ProviderConnectionRevision,
+    SummaryIdentity Dataset,
+    SummaryBaseline Baseline,
+    EvalAggregate Aggregate,
+    GateResult Gate);
+internal sealed record SummaryIdentity(string Id, string Version, string Hash)
+{
+    public static SummaryIdentity From(VersionedIdentity identity) => new(identity.Id, identity.Version, identity.Hash);
+}
+internal sealed record SummaryBaseline(string Id, bool Bootstrap);
 internal sealed record ArtifactBundle(RunManifest Manifest, IReadOnlyList<SafeAttemptArtifact> Attempts, SummaryArtifact Summary, string JunitXml);
 internal sealed record LoadedDataset(EvalDatasetManifest Manifest, IReadOnlyList<EvalCase> Cases, string Hash, string Directory);
 internal sealed record EvalRunResult(CandidateSnapshot Candidate, IReadOnlyList<EvalAttempt> Attempts, EvalAggregate Aggregate, GateResult Gate, string RunId, string ArtifactDirectory, string? WrittenBaselinePath = null);

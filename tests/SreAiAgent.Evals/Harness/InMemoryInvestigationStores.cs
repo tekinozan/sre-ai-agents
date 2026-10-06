@@ -1,3 +1,4 @@
+using SreAiAgent.Application.Abstractions.Messaging;
 using SreAiAgent.Application.Abstractions.Persistence;
 using SreAiAgent.Domain.Evidence;
 using SreAiAgent.Domain.Findings;
@@ -11,8 +12,18 @@ internal sealed class InMemoryInvestigationStores :
     IIncidentRepository,
     IInvestigationStore,
     IConfigurationSnapshotStore,
-    IUnitOfWork
+    IUnitOfWork,
+    IEventPublisher
 {
+    // The eval harness has no broker; published events are counted, not sent.
+    public int PublishedCount { get; private set; }
+
+    public void Enqueue(DomainEvent domainEvent, string correlationId, Guid? causationId = null) => PublishedCount++;
+
+    public void Enqueue<TPayload>(string topic, string eventType, TPayload payload, string correlationId, Guid? causationId = null)
+        where TPayload : class
+        => PublishedCount++;
+
     private readonly Dictionary<IncidentId, Incident> _incidents = new();
     private readonly List<IncidentTimelineEntry> _timeline = new();
     private readonly Dictionary<ConfigurationSnapshotId, ConfigurationSnapshot> _snapshots = new();
@@ -36,11 +47,17 @@ internal sealed class InMemoryInvestigationStores :
         DateTimeOffset activeSince,
         CancellationToken cancellationToken)
     {
-        var found = _incidents.Values.FirstOrDefault(i =>
-            i.Tenant == tenant &&
-            i.Source == source &&
-            i.Fingerprint == fingerprint &&
-            i.CreatedAt >= activeSince);
+        // Mirrors IncidentRepository (docs/DECISIONS.md D43).
+        var found = _incidents.Values
+            .Where(i =>
+                i.Tenant == tenant &&
+                i.Source == source &&
+                i.Fingerprint == fingerprint &&
+                i.Status != IncidentStatus.Cancelled &&
+                (i.Status != IncidentStatus.Resolved || i.LastAlertAt >= activeSince))
+            .OrderBy(i => i.Status == IncidentStatus.Resolved ? 1 : 0)
+            .ThenByDescending(i => i.LastAlertAt)
+            .FirstOrDefault();
         return Task.FromResult(found);
     }
 

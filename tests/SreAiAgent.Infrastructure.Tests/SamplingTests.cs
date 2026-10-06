@@ -92,4 +92,28 @@ public sealed class SamplingTests
 
         result.Decision.ShouldBe(SamplingDecision.Drop);
     }
+
+    [Fact]
+    public void ADurableInvestigationIsSampledEvenWhenItsParentWasNot()
+    {
+        // The Temporal engine's investigation span is opened under the consumer
+        // that started the workflow, exactly like the inline one.
+        SamplingResult result = _sampler.ShouldSample(
+            Parameters(SreSpanNames.DurableInvestigation, ActivityTraceFlags.None));
+
+        result.Decision.ShouldBe(SamplingDecision.RecordAndSample);
+    }
+
+    [Fact]
+    public void TheWorkflowEngineSourcesAreTheOnesItsTracingInterceptorEmitsFrom()
+    {
+        // A source nobody listens to creates no spans. When these were not
+        // registered, every investigation step became a trace of its own.
+        WorkflowEngineTraceSources.Names.ShouldBe(
+        [
+            Temporalio.Extensions.OpenTelemetry.TracingInterceptor.ClientSource.Name,
+            Temporalio.Extensions.OpenTelemetry.TracingInterceptor.WorkflowsSource.Name,
+            Temporalio.Extensions.OpenTelemetry.TracingInterceptor.ActivitiesSource.Name,
+        ]);
+    }
 }

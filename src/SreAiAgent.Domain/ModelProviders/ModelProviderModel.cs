@@ -12,6 +12,7 @@ public enum ProviderAdapterKind
     OpenAiCompatible = 2,
     AzureOpenAi = 3,
     Anthropic = 4,
+    Gemini = 5,
 }
 
 [Flags]

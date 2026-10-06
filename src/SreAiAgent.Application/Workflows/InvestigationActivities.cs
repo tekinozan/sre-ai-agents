@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using SreAiAgent.Application.Abstractions.Llm;
+using SreAiAgent.Application.Abstractions.Messaging;
 using SreAiAgent.Application.Abstractions.Persistence;
 using SreAiAgent.Application.Abstractions.Tools;
 using SreAiAgent.Application.Abstractions.Workflow;
@@ -8,6 +9,7 @@ using SreAiAgent.Application.Agents;
 using SreAiAgent.Application.Diagnostics;
 using SreAiAgent.Application.Errors;
 using SreAiAgent.Application.Prompting;
+using SreAiAgent.Contracts.Messaging;
 using SreAiAgent.Domain.Findings;
 using SreAiAgent.Domain.Incidents;
 using SreAiAgent.Domain.Recommendations;
@@ -35,6 +37,7 @@ public sealed partial class InvestigationActivities : IInvestigationActivities
     private readonly IIncidentRepository _incidents;
     private readonly IInvestigationStore _store;
     private readonly IConfigurationSnapshotStore _snapshots;
+    private readonly IEventPublisher _publisher;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IIncidentRouter _router;
     private readonly IAgentExecutor _agent;
@@ -52,6 +55,7 @@ public sealed partial class InvestigationActivities : IInvestigationActivities
         IInvestigationStore store,
         IConfigurationSnapshotStore snapshots,
         IUnitOfWork unitOfWork,
+        IEventPublisher publisher,
         IIncidentRouter router,
         IAgentExecutor agent,
         IAgentRegistry agents,
@@ -67,6 +71,7 @@ public sealed partial class InvestigationActivities : IInvestigationActivities
         _store = store;
         _snapshots = snapshots;
         _unitOfWork = unitOfWork;
+        _publisher = publisher;
         _router = router;
         _agent = agent;
         _agents = agents;
@@ -442,6 +447,8 @@ public sealed partial class InvestigationActivities : IInvestigationActivities
             + $"{input.ReportVersion.ToString(CultureInfo.InvariantCulture)}.",
             now));
 
+        PublishCompletion(incident, input.Outcome, input.ReportVersion, errorCode: null);
+
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         _metrics.IncidentCompleted(
@@ -473,12 +480,43 @@ public sealed partial class InvestigationActivities : IInvestigationActivities
         _incidents.AddTimelineEntry(IncidentTimelineEntry.Progress(
             input.IncidentId, "incident.failed", input.Reason, now));
 
+        PublishCompletion(incident, OutcomeOf(input.ErrorCode), reportVersion: 0, input.ErrorCode);
+
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         _metrics.IncidentFailed(incident.Tenant, incident.Environment, input.ErrorCode.Value);
 
         return Result.Success();
     }
+
+    /// <summary>
+    /// Announces that the investigation ended, in the same transaction as the
+    /// state change.
+    /// </summary>
+    /// <remarks>
+    /// The aggregate raises IncidentResolved and IncidentFailed, but nothing here
+    /// ever drained them, so <c>sre.incident.completed.v1</c> was created,
+    /// documented and never written to; whoever wanted to know an investigation
+    /// had finished had to poll. The payload is explicit rather than derived
+    /// from the domain event because the event does not know the outcome or the
+    /// report version, which is what a consumer such as the notifier needs.
+    /// </remarks>
+    private void PublishCompletion(Incident incident, InvestigationOutcome outcome, int reportVersion, ErrorCode? errorCode)
+    {
+        _ = incident.DequeueEvents();
+        _publisher.Enqueue(
+            KafkaTopics.IncidentCompleted,
+            "sre.incident.completed",
+            new IncidentCompletedPayload(incident.Id, incident.Status, outcome, reportVersion, errorCode),
+            incident.Id.ToString());
+    }
+
+    private static InvestigationOutcome OutcomeOf(ErrorCode code)
+        => code == ApplicationErrorCodes.BudgetExceeded ? InvestigationOutcome.BudgetExceeded
+            : code == ApplicationErrorCodes.WorkflowDeadlineExceeded ? InvestigationOutcome.DeadlineExceeded
+            : code == ApplicationErrorCodes.WorkflowCancelled ? InvestigationOutcome.Cancelled
+            : code == ApplicationErrorCodes.InsufficientAgentCapability ? InvestigationOutcome.InsufficientAgentCapability
+            : InvestigationOutcome.Partial;
 
     [LoggerMessage(
         EventId = 5001,

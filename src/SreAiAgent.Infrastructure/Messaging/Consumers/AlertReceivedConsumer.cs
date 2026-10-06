@@ -59,11 +59,28 @@ internal sealed partial class AlertReceivedConsumer(
 
         CreateIncidentHandler handler = services.GetRequiredService<CreateIncidentHandler>();
         CreateIncidentRequest request = AlertNormalizer.ToRequest(envelope.Payload);
+        string tenant = TenantFor(envelope.Payload);
+        TimeSpan window = TimeSpan.FromMinutes(_database.IncidentDeduplicationWindowMinutes);
+
+        if (envelope.Payload.IsResolved)
+        {
+            // A resolved delivery annotates the incident it belongs to and never
+            // opens one (docs/DECISIONS.md D43).
+            Result resolution = await handler
+                .RecordResolutionAsync(request, tenant, window, cancellationToken)
+                .ConfigureAwait(false);
+            if (resolution.IsFailure)
+            {
+                throw new InvalidOperationException(resolution.Error.Message);
+            }
+
+            return;
+        }
 
         Result<IncidentAcceptedResponse> result = await handler.HandleAsync(
             request,
-            TenantFor(envelope.Payload),
-            TimeSpan.FromMinutes(_database.IncidentDeduplicationWindowMinutes),
+            tenant,
+            window,
             cancellationToken).ConfigureAwait(false);
 
         if (result.IsFailure && result.Error.IsRetryable)

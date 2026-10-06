@@ -129,9 +129,10 @@ The agents ran and produced nothing usable. Check `agent_runs.error_code`:
 
 - `LLM_STRUCTURED_OUTPUT_INVALID` — the model returned something the turn schema
   rejects. Compare the shape it returned against `AgentTurn`.
-- `BUDGET_EXCEEDED` — the agent ran out of iterations, tokens or time. Expected
-  under a tight budget; the outcome is `Partial` and the evidence collected so far
-  is still cited.
+- `BUDGET_EXCEEDED` — the agent ran out of iterations, tokens or time, or the
+  tenant's model budget is spent (below). Expected under a tight budget; the
+  report outcome is `BudgetExceeded` and the evidence collected so far is still
+  cited.
 - `TOOL_POLICY_DENIED` in `tool_calls` — the agent asked for something the policy
   release or its own allowlist forbids. That is the tool gateway working; the
   question is why the agent asked.
@@ -160,17 +161,38 @@ retry of that incident is refused as already running until it is terminated.
 
 ### The same alert opened two incidents
 
-Deduplication is by `(tenant, source, fingerprint)` inside the active window,
-measured from `last_alert_at`. Two incidents means the fingerprints differ. The
-usual cause is an identity label that is not stable — a pod name changes on every
-restart, so a crash loop opens an incident per restart. Check
+Deduplication is by `(tenant, source, fingerprint)`, and the database allows one
+active incident per identity (`ix_incidents_active_fingerprint` is unique). A
+recurrence also folds into a *resolved* incident whose `last_alert_at` is inside
+the deduplication window: the report already explains that outage
+(docs/DECISIONS.md D43). Two incidents therefore means either the fingerprints
+differ or the alert was quiet for longer than the window between them. The usual
+cause of the first is an identity label that is not stable — a pod name changes
+on every restart, so a crash loop opens an incident per restart. Check
 `IdentityLabelKeys` on the adapter for that source.
+
+A resolved delivery from the source never opens an incident; it shows up as an
+`alert.resolved` entry on the incident's timeline.
+
+### A recurrence did not start a new investigation
+
+Expected inside the cooldown of a resolved incident, and while an incident is
+investigating or waiting on approval. A recurrence starts one only on an
+incident that was never investigated, or on a failed one whose alert had been
+quiet for a whole window (D43). Inside the window a failed incident stays
+failed: retry it with `POST /v1/incidents/{id}/retry`.
 
 ### An alert is redelivered forever
 
 Look for `7203` in the consumer logs. A handler failure leaves the offset
-uncommitted on purpose, so the message returns. If the failure is permanent the
-message will loop; the fix is either the underlying cause or dead-lettering it.
+uncommitted and rewinds the partition to it after a short pause, so the message
+returns on the next poll (docs/DECISIONS.md D42); `7204` means the rewind found
+the partition revoked, and its new owner resumes from the committed offset.
+After `Kafka:MaxDeliveryAttempts` attempts the message is dead-lettered (`7301`)
+and the partition moves on.
+
+A message for an alert that lost a creation race to another message is retried
+the same way and folds into the winner's incident on the next attempt.
 
 A historical instance of this: the creation claim outlived the incident it
 created, so a recurrence could neither fold into a closed incident nor take the
@@ -178,11 +200,76 @@ claim. The claim is now thirty seconds (docs/DECISIONS.md D24).
 
 ### Investigations are missing from Jaeger
 
-`incident.investigation` is always sampled regardless of the ingress ratio. If it
-is missing, either the OTLP endpoint is wrong or the sampler was changed. Check
-`Telemetry:OtlpEndpoint`, then that `InvestigationAwareSampler` is still the
-top-level sampler rather than wrapped in a `ParentBasedSampler` — wrapping it
-means it is only consulted for root spans, and an investigation never is one.
+The investigation span is always sampled regardless of the ingress ratio: on
+the Temporal engine it is `RunWorkflow:SreInvestigation`, inline it is
+`incident.investigation`. If it is missing, either the OTLP endpoint is wrong or
+the sampler was changed. Check `Telemetry:OtlpEndpoint`, then that
+`InvestigationAwareSampler` is still the top-level sampler rather than wrapped in
+a `ParentBasedSampler` — wrapping it means it is only consulted for root spans,
+and an investigation never is one.
+
+If `classify`, `route`, each `agent.execute` and `correlate` appear as separate
+one-span traces, the Temporal interceptor's sources are not registered with the
+tracer provider (`WorkflowEngineTraceSources`). If every `RunActivity:*` span
+appears twice, a second `TracingInterceptor` was added to the worker; the
+client's is already applied to it.
+
+### A report's outcome is `BudgetExceeded` and `llm_calls` shows `BUDGET_EXCEEDED` at zero cost
+
+The tenant's model budget is spent (D47); those calls never left the platform.
+The incident is still `Resolved`, not `Failed`: the report is kept with whatever
+evidence the tools gathered, and its outcome says the investigation was cut
+short. Notification channels hear it as `investigation_completed` with that
+outcome, and the `budget_threshold` notification at 100% will already have gone
+out (D48).
+
+`GET /v1/budget` shows the limit, the period start and the spend. Either wait for
+the period to turn (monthly budgets reset on the first of the UTC month), raise
+the limit with `PUT /v1/budget`, or remove it with `DELETE /v1/budget`, then
+retry the incident.
+
+### A notification channel stopped receiving messages
+
+The worker logs the channel id and the HTTP status, never the URL. Common causes:
+
+- `NOTIFICATION_DELIVERY_FAILED` on `/test` with a 4xx from the chat tool: the
+  webhook was revoked or its flow turned off. Create a new one and replace the
+  secret.
+- The test is refused before sending: in production the URL must be HTTPS to
+  Slack's or Teams' own hosts, or to a host in
+  `Notifications:AllowedWebhookHosts`, and never an IP address.
+- Nothing arrives for completions at all: check that the `notifier` consumer is
+  running in the worker (`Notifications:Enabled`) and look for its rows in
+  `consumer_delivery_attempts` and `outbox_messages` on
+  `sre.incident.completed.v1`. A send that keeps failing follows the usual
+  dead-letter path; channels that had already accepted the message are not sent
+  it again on replay.
+- A Teams channel subscribed only to `investigation_failed` hears nothing about
+  a report cut short by the tenant budget: that investigation is `Resolved` with
+  outcome `BudgetExceeded`, announced as `investigation_completed`, and the
+  `budget_threshold` message covers it.
+
+### Activation is refused with `MODEL_ASSIGNMENT_EVALUATION_REQUIRED`
+
+Activation counts only an evaluation of this release that passed and was
+completed by someone other than you (D50). Check
+`model_assignment_evaluations` for the release: `status` must be `passed`,
+`release_configuration_hash` must equal the release's hash, and `completed_by`
+must not be the activating user. An evaluation completed before D50 has an
+empty hash and no longer counts; request a new one.
+
+Completion itself answers:
+
+- `MODEL_EVALUATION_SEPARATION_OF_DUTIES`: the runner identity is the same as
+  the requester. The CI job must authenticate as its own `SreEvaluationRunner`
+  identity.
+- `MODEL_EVALUATION_SUMMARY_INVALID`: the message names the mismatch. Usually
+  the candidate manifest was not filled from the release
+  (`tests/SreAiAgent.Evals/EVALS.md`, "Completing a platform evaluation"), the
+  evaluation was requested with another dataset or baseline, or the release
+  spreads its slots over several deployments.
+- `403`: the caller lacks `SreEvaluationRunner`; Operator and PlatformAdmin
+  cannot complete evaluations.
 
 ### `sre_trace_attribute_rejected_total` is climbing
 
@@ -232,6 +319,167 @@ rather than continued, and the tokens already spent are spent again.
 The row keeps its payload. Reset `is_dead_lettered` and `next_attempt_at` once the
 cause is fixed, and the dispatcher picks it up on its next pass. Consumers are
 idempotent, so a replay of something that partly succeeded is safe.
+
+### Sending notifications to Slack or Teams
+
+Create the webhook in the chat tool (a Slack incoming webhook, or a Teams
+Workflows "post to a channel when a webhook request is received" flow), put its
+URL in a Secret, and mount it under `Llm:CredentialFileRoot`
+(`/var/run/secrets/sre-ai`) in the API and the investigation worker: the worker
+sends, the API sends the test message. A `file://` reference is relative to that
+root. Then register the channel by reference, never by URL (D48):
+
+```bash
+curl -X POST "$API/v1/notification-channels" -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{
+    "kind": "teams",
+    "display_name": "sre-oncall",
+    "webhook_ref": "file://teams-oncall",
+    "events": ["investigation_failed", "budget_threshold"]
+  }'
+curl -X POST "$API/v1/notification-channels/$ID/test" -H "Authorization: Bearer $TOKEN"
+```
+
+`events` defaults to all three. Managing channels needs the Operator or
+PlatformAdmin role. A webhook rotates like a `file://` provider key (table
+below); to change anything else about a channel, delete it and create it again.
+
+### Turning a wrong report into an eval case
+
+People record verdicts with `POST /v1/incidents/{id}/report/feedback`
+(`Confirmed`, `PartiallyCorrect`, `Incorrect`, optionally the actual cause).
+`sre_report_feedback_total{verdict,outcome}` shows the trend; the cases to learn
+from are listed by:
+
+```bash
+curl "$API/v1/report-feedback?verdict=incorrect&since=2026-10-01T00:00:00Z" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+For each one worth keeping:
+
+1. Read the incident, its evidence and the report (`GET /v1/incidents/{id}`,
+   `/evidence`, `/report?version=N`) beside the verdict's `actual_root_cause`.
+2. Write a case in the shape of `tests/SreAiAgent.Evals/Datasets/incidents/v1/cases/`:
+   the incident, the tool results as fixtures, the actual cause as the expected
+   root-cause family, and the report's wrong conclusion as a forbidden claim.
+   Redact by hand: hostnames, customer names, ids and anything else that should
+   not live in the repository. Nothing does this automatically, and the
+   verdict's free text is not redacted at all.
+3. Put it in a **new dataset version** (`v2/`, copying `v1`'s cases), never in
+   `v1`. A dataset's hash is part of every baseline built on it, and baselines
+   are immutable; editing `v1` would make every existing baseline incompatible.
+4. Bootstrap a baseline for the new version with the active release, then
+   evaluate the next release against it (`tests/SreAiAgent.Evals/EVALS.md`).
+
+### Backup and restore
+
+Three logical databases, backed up together: `sre` (incidents, evidence,
+reports, audit, the model control plane, the outbox and inbox, and
+`__migrations_history`), `temporal` and `temporal_visibility`. Kafka holds
+nothing that is not also in PostgreSQL: undelivered events are outbox rows, and
+a consumer that re-reads a topic is deduplicated by the inbox. Dead letters on
+`sre.deadletter.v1` are the exception; mirror that topic if it must survive a
+broker loss.
+
+```bash
+# As the owner of each database, at the same point in time.
+pg_dump --format=custom --file=sre.dump                 --dbname=sre
+pg_dump --format=custom --file=temporal.dump            --dbname=temporal
+pg_dump --format=custom --file=temporal_visibility.dump --dbname=temporal_visibility
+```
+
+Restore into empty databases owned by the same roles, then let the migration job
+run: it applies only what `__migrations_history` says is missing, so a backup
+taken by an older release upgrades in place.
+
+```bash
+pg_restore --exit-on-error --no-owner --role=<business owner> --dbname=sre sre.dump
+```
+
+Never restore the business database alone onto a running Temporal, or the other
+way round; see "Coordinated recovery".
+
+### Secret rotation
+
+| Secret | How it is read | Rotation |
+|---|---|---|
+| Model provider key, `file://` reference | Read from the mounted file on every call | Update the Kubernetes Secret; the kubelet refreshes the mount within about a minute. No restart, no new revision |
+| Model provider key, `env://` reference | Process environment, read on every call | Update the Secret, then a rolling restart of the API and both workers |
+| A different credential *reference* | Part of the immutable provider revision | New revision → deployment version → assignment release → evaluate → activate, through the management API. Open incidents keep the snapshot they pinned |
+| Kafka SASL credentials | `Kafka:SaslUsername` / `SaslPassword` at start-up | Add the new credential on the broker, update the Secret, rolling restart, then remove the old one |
+| PostgreSQL runtime password | Connection string at start-up; pooled connections stay authenticated | `ALTER ROLE ... PASSWORD`, update the Secret, rolling restart promptly — new connections fail until each pod restarts |
+| OIDC signing keys | The identity provider's JWKS | Nothing to do here; the API refreshes the key set when it meets an unknown key id |
+
+Prefer `file://` for provider keys: it rotates without a restart and does not put
+the key in the process environment.
+
+### Retention
+
+The `Retention` sweep runs every `Retention:IntervalMinutes` (60) and deletes
+in batches of `Retention:BatchSize` (1000), so one sweep never holds a long
+lock. It removes only plumbing:
+
+| Rows | Kept for | Never deleted |
+|---|---|---|
+| Processed inbox messages | `InboxRetentionDays`, 14 | — |
+| Dispatched outbox messages | `DispatchedOutboxRetentionDays`, 7 | Dead-lettered rows |
+| Settled delivery attempts | `DeliveryAttemptRetentionDays`, 7 | Unsettled attempts |
+| Notification delivery claims | `NotificationClaimRetentionDays`, 62 | — |
+
+Incidents, timeline, evidence, findings, reports, LLM and tool audit rows and the
+model control plane are never deleted by the platform. The inbox window must
+outlive the longest broker redelivery, or a late redelivery is processed twice;
+the outbox window must outlive the window in which an operator may want to
+replay a message.
+
+### Coordinated recovery
+
+Restore in dependency order, from backups taken at the same point in time:
+
+1. PostgreSQL: `sre`, `temporal`, `temporal_visibility`.
+2. Temporal, against its restored databases.
+3. The broker. An empty broker is acceptable: the outbox re-dispatches what was
+   not yet sent, and consumers start from the earliest offset.
+4. The migration job, then the API, then both workers.
+
+Then reconcile what the two stores disagree about:
+
+- An incident `Investigating` with no running workflow (the business database is
+  newer than Temporal's): `POST /v1/incidents/{id}/retry`. The retry is refused
+  while a workflow is running, so it cannot double one up.
+- A running workflow whose incident does not exist (Temporal is newer):
+  `temporal workflow terminate --workflow-id incident-<id>`. It would otherwise
+  fail at `LoadIncident` and hold its id.
+- `SELECT count(*) FROM outbox_messages WHERE dispatched_at IS NULL` settles at
+  zero once the broker is reachable.
+
+### Load and soak
+
+```bash
+k6 run -e BASE_URL=http://localhost:8080 eng/load/alert-storm.js                    # 5 min ramp, 20 min soak
+k6 run -e BASE_URL=... -e TOKEN=<jwt> -e TENANT=<tenant> eng/load/alert-storm.js   # anything but compose
+docker run --rm --network host -v "$PWD/eng/load:/scripts:ro" grafana/k6 run /scripts/alert-storm.js
+```
+
+The script ramps from 1 to 10 alerts per second and holds, drawing fingerprints
+from a pool of `FINGERPRINTS` (50) so most deliveries fold into an open incident
+and a minority open one. It fails on more than 1% failed requests or a p95 above
+500 ms. Outside k6, during the run: the outbox pending count stays flat, no
+worker restarts, worker memory levels off, and each fingerprint has exactly one
+incident.
+
+The API's rate limit is per caller, `Security:RateLimitPerMinute` (600) in a
+fixed one-minute window, and an Alertmanager is one caller. At the script's
+10 per second the limit is exactly met, so an occasional `429` at a window
+boundary is expected; Alertmanager retries it. An installation whose alert
+volume from one sender exceeds the limit has to raise it, or it trades alerts
+for retries.
+
+Last run (2026-10-05, compose, 1 min ramp and 3 min hold rather than the full
+25): 2,129 requests, p95 4.5 ms, one `429`; the 2,128 accepted alerts produced
+50 incidents with an alert count summing to 2,128, every one resolved, the
+outbox drained to zero, no restarts, workers between 150 and 220 MiB.
 
 ### Running a pilot against a real provider and a real target
 

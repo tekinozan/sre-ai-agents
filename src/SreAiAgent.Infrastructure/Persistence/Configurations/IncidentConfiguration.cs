@@ -45,15 +45,30 @@ internal sealed class IncidentConfiguration : IEntityTypeConfiguration<Incident>
                 json => JsonbConverters.DeserializeLabels(json))
             .Metadata.SetValueComparer(DictionaryComparers.Ordinal);
 
-        // The deduplication index of ARCHITECTURE.md 9.3. Filtered to open
-        // incidents so a resolved one stops blocking a genuine recurrence, and
-        // ordered tenant-first because every query is tenant-scoped.
+        // The deduplication constraint of ARCHITECTURE.md 9.3: one active
+        // incident per alert identity. Unique, because two deliveries can both
+        // read "nothing active" and only the database can break that tie (D43).
+        // Filtered to open incidents so a resolved one stops blocking a genuine
+        // recurrence, and ordered tenant-first because every query is
+        // tenant-scoped.
         builder.HasIndex(incident => new { incident.Tenant, incident.Source, incident.Fingerprint })
             .HasDatabaseName("ix_incidents_active_fingerprint")
-            .HasFilter("status NOT IN ('Resolved', 'Cancelled')");
+            .HasFilter("status NOT IN ('Resolved', 'Cancelled')")
+            .IsUnique();
+
+        // The cooldown half of the same lookup: the most recently alerted
+        // resolved incident for an identity. The active index cannot serve it,
+        // and without this the lookup scans a tenant's whole resolved history on
+        // every alert.
+        builder.HasIndex(incident => new { incident.Tenant, incident.Source, incident.Fingerprint, incident.LastAlertAt })
+            .HasDatabaseName("ix_incidents_fingerprint_last_alert");
 
         builder.HasIndex(incident => new { incident.Tenant, incident.Status, incident.DetectedAt })
             .HasDatabaseName("ix_incidents_tenant_status_detected");
+
+        // GET /v1/incidents pages by (detected_at, id) within a tenant.
+        builder.HasIndex(incident => new { incident.Tenant, incident.DetectedAt, incident.Id })
+            .HasDatabaseName("ix_incidents_tenant_detected_id");
 
     }
 }

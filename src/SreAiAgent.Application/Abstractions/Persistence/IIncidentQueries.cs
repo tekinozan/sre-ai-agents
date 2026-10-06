@@ -23,6 +23,19 @@ public interface IIncidentQueries
         IncidentId incidentId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// A page of the tenant's incidents, newest detection first.
+    /// </summary>
+    /// <remarks>
+    /// Keyset, not offset: a page boundary is the last row's
+    /// <c>(detected_at, id)</c>, so a page deep into a large table costs the same
+    /// as the first and a row inserted meanwhile neither shifts nor repeats rows.
+    /// </remarks>
+    Task<IncidentListResponse> ListIncidentsAsync(
+        string tenant,
+        IncidentListQuery query,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<IncidentTimelineEntryResponse>> GetTimelineAsync(
         string tenant,
         IncidentId incidentId,
@@ -74,4 +87,27 @@ public interface IIncidentQueries
         IncidentId incidentId,
         int? version,
         CancellationToken cancellationToken);
+}
+
+/// <summary>Filters and page position for <see cref="IIncidentQueries.ListIncidentsAsync"/>.</summary>
+/// <remarks>An empty status or severity list means any.</remarks>
+public sealed record IncidentListQuery
+{
+    public required IReadOnlyList<IncidentStatus> Statuses { get; init; }
+
+    public required IReadOnlyList<IncidentSeverity> Severities { get; init; }
+
+    public string? Service { get; init; }
+
+    public string? Environment { get; init; }
+
+    public string? Source { get; init; }
+
+    public DateTimeOffset? DetectedFrom { get; init; }
+
+    public DateTimeOffset? DetectedTo { get; init; }
+
+    public PageCursor? After { get; init; }
+
+    public required int Limit { get; init; }
 }

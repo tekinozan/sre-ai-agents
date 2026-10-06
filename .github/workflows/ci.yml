@@ -1,0 +1,124 @@
+# The gate of AGENTS.md, run for every pull request rather than only on the
+# machine of whoever remembered to run it.
+#
+# The steps live in eng/ci.sh and eng/ci.ps1, not here, so a contributor and CI
+# run the same thing; this file only decides where. Linux carries the
+# integration suites because it is where the containers run and where Docker is;
+# Windows runs the ordinary gate because the repository is developed there and
+# has already drifted from Linux once (docs/agents/PITFALLS.md).
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  TESTINGPLATFORM_TELEMETRY_OPTOUT: "1"
+
+jobs:
+  gate-linux:
+    name: gate (linux, with integration)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
+
+      - name: Gate
+        run: bash eng/ci.sh --with-integration
+
+      # Safe by construction: the harness writes no prompt, provider response
+      # or credential into these (tests/SreAiAgent.Evals/EVALS.md).
+      - name: Keep the eval artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evals-linux
+          path: artifacts/evals/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  gate-windows:
+    name: gate (windows)
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
+
+      - name: Gate
+        shell: pwsh
+        run: ./eng/ci.ps1
+
+  kubernetes-render:
+    name: kubernetes manifests match the chart
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Render and compare
+        run: bash eng/check-k8s-render.sh
+
+  images:
+    name: image (${{ matrix.project }})
+    needs: gate-linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Docker repository names must be lowercase, so the project name cannot
+        # double as the image name; these match the chart's component images.
+        include:
+          - project: SreAiAgent.Api
+            image: api
+          - project: SreAiAgent.AlertWorker
+            image: alert-worker
+          - project: SreAiAgent.InvestigationWorker
+            image: investigation-worker
+    steps:
+      - uses: actions/checkout@v4
+
+      # Built, not pushed: where images are published is a deployment decision
+      # this repository has not made yet (docs/plans/project-assessment-2026-10.md P2-2).
+      - name: Build
+        run: >
+          docker build
+          --file deploy/docker/Dockerfile
+          --build-arg PROJECT=${{ matrix.project }}
+          --tag sre-ai-agent/${{ matrix.image }}:${{ github.sha }}
+          .
+
+      # Critical findings with a fix available fail the job; unfixed ones are
+      # reported but cannot be acted on by this repository. Pinned to a commit,
+      # not a tag: a scanner runs with the job's token and sees the image.
+      - name: Scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: sre-ai-agent/${{ matrix.image }}:${{ github.sha }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

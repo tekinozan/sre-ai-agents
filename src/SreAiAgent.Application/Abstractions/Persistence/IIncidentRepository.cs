@@ -20,9 +20,10 @@ public interface IIncidentRepository
     Task<Incident?> GetAsync(IncidentId incidentId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Finds the incident an alert should fold into: same source and fingerprint,
-    /// still inside the active window. Returns null when a new incident is
-    /// warranted (ARCHITECTURE.md 9.3).
+    /// Finds the incident an alert should fold into: the active incident for the
+    /// tenant, source and fingerprint whatever its age, or else the resolved one
+    /// whose last alert is at or after <c>activeSince</c>. Returns null when a
+    /// new incident is warranted (ARCHITECTURE.md 9.3, docs/DECISIONS.md D43).
     /// </summary>
     Task<Incident?> FindActiveByFingerprintAsync(
         string tenant,

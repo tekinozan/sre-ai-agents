@@ -26,7 +26,15 @@ public static class ApplicationErrorCodes
     public static readonly ErrorCode ModelDeploymentNotFound = new("MODEL_DEPLOYMENT_NOT_FOUND");
     public static readonly ErrorCode ModelAssignmentNotFound = new("MODEL_ASSIGNMENT_NOT_FOUND");
     public static readonly ErrorCode ModelAssignmentSlotMissing = new("MODEL_ASSIGNMENT_SLOT_MISSING");
+    public static readonly ErrorCode ModelEvaluationSummaryInvalid = new("MODEL_EVALUATION_SUMMARY_INVALID");
+    public static readonly ErrorCode ModelEvaluationSeparationOfDuties = new("MODEL_EVALUATION_SEPARATION_OF_DUTIES");
     public static readonly ErrorCode ModelAssignmentEvaluationRequired = new("MODEL_ASSIGNMENT_EVALUATION_REQUIRED");
+
+    /// <summary>
+    /// A narrower-than-tenant activation would leave the tenant with no
+    /// assignment its incidents can resolve (docs/DECISIONS.md D41, BUG-002).
+    /// </summary>
+    public static readonly ErrorCode ModelAssignmentScopeUnreachable = new("MODEL_ASSIGNMENT_SCOPE_UNREACHABLE");
     public static readonly ErrorCode CredentialUnavailable = new("CREDENTIAL_UNAVAILABLE");
     public static readonly ErrorCode ModelResourceConflict = new("MODEL_RESOURCE_CONFLICT");
 
@@ -57,6 +65,22 @@ public static class ApplicationErrorCodes
     public static readonly ErrorCode WorkflowCancelled = new("WORKFLOW_CANCELLED");
     public static readonly ErrorCode WorkflowAlreadyRunning = new("WORKFLOW_ALREADY_RUNNING");
     public static readonly ErrorCode BudgetExceeded = new("BUDGET_EXCEEDED");
+
+    /// <summary>
+    /// Spend priced in one currency cannot be counted against a limit in
+    /// another, so the pair is refused rather than silently left uncounted.
+    /// </summary>
+    public static readonly ErrorCode BudgetCurrencyMismatch = new("BUDGET_CURRENCY_MISMATCH");
+    public static readonly ErrorCode BudgetNotFound = new("BUDGET_NOT_FOUND");
+
+    // Notifications
+    public static readonly ErrorCode NotificationChannelNotFound = new("NOTIFICATION_CHANNEL_NOT_FOUND");
+    public static readonly ErrorCode NotificationChannelConflict = new("NOTIFICATION_CHANNEL_CONFLICT");
+    public static readonly ErrorCode ReportNotFound = new("REPORT_NOT_FOUND");
+    public static readonly ErrorCode ReportFeedbackConflict = new("REPORT_FEEDBACK_CONFLICT");
+
+    /// <summary>A webhook did not accept a notification. Retryable: the receiver is usually briefly unavailable.</summary>
+    public static readonly ErrorCode NotificationDeliveryFailed = new("NOTIFICATION_DELIVERY_FAILED");
 
     /// <summary>
     /// Routing found nobody able to investigate: every candidate was disabled,

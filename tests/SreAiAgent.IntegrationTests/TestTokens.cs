@@ -19,9 +19,12 @@ internal static class TestTokens
 
     public static SymmetricSecurityKey SigningKey { get; } = new(KeyBytes);
 
-    public static string For(string? tenant, params string[] roles)
+    public static string For(string? tenant, params string[] roles) => ForActor("test-operator", tenant, roles);
+
+    /// <summary>A token for a named person, for rules that compare who did what.</summary>
+    public static string ForActor(string actor, string? tenant, params string[] roles)
     {
-        List<Claim> claims = [new(ClaimTypes.NameIdentifier, "test-operator")];
+        List<Claim> claims = [new(ClaimTypes.NameIdentifier, actor)];
 
         if (!string.IsNullOrWhiteSpace(tenant))
         {

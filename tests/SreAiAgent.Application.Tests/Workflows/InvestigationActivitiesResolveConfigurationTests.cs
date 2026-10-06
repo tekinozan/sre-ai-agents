@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using SreAiAgent.Application.Abstractions.Llm;
+using SreAiAgent.Application.Abstractions.Messaging;
 using SreAiAgent.Application.Abstractions.Persistence;
 using SreAiAgent.Application.Abstractions.Tools;
 using SreAiAgent.Application.Abstractions.Workflow;
@@ -37,6 +38,7 @@ public sealed class InvestigationActivitiesResolveConfigurationTests
             Substitute.For<IInvestigationStore>(),
             _snapshots,
             Substitute.For<IUnitOfWork>(),
+            Substitute.For<IEventPublisher>(),
             Substitute.For<IIncidentRouter>(),
             Substitute.For<IAgentExecutor>(),
             Substitute.For<IAgentRegistry>(),

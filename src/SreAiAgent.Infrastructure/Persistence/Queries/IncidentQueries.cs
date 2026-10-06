@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SreAiAgent.Application.Abstractions.Persistence;
 using SreAiAgent.Contracts.Incidents;
+using SreAiAgent.Domain.Findings;
 using SreAiAgent.Domain.Incidents;
 using SreAiAgent.Domain.Shared;
 
@@ -58,6 +59,102 @@ internal sealed class IncidentQueries : IIncidentQueries
                 Labels = incident.Labels,
             })
             .FirstOrDefaultAsync(cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<IncidentListResponse> ListIncidentsAsync(
+        string tenant,
+        IncidentListQuery query,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        // The page boundary is a row-value comparison so PostgreSQL can walk the
+        // (tenant, detected_at, id) index from the cursor. The ids are converted
+        // value objects, which LINQ cannot compare with '<'; spelling the
+        // predicate as two LINQ conditions would also lose the index.
+        IQueryable<Incident> incidents = query.After is { } after
+            ? _context.Incidents.FromSql(
+                $"SELECT * FROM incidents WHERE (detected_at, id) < ({after.At}, {after.Id})")
+            : _context.Incidents;
+
+        incidents = incidents.Where(incident => incident.Tenant == tenant);
+
+        if (query.Statuses.Count > 0)
+        {
+            incidents = incidents.Where(incident => query.Statuses.Contains(incident.Status));
+        }
+
+        if (query.Severities.Count > 0)
+        {
+            incidents = incidents.Where(incident => query.Severities.Contains(incident.Severity));
+        }
+
+        if (query.Service is { } service)
+        {
+            incidents = incidents.Where(incident => incident.Service == service);
+        }
+
+        if (query.Environment is { } environment)
+        {
+            incidents = incidents.Where(incident => incident.Environment == environment);
+        }
+
+        if (query.Source is { } source)
+        {
+            incidents = incidents.Where(incident => incident.Source == source);
+        }
+
+        if (query.DetectedFrom is { } from)
+        {
+            incidents = incidents.Where(incident => incident.DetectedAt >= from);
+        }
+
+        if (query.DetectedTo is { } to)
+        {
+            incidents = incidents.Where(incident => incident.DetectedAt < to);
+        }
+
+        // One row past the page says whether another page exists without a count.
+        List<IncidentSummaryResponse> rows = await incidents
+            .AsNoTracking()
+            .OrderByDescending(incident => incident.DetectedAt)
+            .ThenByDescending(incident => incident.Id)
+            .Take(query.Limit + 1)
+            .Select(incident => new IncidentSummaryResponse
+            {
+                IncidentId = incident.Id,
+                Source = incident.Source,
+                Title = incident.Title,
+                Service = incident.Service,
+                Environment = incident.Environment,
+                Severity = incident.Severity,
+                Status = incident.Status,
+                AlertCount = incident.AlertCount,
+                DetectedAt = incident.DetectedAt,
+                UpdatedAt = incident.UpdatedAt,
+                ResolvedAt = incident.ResolvedAt,
+                Outcome = _context.RootCauseReports
+                    .Where(report => report.IncidentId == incident.Id)
+                    .OrderByDescending(report => report.Version)
+                    .Select(report => (InvestigationOutcome?)report.Outcome)
+                    .FirstOrDefault(),
+            })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (rows.Count <= query.Limit)
+        {
+            return new IncidentListResponse { Items = rows };
+        }
+
+        rows.RemoveAt(rows.Count - 1);
+        IncidentSummaryResponse last = rows[^1];
+        return new IncidentListResponse
+        {
+            Items = rows,
+            NextCursor = new PageCursor(last.DetectedAt, last.IncidentId.Value).Encode(),
+        };
+    }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<IncidentTimelineEntryResponse>> GetTimelineAsync(

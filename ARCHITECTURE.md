@@ -986,10 +986,13 @@ sonucu üretir; sonsuz LLM/tool döngüsü yoktur.
 
 ```text
 POST /v1/incidents
+GET  /v1/incidents?status=&severity=&service=&environment=&source=&detected_from=&detected_to=&cursor=&limit=
 GET  /v1/incidents/{incidentId}
 GET  /v1/incidents/{incidentId}/timeline
 GET  /v1/incidents/{incidentId}/evidence
 GET  /v1/incidents/{incidentId}/report
+GET|POST /v1/incidents/{incidentId}/report/feedback
+GET  /v1/report-feedback?verdict=&since=&cursor=&limit=
 POST /v1/incidents/{incidentId}/investigate
 POST /v1/incidents/{incidentId}/retry
 POST /v1/incidents/{incidentId}/cancel
@@ -999,6 +1002,11 @@ GET  /v1/approvals/{approvalId}
 POST /v1/approvals/{approvalId}/approve
 POST /v1/approvals/{approvalId}/reject
 POST /v1/approvals/{approvalId}/edit
+
+GET|PUT|DELETE /v1/budget
+GET|POST       /v1/notification-channels
+DELETE         /v1/notification-channels/{channelId}
+POST           /v1/notification-channels/{channelId}/test
 
 GET /health/live
 GET /health/ready
@@ -1132,6 +1140,7 @@ SreInvestigator
 SreApprover
 SreOperator
 SrePlatformAdmin
+SreEvaluationRunner   # CI kimliği; yalnız model eval'ini tamamlar (D50)
 ```
 
 ### 15.2 Tool güvenliği
@@ -1231,6 +1240,7 @@ sre_tool_requests_total
 sre_tool_policy_denied_total
 sre_tool_duration_seconds
 sre_prompt_render_failure_total
+sre_report_feedback_total
 sre_kafka_consumer_lag
 ```
 
